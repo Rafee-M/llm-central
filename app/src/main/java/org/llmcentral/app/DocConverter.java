@@ -1,4 +1,4 @@
-package org.duckassist.app;
+package org.llmcentral.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -65,6 +65,20 @@ public class DocConverter {
     private static final String PRIMARY_WASM_URL = "https://unpkg.com/@firecrawl/anydoc-wasm@0.2.4/anydoc_wasm_bg.wasm";
     private static final String FALLBACK_WASM_URL = "https://cdn.jsdelivr.net/npm/@firecrawl/anydoc-wasm@0.2.4/anydoc_wasm_bg.wasm";
     private static final String WASM_FILE_NAME = "anydoc_wasm_bg.wasm";
+    /**
+     * SHA-256 fingerprint of anydoc_wasm_bg.wasm version 0.2.4 (6,691,779 bytes).
+     *
+     * <p>The converter is program code downloaded from public CDNs (unpkg / jsDelivr) and then run inside
+     * the app. If a CDN were hacked or the download tampered with, we would run someone else's code.
+     * Comparing the file's SHA-256 "fingerprint" with this known-good value blocks that: any changed
+     * byte gives a completely different fingerprint.</p>
+     *
+     * <p>How this value was obtained (2026-09-29): downloaded the file from both CDN URLs and from the
+     * official npm package tarball (whose sha512 matched the npm registry's "integrity" field); all
+     * three gave this same SHA-256. <b>If you change the version in the URLs above, you must update
+     * this value too</b>, otherwise the converter will refuse to load.</p>
+     */
+    private static final String WASM_SHA256 = "9f37cd53b17bf4028ac5ae6a2ac4cf625e9c53be511797168780bab495de1a9e";
     public static final int MAX_PAGES_PER_PDF_PART = 15;
 
     private static final Set<String> DOC_EXTENSIONS = new HashSet<>(Arrays.asList(
@@ -632,6 +646,13 @@ public class DocConverter {
                     wasmBytes = bos.toByteArray();
                 }
 
+                // Security check before running the code (see WASM_SHA256). This also protects against a
+                // file that was cached by an older app version or corrupted on disk.
+                if (!WASM_SHA256.equals(sha256Hex(wasmBytes))) {
+                    wasmFile.delete(); // next attempt will download a fresh copy
+                    throw new SecurityException("converter file failed its integrity check");
+                }
+
                 String wasmBase64 = Base64.encodeToString(wasmBytes, Base64.NO_WRAP);
                 mainHandler.post(() -> {
                     if (runnerWebView != null && isPageLoaded) {
@@ -705,12 +726,14 @@ public class DocConverter {
                 out.flush();
             }
 
-            if (tempFile.length() > 100000) {
+            // Only accept the download if its fingerprint matches the known-good file (see WASM_SHA256).
+            if (tempFile.length() > 100000 && WASM_SHA256.equals(sha256Hex(tempFile))) {
                 if (destFile.exists()) {
                     destFile.delete();
                 }
                 return tempFile.renameTo(destFile);
             }
+            Log.w(TAG, "WASM download rejected (size or SHA-256 mismatch) from " + urlString);
             return false;
         } catch (Exception e) {
             Log.e(TAG, "Error downloading WASM from " + urlString, e);
@@ -719,6 +742,33 @@ public class DocConverter {
             if (conn != null) conn.disconnect();
             if (tempFile.exists()) tempFile.delete();
         }
+    }
+
+    /** SHA-256 of a byte array as lowercase hex, e.g. "9f37cd…". */
+    static String sha256Hex(byte[] data) throws java.security.NoSuchAlgorithmException {
+        java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+        return toHex(digest.digest(data));
+    }
+
+    /** SHA-256 of a file, read in chunks so the 6.7 MB file is not held in memory twice. */
+    static String sha256Hex(File file) throws java.io.IOException, java.security.NoSuchAlgorithmException {
+        java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+        try (FileInputStream in = new FileInputStream(file)) {
+            byte[] buffer = new byte[16384];
+            int read;
+            while ((read = in.read(buffer)) != -1) {
+                digest.update(buffer, 0, read);
+            }
+        }
+        return toHex(digest.digest());
+    }
+
+    private static String toHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            sb.append(String.format(java.util.Locale.ROOT, "%02x", b));
+        }
+        return sb.toString();
     }
 
     public void convertDocument(Uri uri, String formatOrPath, ConversionCallback callback) {

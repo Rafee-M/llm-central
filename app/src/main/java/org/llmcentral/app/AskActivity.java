@@ -1,4 +1,4 @@
-package org.duckassist.app;
+package org.llmcentral.app;
 
 import android.app.Activity;
 import android.content.Intent;

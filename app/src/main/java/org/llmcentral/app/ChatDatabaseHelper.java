@@ -1,4 +1,4 @@
-package org.duckassist.app;
+package org.llmcentral.app;
 
 import android.content.ContentValues;
 import android.content.Context;

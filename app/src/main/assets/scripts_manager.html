@@ -540,6 +540,24 @@
                 </div>
             </div>
         </div>
+
+        <!-- Enable Warning Modal: shown every time a script is switched on (or saved enabled with new code).
+             User scripts run inside the chat website with the same power as the site itself, so the user
+             must knowingly accept that risk. -->
+        <div id="enableWarnModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.65); z-index:101; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(3px);">
+            <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:16px; padding:22px; max-width:360px; width:100%; box-shadow:0 12px 32px rgba(0,0,0,0.5); display:flex; flex-direction:column; gap:12px;">
+                <h3 style="font-size:17px; font-weight:700; color:var(--text-primary); margin:0;">⚠️ Enable this script?</h3>
+                <p id="enableWarnMsg" style="font-size:13.5px; color:var(--text-secondary); line-height:1.45; margin:0;"></p>
+                <p style="font-size:13.5px; color:var(--text-secondary); line-height:1.45; margin:0;">
+                    A script can <b>read your chats</b>, <b>act as your logged-in account</b> and send data anywhere.
+                    Only enable scripts you wrote yourself or fully trust.
+                </p>
+                <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:10px;">
+                    <button type="button" class="btn-secondary" onclick="resolveEnableWarning(false)">Cancel</button>
+                    <button type="button" class="btn-danger" onclick="resolveEnableWarning(true)">Enable</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -948,10 +966,43 @@
             });
         }
 
+        // Callback waiting for the user's answer in the enable-warning modal (null when no modal is open).
+        let pendingEnableDecision = null;
+
+        // Shows the warning modal; calls onDecision(true) if the user taps "Enable", onDecision(false) otherwise.
+        function askBeforeEnabling(script, onDecision) {
+            const sites = (script.match || '').trim() || 'ALL websites';
+            document.getElementById('enableWarnMsg').textContent =
+                `"${script.name || 'Untitled Script'}" will run on: ${sites}`;
+            pendingEnableDecision = onDecision;
+            document.getElementById('enableWarnModal').style.display = 'flex';
+        }
+
+        function resolveEnableWarning(accepted) {
+            document.getElementById('enableWarnModal').style.display = 'none';
+            const decide = pendingEnableDecision;
+            pendingEnableDecision = null;
+            if (decide) decide(accepted);
+        }
+
         function toggleScript(index, isEnabled) {
-            scriptsList[index].enabled = isEnabled;
-            saveToAndroid();
-            renderList();
+            const script = scriptsList[index];
+            if (!script) return;
+            if (!isEnabled) {
+                // Turning a script OFF is always safe: no warning needed.
+                script.enabled = false;
+                saveToAndroid();
+                renderList();
+                return;
+            }
+            askBeforeEnabling(script, function (accepted) {
+                if (accepted) {
+                    script.enabled = true;
+                    saveToAndroid();
+                }
+                // Re-render in both cases so the switch shows the real state (it flips back on Cancel).
+                renderList();
+            });
         }
 
         let scriptToDeleteIndex = -1;
@@ -1054,15 +1105,30 @@
             const existingIdx = scriptsList.findIndex(s => s.id === id);
             const scriptData = { id, name, description, author, match, enabled, code };
 
-            if (existingIdx >= 0) {
-                scriptsList[existingIdx] = scriptData;
-            } else {
-                scriptsList.push(scriptData);
+            function store() {
+                if (existingIdx >= 0) {
+                    scriptsList[existingIdx] = scriptData;
+                } else {
+                    scriptsList.push(scriptData);
+                }
+                saveToAndroid();
+                closeEditor();
+                renderList();
             }
 
-            saveToAndroid();
-            closeEditor();
-            renderList();
+            // Warn when this save would (newly) run code: a new enabled script, a script being switched on,
+            // or an enabled script whose code or target sites changed.
+            const previous = existingIdx >= 0 ? scriptsList[existingIdx] : null;
+            const needsWarning = enabled && (!previous || !previous.enabled
+                    || previous.code !== code || previous.match !== match);
+            if (!needsWarning) {
+                store();
+                return;
+            }
+            askBeforeEnabling(scriptData, function (accepted) {
+                if (!accepted) return; // stay in the editor so nothing typed is lost
+                store();
+            });
         }
 
         function dismiss() {

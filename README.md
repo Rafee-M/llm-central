@@ -1,79 +1,53 @@
-# duckAssist
-[![downloads](https://img.shields.io/github/downloads/diekaiju/duckAssist/total?logo=github&label=GitHub%20Downloads)](https://github.com/diekaiju/duckAssist/releases)
+# LLM Central
 
-*This project is a fork of [gptAssist](https://github.com/woheller69/gptAssist).*
+> **Status: early development.** Today the app still works like duckAssist (duck.ai only).
+> Multi-provider and multi-account support are being built. See [`PROJECT.md`](PROJECT.md) for the plan
+> and [`CHANGES.md`](CHANGES.md) for what has changed.
 
-**duckAssist** is a lightweight, privacy-focused Android WebView wrapper designed specifically for [Duck.ai](https://duck.ai/) (DuckDuckGo's private AI chat service). It bridges the gap between web and native by providing advanced integration features while maintaining the core privacy principles of DuckDuckGo.
+**LLM Central** is a lightweight, privacy-focused Android app that puts several AI chat websites in one
+place: duck.ai, ChatGPT, Claude, DeepSeek and more. It supports **multiple isolated accounts per
+provider**, instant switching between them, and Material You theming, while keeping the APK tiny (~220 KB).
 
-Duck.ai is entirely private and secure. It requires no login, allowing you to interact with multiple AI models (GPT-4o, Claude 3, Llama 3, etc.) without compromising your personal identity.
+It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju, which is itself a fork of
+[gptAssist](https://github.com/woheller69/gptAssist) by woheller69.
 
-## Downloads
+## Features available today (inherited from duckAssist)
 
-You can download **duckAssist** from:
-- [F-Droid](https://f-droid.org/packages/org.diekaiju.duckassist/)
-- [GitHub Releases](https://github.com/diekaiju/duckAssist/releases)
+- 🎯 **Focused interface** for [duck.ai](https://duck.ai/), with a native loading progress bar.
+- 🎙️ **Digital assistant integration**: set the app as your device's default digital assistant and open
+  it with the system assistant gesture; it can start duck.ai's voice chat automatically.
+- 🚀 **"Ask duck.ai" text action**: select text in any app → overflow menu → *Ask duck.ai*.
+- 📁 **File support**: upload files/photos, download attachments to your Downloads folder.
+- 📄 **Offline document conversion**: shared Word/Excel/PowerPoint/OpenDocument/ePub/RTF/CSV files are
+  converted on the phone into text or PDF; large PDFs are split into 15-page parts. The converter is
+  downloaded once and verified with a SHA-256 fingerprint before it runs.
+- 💬 **Offline chat history** for duck.ai, shown automatically when there's no connection.
+- 🧩 **User scripts**: optional custom scripts per website (off by default, with a security warning).
+- 🌐 **External links** open in your normal browser.
 
-## Key Features
+## Planned (see PROJECT.md)
 
-- 🎯 **Focused Interface**: A clean, distraction-free environment tailored for AI chat, complete with a native progress bar for page loading feedback.
-- 🎙️ **Digital Assistant Integration**: Set **duckAssist** as your device's default digital assistant app. Access your AI companion instantly via your system's assistant shortcut (long-press home, swipe from corner, etc.).
-- ⚡ **Auto-Voice Activation**: When launched via the assistant shortcut, the app automatically triggers the **"New Voice Chat"** feature, getting you into a conversation immediately.
-- 🚀 **"Ask duck.ai" Integration**: Select text in any application on your device and choose "Ask duck.ai" from the context menu. The app will automatically launch in a dedicated window and load your query directly into the chat.
-- 🌐 **Smart Link Handling**: Navigation is optimized for the AI experience. All external links clicked within the app are automatically redirected to your system's default web browser, keeping your chat session secure and focused.
-- 🛡️ **Enhanced Privacy**:
-    - **Session Persistence**: User data and cookies are preserved so you don't lose your settings.
-    - **Automated Cache Management**: The application cache is purged whenever you leave or close the app to protect your privacy and save device storage.
-- 📁 **Native File Support**: Seamlessly upload documents for AI analysis and download attachments directly to your device's Downloads folder.
-- 🎨 **Custom Identity**: Features a premium new duck-themed visual identity and icon.
-- ⚙️ **HTML Settings & Custom Prompts**: Configure bottom drawer panel behavior, assistant voice options, and default prompt suffixes for text ("Ask duck.ai") and document sharing separately via a custom-styled HTML settings page.
-- 🚨 **High-Visibility Banner Alert**: Integrated a custom, animated red banner overlay instructing you how to attach shared files instead of low-visibility system toasts.
+Multiple providers and accounts, a provider/account switcher, universal Material You settings, a default
+assistant provider, and per-account offline history.
 
-## Usage
+## Signing in to providers
 
-### Ask duck.ai
-1. Highlight any text in your browser, email, or messaging app.
-2. Tap the three dots (overflow menu) and select **Ask duck.ai**.
-3. The app will open in a separate window and load your query directly into the chat prompt.
+Google blocks "Sign in with Google" inside in-app web views. Use **email/password or email-code login**
+for each provider instead.
 
-### Digital Assistant
-1. Open your Android **Settings**.
-2. Go to **Apps** > **Default apps** > **Digital assistant app**.
-3. Select **duckAssist**.
-4. Use your device's assistant shortcut (long-press home button, etc.) to instantly launch a **Voice Chat** session.
+## Building
 
-### External Navigation
-Simply click on any link or citation provided by the AI. The app will instantly launch your preferred mobile browser to view the content, leaving your AI conversation perfectly preserved in duckAssist.
+Needs JDK 17+ and the Android SDK (platform 35). Then:
 
-## screenshots
-
-<p align="center">
-  <img src="screenshot/image (1).jpg" width="30%" />
-  <img src="screenshot/image (2).jpg" width="30%" />
-  <img src="screenshot/image (3).jpg" width="30%" />
-</p>
-<p align="center">
-  <img src="screenshot/image (4).jpg" width="30%" />
-  <img src="screenshot/image (5).jpg" width="30%" />
-</p>
+```bash
+./gradlew test assembleDebug        # unit tests + debug APK
+./gradlew assembleRelease           # release APK (unsigned unless signing is configured in local.properties)
+```
 
 ## License
 
-This application is licensed under the GPLv3.
+GPLv3 (see [LICENSE](LICENSE)). If you distribute the app, you must also offer its source code.
 
 The app uses:
-- Parts from GMaps WV (https://gitlab.com/divested-mobile/maps) which is licensed under the GPLv3.
-
-## Contributing
-
-If you encounter any issues or have suggestions for improvements, please open an issue in the repository. Pull requests are always welcome.
-
-## Donate
-
-If you like duckAssist, you're welcome to send a donation. duckAssist is vibe coded in my free time bringing you the best user experience.
-
-## Buy me a coffee
-
-If you want to support the developer:
-
- [![PayPal](https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/diekaiju)
-
+- Parts from GMaps WV (https://gitlab.com/divested-mobile/maps), licensed under the GPLv3.
+- Code from duckAssist and gptAssist (GPLv3).
