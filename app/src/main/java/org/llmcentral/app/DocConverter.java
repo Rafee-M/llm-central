@@ -515,6 +515,34 @@ public class DocConverter {
         });
     }
 
+    /**
+     * Forgets the dead runner WebView and fails any work that was waiting on it, so callers show an
+     * error ("please try again") instead of a progress dialog that never finishes. Runs on the main
+     * thread (onRenderProcessGone is delivered there).
+     */
+    private void onRunnerWebViewGone(WebView deadView) {
+        org.llmcentral.app.web.WebViewRecovery.discard(deadView);
+        if (runnerWebView == deadView) {
+            runnerWebView = null;
+        }
+        isPageLoaded = false;
+        isWasmLoaded = false;
+        isWasmLoading = false;
+        pendingWasmBase64 = null;
+
+        String message = "The document converter stopped unexpectedly. Please try again.";
+        List<WasmReadyCallback> waiting = new ArrayList<>(wasmReadyCallbacks);
+        wasmReadyCallbacks.clear();
+        for (WasmReadyCallback cb : waiting) {
+            cb.onError(message);
+        }
+        List<ConversionCallback> running = new ArrayList<>(pendingCallbacks.values());
+        pendingCallbacks.clear();
+        for (ConversionCallback cb : running) {
+            cb.onError(message);
+        }
+    }
+
     private void initWebView() {
         if (runnerWebView != null) return;
         try {
@@ -592,6 +620,20 @@ public class DocConverter {
                 public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                     super.onReceivedError(view, request, error);
                     Log.e(TAG, "WebView runner error: " + error);
+                }
+
+                /**
+                 * The hidden converter WebView shares the app's renderer process. If that process dies
+                 * (Android 8.0+), this WebView is dead too, and without this handler Android would kill
+                 * the whole app (PROJECT.md P2). We free it and reset our state; the next conversion
+                 * calls initWebView() again and gets a fresh WebView. See web/WebViewRecovery.java.
+                 */
+                @Override
+                @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.O)
+                public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                    Log.w(TAG, "Converter WebView renderer gone (crashed=" + detail.didCrash() + "); resetting");
+                    onRunnerWebViewGone(view);
+                    return true;
                 }
             });
 

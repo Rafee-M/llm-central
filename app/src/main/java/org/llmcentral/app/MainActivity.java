@@ -68,6 +68,10 @@ import java.util.Locale;
 import androidx.webkit.URLUtilCompat;
 
 import org.llmcentral.app.scripts.UserScriptMatcher;
+import org.llmcentral.app.web.DialogWebViewClient;
+import org.llmcentral.app.web.NavigationPolicy;
+import org.llmcentral.app.web.Scripts;
+import org.llmcentral.app.web.WebViewRecovery;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
@@ -92,6 +96,15 @@ public class MainActivity extends Activity {
     private static boolean isSafeMode = false;
     private boolean isImageZoomActive = false;
     private boolean hasInjectedProgressJs = false;
+
+    /**
+     * Returns one of the JavaScript snippets injected into the chat page.
+     * They live in app/src/main/assets/js/ (see web/Scripts.java); until Phase 0.4 they were
+     * long Java strings in this file.
+     */
+    private String js(String name) {
+        return Scripts.get(this, name);
+    }
 
     private void safeEvaluateJavascript(WebView view, String script) {
         if (isSafeMode || view == null || script == null) return;
@@ -123,793 +136,10 @@ public class MainActivity extends Activity {
     private String pendingBlobCurrentUrl;
 
     private static final int DOWNLOAD_PERMISSION_REQUEST_CODE = 456;
-    private final String BLOB_JS = "(function() {" +
-            "    if (!window.blobHandlerInjected) {" +
-            "        window.blobHandlerInjected = true;" +
-            "        window.blobMap = window.blobMap || new Map();" +
-            "        const oC = URL.createObjectURL;" +
-            "        URL.createObjectURL = function(b) {" +
-            "            const u = oC.call(URL, b);" +
-            "            if (b instanceof Blob) window.blobMap.set(u, b);" +
-            "            console.log('Blob created: ' + u);" +
-            "            return u;" +
-            "        };" +
-            "        console.log('Blob Handler Patch Active');" +
-            "    }" +
-            "    if (!window.idbImageFallbackInjected && typeof IDBDatabase !== 'undefined') {" +
-            "        window.idbImageFallbackInjected = true;" +
-            "        const origTx = IDBDatabase.prototype.transaction;" +
-            "        window.__duckImgStore = window.__duckImgStore || new Map();" +
-            "        function createFakeReq(res) {" +
-            "            var listeners = {};" +
-            "            var req = {" +
-            "                result: res," +
-            "                error: null," +
-            "                readyState: 'done'," +
-            "                onsuccess: null," +
-            "                onerror: null," +
-            "                addEventListener: function(type, cb) {" +
-            "                    if (!listeners[type]) listeners[type] = [];" +
-            "                    listeners[type].push(cb);" +
-            "                }," +
-            "                removeEventListener: function(type, cb) {" +
-            "                    if (listeners[type]) listeners[type] = listeners[type].filter(function(fn) { return fn !== cb; });" +
-            "                }" +
-            "            };" +
-            "            setTimeout(function() {" +
-            "                var evt = { type: 'success', target: req, currentTarget: req };" +
-            "                if (typeof req.onsuccess === 'function') { try { req.onsuccess.call(req, evt); } catch(e){} }" +
-            "                if (listeners['success']) { listeners['success'].forEach(function(fn) { try { fn.call(req, evt); } catch(e){} }); }" +
-            "            }, 0);" +
-            "            return req;" +
-            "        }" +
-            "        IDBDatabase.prototype.transaction = function(storeNames, mode) {" +
-            "            var names = Array.isArray(storeNames) ? storeNames : [storeNames];" +
-            "            if (names.indexOf('chat-images') !== -1 && !this.objectStoreNames.contains('chat-images')) {" +
-            "                console.warn('[DuckAssist] Providing fallback for missing chat-images store');" +
-            "                var storeMap = window.__duckImgStore;" +
-            "                var txListeners = {};" +
-            "                var fakeTx = {" +
-            "                    oncomplete: null," +
-            "                    onerror: null," +
-            "                    onabort: null," +
-            "                    abort: function() {}," +
-            "                    addEventListener: function(type, cb) {" +
-            "                        if (!txListeners[type]) txListeners[type] = [];" +
-            "                        txListeners[type].push(cb);" +
-            "                    }," +
-            "                    removeEventListener: function(type, cb) {" +
-            "                        if (txListeners[type]) txListeners[type] = txListeners[type].filter(function(fn) { return fn !== cb; });" +
-            "                    }," +
-            "                    objectStore: function(name) {" +
-            "                        return {" +
-            "                            add: function(val) {" +
-            "                                var key = (val && val.uuid) ? val.uuid : ('img_' + Date.now());" +
-            "                                if (val) storeMap.set(key, val);" +
-            "                                return createFakeReq(key);" +
-            "                            }," +
-            "                            put: function(val) {" +
-            "                                var key = (val && val.uuid) ? val.uuid : ('img_' + Date.now());" +
-            "                                if (val) storeMap.set(key, val);" +
-            "                                return createFakeReq(key);" +
-            "                            }," +
-            "                            get: function(key) {" +
-            "                                return createFakeReq(storeMap.get(key));" +
-            "                            }," +
-            "                            getAll: function() {" +
-            "                                return createFakeReq(Array.from(storeMap.values()));" +
-            "                            }," +
-            "                            delete: function(key) {" +
-            "                                storeMap.delete(key);" +
-            "                                return createFakeReq(undefined);" +
-            "                            }," +
-            "                            clear: function() {" +
-            "                                storeMap.clear();" +
-            "                                return createFakeReq(undefined);" +
-            "                            }," +
-            "                            index: function(indexName) {" +
-            "                                return {" +
-            "                                    getAll: function(chatId) {" +
-            "                                        var arr = Array.from(storeMap.values()).filter(function(v) { return v && v.chatId === chatId; });" +
-            "                                        return createFakeReq(arr);" +
-            "                                    }" +
-            "                                };" +
-            "                            }" +
-            "                        };" +
-            "                    }" +
-            "                };" +
-            "                setTimeout(function() {" +
-            "                    var evt = { type: 'complete', target: fakeTx, currentTarget: fakeTx };" +
-            "                    if (typeof fakeTx.oncomplete === 'function') { try { fakeTx.oncomplete.call(fakeTx, evt); } catch(e){} }" +
-            "                    if (txListeners['complete']) { txListeners['complete'].forEach(function(fn) { try { fn.call(fakeTx, evt); } catch(e){} }); }" +
-            "                }, 5);" +
-            "                return fakeTx;" +
-            "            }" +
-            "            return origTx.apply(this, arguments);" +
-            "        };" +
-            "    }" +
-            "})();";
-
-    private final String IMAGE_ZOOM_MONITOR_JS = "(function() {" +
-            "    if (window.imageZoomMonitorInjected) return;" +
-            "    window.imageZoomMonitorInjected = true;" +
-            "    var lastState = false;" +
-            "    var check = function() {" +
-            "        var el = document.querySelector('.UOuDiDFlbyCQchgZ4909');" +
-            "        var isActive = false;" +
-            "        if (el) {" +
-            "            var style = window.getComputedStyle(el);" +
-            "            isActive = style.display !== 'none' && style.visibility !== 'hidden';" +
-            "        }" +
-            "        if (isActive !== lastState) {" +
-            "            lastState = isActive;" +
-            "            if (window.Android && window.Android.setImageZoomActive) {" +
-            "                window.Android.setImageZoomActive(isActive);" +
-            "            }" +
-            "        }" +
-            "    };" +
-            "    var target = document.body || document.documentElement;" +
-            "    if (target) {" +
-            "        var observer = new MutationObserver(check);" +
-            "        observer.observe(target, { childList: true, subtree: true, attributes: true });" +
-            "    }" +
-            "})();";
-
-    private final String AUTO_FOCUS_JS = "(function() {" +
-            "  if (window.isVoiceChatActive) {" +
-            "    console.log('Voice chat active, suppressing auto focus');" +
-            "    return;" +
-            "  }" +
-            "  console.log('Auto Focus: waiting for page progress to complete before triggering Ctrl+Shift+O');" +
-            "  function sendShortcut() {" +
-            "    if (window.isVoiceChatActive) return;" +
-            "    console.log('Dispatching Ctrl+Shift+O shortcut');" +
-            "    var targets = [window, document, document.body, document.documentElement, document.activeElement];" +
-            "    var events = ['keydown', 'keypress', 'keyup'];" +
-            "    var configs = [" +
-            "      { key: 'O', code: 'KeyO', keyCode: 79, which: 79, ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }," +
-            "      { key: 'o', code: 'KeyO', keyCode: 79, which: 79, ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }," +
-            "      { key: 'O', code: 'KeyO', keyCode: 79, which: 79, metaKey: true, shiftKey: true, bubbles: true, cancelable: true }," +
-            "      { key: 'o', code: 'KeyO', keyCode: 79, which: 79, metaKey: true, shiftKey: true, bubbles: true, cancelable: true }" +
-            "    ];" +
-            "    for (var i = 0; i < targets.length; i++) {" +
-            "      var t = targets[i];" +
-            "      if (!t) continue;" +
-            "      for (var c = 0; c < configs.length; c++) {" +
-            "        for (var e = 0; e < events.length; e++) {" +
-            "          try {" +
-            "            t.dispatchEvent(new KeyboardEvent(events[e], configs[c]));" +
-            "          } catch (err) {}" +
-            "        }" +
-            "      }" +
-            "    }" +
-            "    if (window.Android && window.Android.triggerShortcutNative) {" +
-            "      window.Android.triggerShortcutNative();" +
-            "    }" +
-            "  }" +
-            "  function isPageReady() {" +
-            "    var app = document.getElementById('app');" +
-            "    var loader = document.getElementById('app-loader');" +
-            "    var loaderHidden = !loader || loader.classList.contains('loader-hidden') || loader.style.display === 'none' || loader.style.opacity === '0';" +
-            "    var hasContent = app && app.children && app.children.length > 0;" +
-            "    return (hasContent && loaderHidden) || document.querySelector('textarea, [contenteditable=\"true\"]') !== null;" +
-            "  }" +
-            "  function focusAndOpenKeyboard() {" +
-            "    if (window.isVoiceChatActive) return;" +
-            "    var input = document.querySelector('textarea, [contenteditable=\"true\"], input[type=\"text\"]');" +
-            "    if (input) {" +
-            "      input.focus();" +
-            "      input.click();" +
-            "    }" +
-            "    if (window.Android && window.Android.showSoftKeyboard) {" +
-            "      window.Android.showSoftKeyboard();" +
-            "    }" +
-            "  }" +
-            "  var attempts = 0;" +
-            "  function checkAndFire() {" +
-            "    if (window.isVoiceChatActive) return true;" +
-            "    attempts++;" +
-            "    if (isPageReady() || attempts >= 25) {" +
-            "      if (window.isVoiceChatActive) return true;" +
-            "      console.log('Page ready (attempt ' + attempts + '), firing Ctrl+Shift+O');" +
-            "      sendShortcut();" +
-            "      setTimeout(function() { if (!window.isVoiceChatActive) sendShortcut(); }, 400);" +
-            "      setTimeout(function() { if (!window.isVoiceChatActive) focusAndOpenKeyboard(); }, 600);" +
-            "      setTimeout(function() { if (!window.isVoiceChatActive) focusAndOpenKeyboard(); }, 1200);" +
-            "      return true;" +
-            "    }" +
-            "    return false;" +
-            "  }" +
-            "  if (!checkAndFire()) {" +
-            "    var interval = setInterval(function() {" +
-            "      if (checkAndFire()) {" +
-            "        clearInterval(interval);" +
-            "      }" +
-            "    }, 400);" +
-            "  }" +
-            "})();";
-
-    private final String CLIPBOARD_JS = "(function() {" +
-            "    if (window.clipboardPatchInjected) return;" +
-            "    window.clipboardPatchInjected = true;" +
-            "    if (navigator.clipboard) {" +
-            "        navigator.clipboard.writeText = function(text) {" +
-            "            return new Promise((resolve, reject) => {" +
-            "                try {" +
-            "                    Android.copyToClipboard(text);" +
-            "                    resolve();" +
-            "                } catch(e) {" +
-            "                    reject(e);" +
-            "                }" +
-            "            });" +
-            "        };" +
-            "    }" +
-            "})();";
-
-    private final String SWIPE_SCROLL_JS = "(function() {" +
-            "    if (window.swipeScrollInjected) return;" +
-            "    window.swipeScrollInjected = true;" +
-            "    document.addEventListener('scroll', function(e) {" +
-            "        if (e.target && e.target.scrollTop !== undefined) {" +
-            "            var isAtTop = e.target.scrollTop === 0;" +
-            "            Android.setSwipeEnabled(isAtTop);" +
-            "        }" +
-            "    }, true);" +
-            "    document.addEventListener('click', function(e) {" +
-            "        var btn = e.target && e.target.closest('button, [role=\"button\"], a');" +
-            "        if (btn) {" +
-            "            var text = (btn.innerText || btn.textContent || '').toLowerCase();" +
-            "            var hasVoiceSvg = btn.querySelector('path[d*=\"M5.625 0c.345 0 .625.28\"]');" +
-            "            if (hasVoiceSvg || text.includes('voice chat')) {" +
-            "                window.isVoiceChatActive = true;" +
-            "            }" +
-            "        }" +
-            "    }, true);" +
-            "})();";
-
-    private final String RTL_RESOLVER_JS = "(function() {" +
-            "    if (window.__aiRtlResolverInjected) {" +
-            "        if (typeof window.__aiRtlFix === 'function') window.__aiRtlFix();" +
-            "        return;" +
-            "    }" +
-            "    window.__aiRtlResolverInjected = true;" +
-            "    console.log('[ai-rtl-resolver] Initializing DuckAI RTL resolver');" +
-            "    function injectStyles() {" +
-            "        if (document.getElementById('ai-rtl-resolver-style')) return;" +
-            "        var style = document.createElement('style');" +
-            "        style.id = 'ai-rtl-resolver-style';" +
-            "        style.textContent = \"@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;700&display=swap'); \" +" +
-            "            \".rtl, [dir=\\\"rtl\\\"], .vazir, .user-message-bubble-color { font-family: 'Vazirmatn', 'Segoe UI', Tahoma, Arial, sans-serif !important; } \" +" +
-            "            \"[dir=\\\"rtl\\\"] { direction: rtl !important; text-align: right !important; } \" +" +
-            "            \"[dir=\\\"ltr\\\"] { direction: ltr !important; text-align: left !important; } \" +" +
-            "            \"[dir=\\\"rtl\\\"] ul, [dir=\\\"rtl\\\"] ol { padding-right: 1.5em !important; padding-left: 0 !important; } \" +" +
-            "            \"[dir=\\\"rtl\\\"] blockquote { border-right: 4px solid #ccc !important; border-left: none !important; padding-right: 12px !important; padding-left: 0 !important; }\";" +
-            "        (document.head || document.documentElement).appendChild(style);" +
-            "    }" +
-            "    var PERSIAN_WEIGHT_PERCENTAGE = 30;" +
-            "    var PERSIAN_SCRIPT_REGEX = /[\\u0600-\\u06FF\\u0750-\\u077F\\u08A0-\\u08FF\\uFB50-\\uFDFF\\uFE70-\\uFEFF]/;" +
-            "    function isEmojiLike(char) {" +
-            "        try { return /[\\p{Emoji}\\p{Emoji_Presentation}]/u.test(char); } catch(e) { return false; }" +
-            "    }" +
-            "    function isIgnorableChar(char) {" +
-            "        return /[\\d\\s\\u200E\\u200F\\u200B#@$%^&*()\\-+=_{}[\\]\\\\|:;\"'<>,.?/~`!\\u00AB\\u00BB]/.test(char);" +
-            "    }" +
-            "    function isRtlScriptChar(char) {" +
-            "        return PERSIAN_SCRIPT_REGEX.test(char);" +
-            "    }" +
-            "    var graphemeSegmenter;" +
-            "    function segmentGraphemes(text) {" +
-            "        if (typeof Intl !== 'undefined' && Intl.Segmenter) {" +
-            "            graphemeSegmenter = graphemeSegmenter || new Intl.Segmenter('en', { granularity: 'grapheme' });" +
-            "            return graphemeSegmenter.segment(text);" +
-            "        }" +
-            "        return Array.from(text).map(function(ch) { return { segment: ch }; });" +
-            "    }" +
-            "    function detectParagraphDirection(text) {" +
-            "        var trimmed = text.trim();" +
-            "        if (trimmed.length === 0) return 'ltr';" +
-            "        var rtlCount = 0;" +
-            "        var ltrCount = 0;" +
-            "        var sawMeaningfulChar = false;" +
-            "        for (var seg of segmentGraphemes(trimmed)) {" +
-            "            var char = seg.segment;" +
-            "            if (isEmojiLike(char) || isIgnorableChar(char)) continue;" +
-            "            var isRtl = isRtlScriptChar(char);" +
-            "            if (!sawMeaningfulChar) {" +
-            "                if (isRtl) return 'rtl';" +
-            "                sawMeaningfulChar = true;" +
-            "            }" +
-            "            if (isRtl) rtlCount++;" +
-            "            else ltrCount++;" +
-            "        }" +
-            "        var totalRelevant = rtlCount + ltrCount;" +
-            "        if (totalRelevant === 0) return 'ltr';" +
-            "        var rtlPercentage = (rtlCount / totalRelevant) * 100;" +
-            "        return rtlPercentage > PERSIAN_WEIGHT_PERCENTAGE ? 'rtl' : 'ltr';" +
-            "    }" +
-            "    function setElementDirection(element, direction) {" +
-            "        if (!element || element.getAttribute('dir') === direction) return;" +
-            "        element.setAttribute('dir', direction);" +
-            "    }" +
-            "    var directionCache = new WeakMap();" +
-            "    function getElementText(element) {" +
-            "        if (element instanceof HTMLTextAreaElement || element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {" +
-            "            return element.value;" +
-            "        }" +
-            "        return element.textContent || '';" +
-            "    }" +
-            "    var LTR_ONLY_SELECTOR = 'pre, code, .code-block, [id^=\"heading-\"][id*=\"assistant-message\"], .katex, .katex-html';" +
-            "    var APPLY_DIRECTION_SELECTOR = '[name=\"user-prompt\"], [data-testid=\"user-message\"] p, [id*=\"assistant-message\"]:not([id^=\"heading-\"]) p';" +
-            "    var TABLES_SELECTOR = 'table';" +
-            "    function applyDetectedDirection(elements, getText) {" +
-            "        for (var i = 0; i < elements.length; i++) {" +
-            "            var element = elements[i];" +
-            "            var text = getText(element);" +
-            "            var cached = directionCache.get(element);" +
-            "            var direction;" +
-            "            if (cached !== undefined && cached.text === text) {" +
-            "                direction = cached.direction;" +
-            "            } else {" +
-            "                direction = detectParagraphDirection(text);" +
-            "                directionCache.set(element, { text: text, direction: direction });" +
-            "            }" +
-            "            setElementDirection(element, direction);" +
-            "        }" +
-            "    }" +
-            "    function applyTableDirection(tables) {" +
-            "        for (var t = 0; t < tables.length; t++) {" +
-            "            var table = tables[t];" +
-            "            var text = '';" +
-            "            var cells = table.querySelectorAll('th, td');" +
-            "            for (var c = 0; c < cells.length; c++) {" +
-            "                text += getElementText(cells[c]);" +
-            "            }" +
-            "            var tableDir = detectParagraphDirection(text);" +
-            "            if (tableDir === 'rtl') {" +
-            "                for (var c = 0; c < cells.length; c++) {" +
-            "                    setElementDirection(cells[c], tableDir);" +
-            "                    cells[c].style.textAlign = 'right';" +
-            "                }" +
-            "            }" +
-            "        }" +
-            "    }" +
-            "    function forceLtrDirection(elements) {" +
-            "        for (var i = 0; i < elements.length; i++) {" +
-            "            setElementDirection(elements[i], 'ltr');" +
-            "        }" +
-            "    }" +
-            "    function fixDuckaiDirection() {" +
-            "        applyDetectedDirection(document.querySelectorAll(APPLY_DIRECTION_SELECTOR), getElementText);" +
-            "        applyTableDirection(document.querySelectorAll(TABLES_SELECTOR));" +
-            "        forceLtrDirection(document.querySelectorAll(LTR_ONLY_SELECTOR));" +
-            "    }" +
-            "    window.__aiRtlFix = fixDuckaiDirection;" +
-            "    document.addEventListener('input', function(e) {" +
-            "        if (e.target && (e.target.matches && e.target.matches('[name=\"user-prompt\"]') || e.target.tagName === 'TEXTAREA')) {" +
-            "            var dir = detectParagraphDirection(e.target.value);" +
-            "            setElementDirection(e.target, dir);" +
-            "        }" +
-            "    }, true);" +
-            "    var mutationCallbacks = [fixDuckaiDirection];" +
-            "    var bodyObserver;" +
-            "    var pendingFrame;" +
-            "    function flushMutationCallbacks() {" +
-            "        pendingFrame = undefined;" +
-            "        for (var i = 0; i < mutationCallbacks.length; i++) {" +
-            "            try { mutationCallbacks[i](); } catch (err) { console.error('[ai-rtl-resolver] callback error', err); }" +
-            "        }" +
-            "        if (bodyObserver) bodyObserver.takeRecords();" +
-            "    }" +
-            "    function scheduleFlush() {" +
-            "        if (pendingFrame !== undefined) return;" +
-            "        pendingFrame = requestAnimationFrame(flushMutationCallbacks);" +
-            "    }" +
-            "    function observeBodyMutations() {" +
-            "        var body = document.body || document.documentElement;" +
-            "        if (!body) return;" +
-            "        bodyObserver = new MutationObserver(scheduleFlush);" +
-            "        bodyObserver.observe(body, { childList: true, subtree: true });" +
-            "        window.__aiRtlObserver = bodyObserver;" +
-            "    }" +
-            "    injectStyles();" +
-            "    fixDuckaiDirection();" +
-            "    observeBodyMutations();" +
-            "    if (!bodyObserver && document.readyState === 'loading') {" +
-            "        document.addEventListener('DOMContentLoaded', function() {" +
-            "            injectStyles();" +
-            "            fixDuckaiDirection();" +
-            "            observeBodyMutations();" +
-            "        });" +
-            "    }" +
-            "})();";
-
-    private final String RTL_CLEANUP_JS = "(function() {" +
-            "    window.__aiRtlResolverInjected = false;" +
-            "    if (window.__aiRtlObserver) {" +
-            "        window.__aiRtlObserver.disconnect();" +
-            "        window.__aiRtlObserver = null;" +
-            "    }" +
-            "    var style = document.getElementById('ai-rtl-resolver-style');" +
-            "    if (style) style.remove();" +
-            "    document.querySelectorAll('[dir=\"rtl\"]').forEach(function(el) {" +
-            "        el.removeAttribute('dir');" +
-            "    });" +
-            "})();";
-
-    private final String VOICE_JS = "(function() {" +
-            "  window.isVoiceChatActive = true;" +
-            "  console.log('Voice Chat Trigger Started');" +
-            "  function tryClick() {" +
-            "    var sidebarPath = document.querySelector('path[d*=\"M9.41 10.125a.625.625 0 1 1 0 1.25H1.624\"]');" +
-            "    var sidebarBtn = sidebarPath ? sidebarPath.closest('button, [role=\"button\"]') : null;" +
-            "    if (!sidebarBtn) {" +
-            "        sidebarBtn = document.querySelector('button[aria-label*=\"sidebar\"], button[aria-label*=\"Sidebar\"]');" +
-            "    }" +
-            "    if (sidebarBtn && sidebarBtn.offsetParent !== null) {" +
-            "      console.log('Opening sidebar first...');" +
-            "      sidebarBtn.click();" +
-            "    }" +
-            "    var allPaths = document.querySelectorAll('path[d*=\"M5.625 0c.345 0 .625.28\"]');" +
-            "    for (var i = 0; i < allPaths.length; i++) {" +
-            "        var btn = allPaths[i].closest('button, [role=\"button\"]');" +
-            "        if (btn) {" +
-            "            console.log('Voice Chat found by SVG icon!');" +
-            "            btn.click();" +
-            "            return true;" +
-            "        }" +
-            "    }" +
-            "    var elements = document.querySelectorAll('button, [role=\"button\"], div > span, a');" +
-            "    for (var i = 0; i < elements.length; i++) {" +
-            "      var text = (elements[i].innerText || elements[i].textContent || '').trim();" +
-            "      if (text.toLowerCase().includes('voice chat')) {" +
-            "        console.log('Target found by text: ' + text);" +
-            "        var clickTarget = elements[i];" +
-            "        while (clickTarget && clickTarget.tagName !== 'BUTTON' && clickTarget.getAttribute('role') !== 'button' && clickTarget.tagName !== 'A') {" +
-            "           clickTarget = clickTarget.parentElement;" +
-            "        }" +
-            "        if (!clickTarget) clickTarget = elements[i];" +
-            "        clickTarget.click();" +
-            "        return true;" +
-            "      }" +
-            "    }" +
-            "    return false;" +
-            "  }" +
-            "  if (!tryClick()) {" +
-            "    console.log('Waiting for buttons...');" +
-            "    var observer = new MutationObserver(function(mutations, obs) {" +
-            "      if (tryClick()) {" +
-            "        obs.disconnect();" +
-            "        clearInterval(fallbackInterval);" +
-            "      }" +
-            "    });" +
-            "    observer.observe(document.body, { childList: true, subtree: true });" +
-            "    var fallbackInterval = setInterval(tryClick, 1000);" +
-            "    setTimeout(function() { " +
-            "      observer.disconnect(); " +
-            "      clearInterval(fallbackInterval); " +
-            "      console.log('Timeout after 15s');" +
-            "    }, 15000);" +
-            "  }" +
-            "})();";
-
-    private final String SETTINGS_INJECT_JS = "(function() {" +
-            "    if (window.duckAssistSettingsButtonInjected) return;" +
-            "    function injectButton() {" +
-            "        var webSettingsPath = document.querySelector('path[d^=\"M5.647 14.153\"]');" +
-            "        var webSettingsBtn = webSettingsPath ? webSettingsPath.closest('button, [role=\"button\"]') : null;" +
-            "        if (webSettingsBtn && !document.querySelector('.duckassist-native-settings-btn')) {" +
-            "            console.log('Found web settings button, injecting our button beside it');" +
-            "            var ourBtn = webSettingsBtn.cloneNode(true);" +
-            "            ourBtn.classList.add('duckassist-native-settings-btn');" +
-            "            var svg = ourBtn.querySelector('svg');" +
-            "            if (svg) {" +
-            "                svg.innerHTML = '<path fill=\"currentColor\" d=\"M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.3C.5 6.7.9 9.8 2.9 11.8c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.1z\"/>';" +
-            "            }" +
-            "            ourBtn.style.marginLeft = '8px';" +
-            "            ourBtn.style.marginRight = '8px';" +
-            "            ourBtn.addEventListener('click', function(e) {" +
-            "                e.stopPropagation();" +
-            "                e.preventDefault();" +
-            "                if (typeof Android !== 'undefined' && Android.showSettingsDialog) {" +
-            "                    Android.showSettingsDialog();" +
-            "                }" +
-            "            });" +
-            "            webSettingsBtn.parentNode.insertBefore(ourBtn, webSettingsBtn.nextSibling);" +
-            "            window.duckAssistSettingsButtonInjected = true;" +
-            "            return true;" +
-            "        }" +
-            "        return false;" +
-            "    }" +
-            "    if (!injectButton()) {" +
-            "        var target = document.body || document.documentElement;" +
-            "        if (target) {" +
-            "            var observer = new MutationObserver(function(mutations) {" +
-            "                if (injectButton()) {" +
-            "                    observer.disconnect();" +
-            "                }" +
-            "            });" +
-            "            observer.observe(target, { childList: true, subtree: true });" +
-            "        }" +
-            "    }" +
-            "})();";
-
-    private final String CONTINUE_CHAT_JS = "(function() {" +
-            "  console.log('Continue Last Chat Trigger Started');" +
-            "  var attempts = 0;" +
-            "  var sidebarClicked = false;" +
-            "  function tryClickLastChat() {" +
-            "    attempts++;" +
-            "    if (attempts > 10) {" +
-            "      console.log('Stopping after 10 attempts');" +
-            "      if (typeof Android !== 'undefined' && Android.onContinueLastChatSuccess) {" +
-            "        Android.onContinueLastChatSuccess();" +
-            "      }" +
-            "      return true;" +
-            "    }" +
-            "    var targetPath = document.querySelector('path[d^=\"M8.25 3.5C7.56 3.5\"], path[d*=\"M8.25 3.5\"]');" +
-            "    if (targetPath) {" +
-            "      console.log('Last chat SVG found!');" +
-            "      var svgEl = targetPath.closest('svg');" +
-            "      if (svgEl) {" +
-            "        var parent1 = svgEl.parentElement;" +
-            "        if (parent1) {" +
-            "          var parent2 = parent1.parentElement;" +
-            "          if (parent2) {" +
-            "            console.log('Clicking parent of parent of SVG');" +
-            "            parent2.click();" +
-            "            var parent3 = parent2.parentElement;" +
-            "            if (parent3) {" +
-            "              parent3.click();" +
-            "              var parent4 = parent3.parentElement;" +
-            "              if (parent4) {" +
-            "                parent4.click();" +
-            "              }" +
-            "            }" +
-            "            if (typeof Android !== 'undefined' && Android.onContinueLastChatSuccess) {" +
-            "              Android.onContinueLastChatSuccess();" +
-            "            }" +
-            "            return true;" +
-            "          }" +
-            "        }" +
-            "      }" +
-            "      var container = targetPath.closest('a, [role=\"link\"], li');" +
-            "      if (container) {" +
-            "        console.log('Clicking fallback container');" +
-            "        container.click();" +
-            "        if (typeof Android !== 'undefined' && Android.onContinueLastChatSuccess) {" +
-            "          Android.onContinueLastChatSuccess();" +
-            "        }" +
-            "        return true;" +
-            "      }" +
-            "    }" +
-            "    if (!sidebarClicked) {" +
-            "      var sidebarPath = document.querySelector('path[d*=\"M9.41 10.125a.625.625 0 1 1 0 1.25H1.624\"]');" +
-            "      var sidebarBtn = sidebarPath ? sidebarPath.closest('button, [role=\"button\"]') : null;" +
-            "      if (!sidebarBtn) {" +
-            "          sidebarBtn = document.querySelector('button[aria-label*=\"sidebar\"], button[aria-label*=\"Sidebar\"]');" +
-            "      }" +
-            "      if (sidebarBtn && sidebarBtn.offsetParent !== null) {" +
-            "        console.log('Opening sidebar...');" +
-            "        sidebarBtn.click();" +
-            "        sidebarClicked = true;" +
-            "      }" +
-            "    }" +
-            "    return false;" +
-            "  }" +
-            "  if (!tryClickLastChat()) {" +
-            "    var observer = new MutationObserver(function(mutations, obs) {" +
-            "      if (tryClickLastChat()) {" +
-            "        obs.disconnect();" +
-            "        clearInterval(fallbackInterval);" +
-            "      }" +
-            "    });" +
-            "    observer.observe(document.body, { childList: true, subtree: true });" +
-            "    var fallbackInterval = setInterval(tryClickLastChat, 1000);" +
-            "    setTimeout(function() { " +
-            "      observer.disconnect(); " +
-            "      clearInterval(fallbackInterval); " +
-            "      if (typeof Android !== 'undefined' && Android.onContinueLastChatSuccess) {" +
-            "        Android.onContinueLastChatSuccess();" +
-            "      }" +
-            "    }, 12000);" +
-            "  }" +
-            "})();";
-
     private String lastFetchedChatsJson = "{}";
     private android.app.Dialog chatsViewerDialog = null;
     private android.app.Dialog scriptsManagerDialog = null;
     private boolean isRequestingViewer = false;
-
-    private final String DUMP_CHATS_JS = "(function() {" +
-            "  function convertBlobs(obj, depth, seen) {" +
-            "    depth = depth || 0;" +
-            "    seen = seen || new Set();" +
-            "    return new Promise(function(resolve) {" +
-            "      if (!obj || depth > 20) return resolve(obj);" +
-            "      if (typeof Date !== 'undefined' && obj instanceof Date) {" +
-            "        return resolve(obj.toISOString());" +
-            "      }" +
-            "      if (typeof Blob !== 'undefined' && (obj instanceof Blob || obj instanceof File)) {" +
-            "        try {" +
-            "          let reader = new FileReader();" +
-            "          reader.onloadend = function() { resolve(reader.result); };" +
-            "          reader.onerror = function() { resolve(null); };" +
-            "          reader.readAsDataURL(obj);" +
-            "        } catch(e) { resolve(null); }" +
-            "        return;" +
-            "      }" +
-            "      if (typeof ArrayBuffer !== 'undefined' && (obj instanceof ArrayBuffer || ArrayBuffer.isView(obj))) {" +
-            "        try {" +
-            "          let bytes = new Uint8Array(obj.buffer || obj);" +
-            "          let blob = new Blob([bytes]);" +
-            "          let reader = new FileReader();" +
-            "          reader.onloadend = function() { resolve(reader.result); };" +
-            "          reader.onerror = function() { resolve(null); };" +
-            "          reader.readAsDataURL(blob);" +
-            "        } catch(e) { resolve(null); }" +
-            "        return;" +
-            "      }" +
-            "      if (Array.isArray(obj)) {" +
-            "        if (seen.has(obj)) return resolve('[]');" +
-            "        seen.add(obj);" +
-            "        var promises = obj.map(function(item) { return convertBlobs(item, depth + 1, seen); });" +
-            "        Promise.all(promises).then(resolve).catch(function() { resolve(obj); });" +
-            "        return;" +
-            "      }" +
-            "      if (typeof obj === 'object') {" +
-            "        if (seen.has(obj)) return resolve('{}');" +
-            "        seen.add(obj);" +
-            "        var keys = Object.keys(obj);" +
-            "        var promises = keys.map(function(k) { return convertBlobs(obj[k], depth + 1, seen); });" +
-            "        Promise.all(promises).then(function(values) {" +
-            "          var newObj = {};" +
-            "          keys.forEach(function(k, idx) { newObj[k] = values[idx]; });" +
-            "          resolve(newObj);" +
-            "        }).catch(function() { resolve(obj); });" +
-            "        return;" +
-            "      }" +
-            "      resolve(obj);" +
-            "    });" +
-            "  }" +
-            "  function dump() {" +
-            "    let knownDbs = ['savedAIChatData', 'duck-ai-chats', 'saved-chats', 'aiChatData'];" +
-            "    let getDbs = (window.indexedDB && window.indexedDB.databases) ? window.indexedDB.databases() : Promise.resolve([]);" +
-            "    getDbs.then(async (dbs) => {" +
-            "      let dbNamesSet = new Set((dbs || []).map(d => d.name).filter(Boolean));" +
-            "      if (dbNamesSet.size === 0) {" +
-            "        knownDbs.forEach(k => dbNamesSet.add(k));" +
-            "      }" +
-            "      let dbNames = Array.from(dbNamesSet);" +
-            "      let result = {};" +
-            "      for (let dbName of dbNames) {" +
-            "        let res = await new Promise((resolve) => {" +
-            "          try {" +
-            "            let req = window.indexedDB.open(dbName);" +
-            "            req.onerror = () => resolve(null);" +
-            "            req.onsuccess = (e) => {" +
-            "              let db = e.target.result;" +
-            "              db.onversionchange = () => { try { db.close(); } catch(err){} };" +
-            "              let storeNames = Array.from(db.objectStoreNames);" +
-            "              if (storeNames.length === 0) {" +
-            "                try { db.close(); } catch(err){}" +
-            "                resolve(null);" +
-            "                return;" +
-            "              }" +
-            "              let dbData = {};" +
-            "              let completed = 0;" +
-            "              let hasTimedOut = false;" +
-            "              let timeoutTimer = setTimeout(() => {" +
-            "                hasTimedOut = true;" +
-            "                try { db.close(); } catch(err){}" +
-            "                resolve(dbData);" +
-            "              }, 15000);" +
-            "              storeNames.forEach((storeName) => {" +
-            "                try {" +
-            "                  let tx = db.transaction(storeName, 'readonly');" +
-            "                  let store = tx.objectStore(storeName);" +
-            "                  let getAllReq = store.getAll();" +
-            "                  getAllReq.onsuccess = async () => {" +
-            "                    if (hasTimedOut) return;" +
-            "                    try {" +
-            "                      dbData[storeName] = await convertBlobs(getAllReq.result);" +
-            "                    } catch(err) {" +
-            "                      dbData[storeName] = getAllReq.result;" +
-            "                    }" +
-            "                    completed++;" +
-            "                    if (completed === storeNames.length) {" +
-            "                      clearTimeout(timeoutTimer);" +
-            "                      try { db.close(); } catch(err){}" +
-            "                      resolve(dbData);" +
-            "                    }" +
-            "                  };" +
-            "                  getAllReq.onerror = () => {" +
-            "                    if (hasTimedOut) return;" +
-            "                    completed++;" +
-            "                    if (completed === storeNames.length) {" +
-            "                      clearTimeout(timeoutTimer);" +
-            "                      try { db.close(); } catch(err){}" +
-            "                      resolve(dbData);" +
-            "                    }" +
-            "                  };" +
-            "                } catch(err) {" +
-            "                  if (hasTimedOut) return;" +
-            "                  completed++;" +
-            "                  if (completed === storeNames.length) {" +
-            "                    clearTimeout(timeoutTimer);" +
-            "                    try { db.close(); } catch(e){}" +
-            "                    resolve(dbData);" +
-            "                  }" +
-            "                }" +
-            "              });" +
-            "            };" +
-            "          } catch(err) { resolve(null); }" +
-            "        });" +
-            "        if (res && Object.keys(res).length > 0) result[dbName] = res;" +
-            "      }" +
-            "      if (window.__duckImgStore && window.__duckImgStore.size > 0) {" +
-            "        result['savedAIChatData'] = result['savedAIChatData'] || {};" +
-            "        result['savedAIChatData']['chat-images'] = result['savedAIChatData']['chat-images'] || [];" +
-            "        for (let [k, item] of window.__duckImgStore.entries()) {" +
-            "          try {" +
-            "            let converted = await convertBlobs(item);" +
-            "            if (converted) result['savedAIChatData']['chat-images'].push(converted);" +
-            "          } catch(e) {}" +
-            "        }" +
-            "      }" +
-            "      let localData = {};" +
-            "      try {" +
-            "        for (let i = 0; i < localStorage.length; i++) {" +
-            "          let key = localStorage.key(i);" +
-            "          localData[key] = localStorage.getItem(key);" +
-            "        }" +
-            "      } catch(e){}" +
-            "      let blobData = {};" +
-            "      if (window.blobMap && window.blobMap instanceof Map) {" +
-            "        for (let [bUrl, bObj] of window.blobMap.entries()) {" +
-            "          try {" +
-            "            blobData[bUrl] = await convertBlobs(bObj);" +
-            "          } catch(e) {}" +
-            "        }" +
-            "      }" +
-            "      let domImages = [];" +
-            "      try {" +
-            "        let imgs = document.querySelectorAll('img');" +
-            "        for (let i = 0; i < imgs.length; i++) {" +
-            "          let img = imgs[i];" +
-            "          let src = img.src || '';" +
-            "          if (src) {" +
-            "            try {" +
-            "              if (img.naturalWidth > 30 && img.naturalHeight > 30) {" +
-            "                let canvas = document.createElement('canvas');" +
-            "                canvas.width = img.naturalWidth;" +
-            "                canvas.height = img.naturalHeight;" +
-            "                let ctx = canvas.getContext('2d');" +
-            "                ctx.drawImage(img, 0, 0);" +
-            "                let b64 = canvas.toDataURL('image/jpeg', 0.9);" +
-            "                domImages.push({ src: src, alt: img.alt || '', dataUrl: b64 });" +
-            "              } else if (src.startsWith('data:')) {" +
-            "                domImages.push({ src: src, alt: img.alt || '', dataUrl: src });" +
-            "              }" +
-            "            } catch(e) {}" +
-            "          }" +
-            "        }" +
-            "      } catch(e) {}" +
-            "      if (typeof Android !== 'undefined' && Android.onChatsFetched) {" +
-            "        Android.onChatsFetched(JSON.stringify({" +
-            "          indexedDB: result," +
-            "          localStorage: localData," +
-            "          blobMap: blobData," +
-            "          domImages: domImages" +
-            "        }));" +
-            "      }" +
-            "    }).catch(err => {" +
-            "      if (typeof Android !== 'undefined' && Android.onChatsFetched) {" +
-            "        Android.onChatsFetched(JSON.stringify({error: err.toString()}));" +
-            "      }" +
-            "    });" +
-            "  }" +
-            "  setTimeout(dump, 150);" +
-            "})();";
 
     private void clearCacheData() {
         if (chatWebView != null) {
@@ -976,28 +206,6 @@ public class MainActivity extends Activity {
         progressBar = findViewById(R.id.progressBar);
         chatWebView = findViewById(R.id.chatWebView);
 
-        WebSettings webSettings = chatWebView.getSettings();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
-        }
-        webSettings.setJavaScriptEnabled(true);
-        webSettings.setDomStorageEnabled(true);
-        webSettings.setLoadWithOverviewMode(true);
-        webSettings.setUseWideViewPort(true);
-        webSettings.setSupportZoom(true);
-        webSettings.setBuiltInZoomControls(true);
-        webSettings.setDisplayZoomControls(false);
-        webSettings.setAllowFileAccess(true);
-        webSettings.setAllowContentAccess(true);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            webSettings.setMediaPlaybackRequiresUserGesture(false);
-        }
-        webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        webSettings.setDatabaseEnabled(true);
-        webSettings.setDomStorageEnabled(true);
-        webSettings.setSaveFormData(false);
-        webSettings.setGeolocationEnabled(false);
-
         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
         java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
             try {
@@ -1019,18 +227,71 @@ public class MainActivity extends Activity {
                 lastFetchedChatsJson = "{}";
             }
         });
-        int savedZoom = prefs.getInt("text_zoom", 100);
-        currentZoomLevel = (float) savedZoom;
-        webSettings.setTextZoom(savedZoom);
+        currentZoomLevel = (float) prefs.getInt("text_zoom", 100);
+
+        configureChatWebView(chatWebView);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[] { Manifest.permission.RECORD_AUDIO }, 123);
+            }
+        }
+
+        boolean restored = false;
+        if (savedInstanceState != null) {
+            if (chatWebView.restoreState(savedInstanceState) != null) {
+                restored = true;
+            }
+        }
+        if (!restored) {
+            handleIntent(getIntent(), false);
+        }
+    }
+
+    /**
+     * Applies all settings, listeners and bridges to the main chat WebView.
+     *
+     * <p>Called from onCreate() for the WebView in the layout, and again for the replacement WebView
+     * that is created after the renderer process died (see MyWebViewClient.onRenderProcessGone).
+     * Keeping this in one method guarantees both get exactly the same setup.</p>
+     *
+     * <p>Note: code inside the listeners below uses the field {@code chatWebView} (not the parameter),
+     * so it always talks to the WebView that is currently on screen.</p>
+     */
+    private void configureChatWebView(WebView webView) {
+        WebSettings webSettings = webView.getSettings();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
+        }
+        webSettings.setJavaScriptEnabled(true);
+        webSettings.setDomStorageEnabled(true);
+        webSettings.setLoadWithOverviewMode(true);
+        webSettings.setUseWideViewPort(true);
+        webSettings.setSupportZoom(true);
+        webSettings.setBuiltInZoomControls(true);
+        webSettings.setDisplayZoomControls(false);
+        webSettings.setAllowFileAccess(true);
+        webSettings.setAllowContentAccess(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+            webSettings.setMediaPlaybackRequiresUserGesture(false);
+        }
+        webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        webSettings.setDatabaseEnabled(true);
+        webSettings.setDomStorageEnabled(true);
+        webSettings.setSaveFormData(false);
+        webSettings.setGeolocationEnabled(false);
+
+        // Text size chosen by the user (pinch gesture), see currentZoomLevel.
+        webSettings.setTextZoom(Math.round(currentZoomLevel));
 
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
-        cookieManager.setAcceptThirdPartyCookies(chatWebView, false);
+        cookieManager.setAcceptThirdPartyCookies(webView, false);
 
-        chatWebView.setWebViewClient(new MyWebViewClient());
-        chatWebView.setWebChromeClient(new MyWebChromeClient());
+        webView.setWebViewClient(new MyWebViewClient());
+        webView.setWebChromeClient(new MyWebChromeClient());
 
-        chatWebView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
+        webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
             if (url.startsWith("blob:")) {
                 // Values that come from the web page (URL, file name, type) are turned into safe JS string
                 // literals with JSONObject.quote(), which escapes quotes, backslashes and line breaks.
@@ -1089,7 +350,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        chatWebView.addJavascriptInterface(this, "Android");
+        webView.addJavascriptInterface(this, "Android");
 
         ScaleGestureDetector scaleGestureDetector = new ScaleGestureDetector(this, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
             @Override
@@ -1110,7 +371,7 @@ public class MainActivity extends Activity {
             scaleGestureDetector.setQuickScaleEnabled(false);
         }
 
-        chatWebView.setOnTouchListener(new View.OnTouchListener() {
+        webView.setOnTouchListener(new View.OnTouchListener() {
             @SuppressLint("ClickableViewAccessibility")
             @Override
             public boolean onTouch(View v, MotionEvent event) {
@@ -1121,21 +382,6 @@ public class MainActivity extends Activity {
                 return event.getPointerCount() > 1 || scaleGestureDetector.isInProgress();
             }
         });
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[] { Manifest.permission.RECORD_AUDIO }, 123);
-            }
-        }
-
-        boolean restored = false;
-        if (savedInstanceState != null) {
-            if (chatWebView.restoreState(savedInstanceState) != null) {
-                restored = true;
-            }
-        }
-        if (!restored) {
-            handleIntent(getIntent(), false);
-        }
     }
 
     @JavascriptInterface
@@ -1172,7 +418,7 @@ public class MainActivity extends Activity {
         runOnUiThread(() -> {
             Toast.makeText(MainActivity.this, "Triggering Ctrl+Shift+O...", Toast.LENGTH_SHORT).show();
             if (chatWebView != null) {
-                chatWebView.evaluateJavascript(AUTO_FOCUS_JS, null);
+                chatWebView.evaluateJavascript(js(Scripts.AUTO_FOCUS), null);
                 long now = android.os.SystemClock.uptimeMillis();
                 int meta = KeyEvent.META_CTRL_ON | KeyEvent.META_SHIFT_ON;
                 chatWebView.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_O, 0, meta));
@@ -1266,6 +512,9 @@ public class MainActivity extends Activity {
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
             
             WebView webView = new WebView(MainActivity.this);
+            // Handles "renderer died" (closes this dialog instead of the app crashing) and keeps
+            // web links opening in the browser. See web/DialogWebViewClient.java.
+            webView.setWebViewClient(new DialogWebViewClient(dialog::dismiss));
             WebSettings ws = webView.getSettings();
             ws.setJavaScriptEnabled(true);
             ws.setDomStorageEnabled(true);
@@ -1321,9 +570,9 @@ public class MainActivity extends Activity {
                         if (newRtl != oldRtl && chatWebView != null) {
                             runOnUiThread(() -> {
                                 if (newRtl) {
-                                    safeEvaluateJavascript(chatWebView, RTL_RESOLVER_JS);
+                                    safeEvaluateJavascript(chatWebView, js(Scripts.RTL_RESOLVER));
                                 } else {
-                                    safeEvaluateJavascript(chatWebView, RTL_CLEANUP_JS);
+                                    safeEvaluateJavascript(chatWebView, js(Scripts.RTL_CLEANUP));
                                 }
                             });
                         }
@@ -1364,9 +613,9 @@ public class MainActivity extends Activity {
                         if (newRtl != oldRtl && chatWebView != null) {
                             runOnUiThread(() -> {
                                 if (newRtl) {
-                                    safeEvaluateJavascript(chatWebView, RTL_RESOLVER_JS);
+                                    safeEvaluateJavascript(chatWebView, js(Scripts.RTL_RESOLVER));
                                 } else {
-                                    safeEvaluateJavascript(chatWebView, RTL_CLEANUP_JS);
+                                    safeEvaluateJavascript(chatWebView, js(Scripts.RTL_CLEANUP));
                                 }
                             });
                         }
@@ -1563,7 +812,7 @@ public class MainActivity extends Activity {
             isRequestingViewer = true;
             String currentUrl = chatWebView.getUrl();
             if (currentUrl != null && (currentUrl.startsWith("https://duck.ai") || currentUrl.startsWith("https://duckduckgo.com"))) {
-                chatWebView.evaluateJavascript(DUMP_CHATS_JS, null);
+                chatWebView.evaluateJavascript(js(Scripts.DUMP_CHATS), null);
             } else {
                 showChatsViewerDialog();
             }
@@ -1579,6 +828,10 @@ public class MainActivity extends Activity {
             chatsViewerDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
             
             WebView webView = new WebView(MainActivity.this);
+            // Handles "renderer died" (closes this dialog instead of the app crashing) and keeps
+            // web links opening in the browser. See web/DialogWebViewClient.java.
+            final android.app.Dialog thisDialog = chatsViewerDialog;
+            webView.setWebViewClient(new DialogWebViewClient(thisDialog::dismiss));
             WebSettings ws = webView.getSettings();
             ws.setJavaScriptEnabled(true);
             ws.setDomStorageEnabled(true);
@@ -1630,283 +883,6 @@ public class MainActivity extends Activity {
         });
     }
 
-    private final String DEFAULT_SAMPLE_USER_SCRIPT = "// ==UserScript==\n" +
-            "// @name         Duck.ai Ultra Clean Unified\n" +
-            "// @namespace    http://tampermonkey.net/\n" +
-            "// @version      8.1\n" +
-            "// @description  Unified, clean split-screen with centered items and coordinated floating buttons.\n" +
-            "// @author       iJahangard (https://github.com/iJahangard)\n" +
-            "// @match        *://*.duck.ai/*\n" +
-            "// @match        *://*.duckduckgo.com/*\n" +
-            "// @run-at       document-idle\n" +
-            "// @grant        GM_addStyle\n" +
-            "// ==/UserScript==\n" +
-            "\n" +
-            "(function() {\n" +
-            "    'use strict';\n" +
-            "\n" +
-            "    GM_addStyle(`\n" +
-            "        /* Main Container */\n" +
-            "        .duck-main-box {\n" +
-            "            position: relative !important;\n" +
-            "            width: 100% !important;\n" +
-            "            max-width: 100% !important;\n" +
-            "            padding: 0 46px 0 0 !important;\n" +
-            "            margin-bottom: -6px !important;\n" +
-            "            box-sizing: border-box !important;\n" +
-            "        }\n" +
-            "\n" +
-            "        .duck-ta-row {\n" +
-            "            width: 100% !important;\n" +
-            "            margin: 0 !important;\n" +
-            "            padding: 0 !important;\n" +
-            "            display: block !important;\n" +
-            "        }\n" +
-            "\n" +
-            "        textarea[name=\"user-prompt\"] {\n" +
-            "            width: 100% !important;\n" +
-            "            min-height: 40px !important;\n" +
-            "            max-height: 160px !important;\n" +
-            "            border-radius: 18px !important;\n" +
-            "            padding: 10px 15px !important;\n" +
-            "            margin: 0 !important;\n" +
-            "            box-sizing: border-box !important;\n" +
-            "            line-height: 1.4 !important;\n" +
-            "        }\n" +
-            "\n" +
-            "        /* Floating buttons */\n" +
-            "        .duck-fab-btn, .duck-fab-4 {\n" +
-            "            position: absolute !important;\n" +
-            "            right: 0px !important;\n" +
-            "            width: 38px !important;\n" +
-            "            height: 38px !important;\n" +
-            "            border-radius: 50% !important;\n" +
-            "            display: flex !important;\n" +
-            "            justify-content: center !important;\n" +
-            "            align-items: center !important;\n" +
-            "            z-index: 10 !important;\n" +
-            "            transition: transform 0.2s ease, filter 0.2s ease !important;\n" +
-            "            box-sizing: border-box !important;\n" +
-            "        }\n" +
-            "\n" +
-            "        .duck-fab-btn {\n" +
-            "            background-color: var(--dynamic-send-bg, #3b82f6) !important;\n" +
-            "            color: var(--dynamic-send-color, #ffffff) !important;\n" +
-            "        }\n" +
-            "        .duck-fab-btn svg { color: #ffffff !important; }\n" +
-            "        .duck-fab-btn:hover, .duck-send-btn:hover, .duck-stop-btn:hover {\n" +
-            "            transform: scale(0.9) !important;\n" +
-            "            filter: brightness(1.2) !important;\n" +
-            "        }\n" +
-            "\n" +
-            "        .duck-fab-4 { bottom: 160px !important; padding: 0 !important; justify-content: right !important; }\n" +
-            "        .duck-fab-1 { bottom: 120px !important; }\n" +
-            "        .duck-fab-2 { bottom: 80px !important; }\n" +
-            "        .duck-fab-3 { bottom: 40px !important; }\n" +
-            "\n" +
-            "        .duck-send-btn, .duck-stop-btn {\n" +
-            "            position: absolute !important;\n" +
-            "            right: 0px !important;\n" +
-            "            bottom: -12px !important;\n" +
-            "            width: 40px !important;\n" +
-            "            height: 40px !important;\n" +
-            "            border-radius: 50% !important;\n" +
-            "            display: flex !important;\n" +
-            "            justify-content: center !important;\n" +
-            "            align-items: center !important;\n" +
-            "            z-index: 10 !important;\n" +
-            "            transition: transform 0.2s ease, filter 0.2s ease !important;\n" +
-            "            box-sizing: border-box !important;\n" +
-            "            margin: 0 !important;\n" +
-            "        }\n" +
-            "\n" +
-            "        .duck-stop-btn { background-color: #E60023 !important; }\n" +
-            "        .duck-stop-btn svg { color: #ffffff !important; }\n" +
-            "\n" +
-            "        .duck-send-btn { background-color: #DE5833 !important; }\n" +
-            "        .duck-send-btn svg { color: #ffffff !important; }\n" +
-            "\n" +
-            "        [data-testid=\"duckai-top-toolbar\"],\n" +
-            "        [data-testid=\"duckai-top-toolbar\"] > div {\n" +
-            "            height: 36px !important;\n" +
-            "            min-height: 38px !important;\n" +
-            "            max-height: 38px !important;\n" +
-            "            box-sizing: border-box !important;\n" +
-            "            align-items: right !important;\n" +
-            "        }\n" +
-            "\n" +
-            "        .TmiyHFYeTH6BRfiFO5eV, .WylRI_oUZA16s0qnjS1p {\n" +
-            "            width: 100% !important;\n" +
-            "            display: flex !important;\n" +
-            "            flex-direction: row !important;\n" +
-            "            flex-wrap: nowrap !important;\n" +
-            "            align-items: center !important;\n" +
-            "            justify-content: center !important;\n" +
-            "            text-align: center !important;\n" +
-            "            gap: 8px !important;\n" +
-            "        }\n" +
-            "\n" +
-            "        .TmiyHFYeTH6BRfiFO5eV > .pjSWjOTlZyJAUFYWwJd7,\n" +
-            "        .WylRI_oUZA16s0qnjS1p > .pjSWjOTlZyJAUFYWwJd7,\n" +
-            "        .WylRI_oUZA16s0qnjS1p .PLoPNq8ZrjT3PBQhCQ4Q,\n" +
-            "        .WylRI_oUZA16s0qnjS1p .sVQf5w9mw0rZOdrXmKsG,\n" +
-            "        .WylRI_oUZA16s0qnjS1p [data-testid=\"feedback-prompt\"] {\n" +
-            "            background-color: transparent !important;\n" +
-            "            width: auto !important;\n" +
-            "            margin: 0 !important;\n" +
-            "            display: flex !important;\n" +
-            "            flex: 0 0 auto !important;\n" +
-            "            align-items: center !important;\n" +
-            "            justify-content: center !important;\n" +
-            "        }\n" +
-            "\n" +
-            "        .TmiyHFYeTH6BRfiFO5eV button, .WylRI_oUZA16s0qnjS1p button {\n" +
-            "            float: none !important;\n" +
-            "            display: inline-flex !important;\n" +
-            "            align-items: center !important;\n" +
-            "            justify-content: center !important;\n" +
-            "            margin: 0 !important;\n" +
-            "        }\n" +
-            "\n" +
-            "        .WylRI_oUZA16s0qnjS1p button i, .WylRI_oUZA16s0qnjS1p button svg {\n" +
-            "            display: block !important;\n" +
-            "            margin: 0 !important;\n" +
-            "            flex-shrink: 0 !important;\n" +
-            "        }\n" +
-            "\n" +
-            "        .WylRI_oUZA16s0qnjS1p .sVQf5w9mw0rZOdrXmKsG > .pjSWjOTlZyJAUFYWwJd7 {\n" +
-            "            margin: 0 4px !important;\n" +
-            "        }\n" +
-            "\n" +
-            "        .DRAot9rDvc5ggNSzK6hY {\n" +
-            "            width: 80% !important;\n" +
-            "            display: flex !important;\n" +
-            "            margin-top: 20px !important;\n" +
-            "            align-items: center !important;\n" +
-            "            justify-content: center !important;\n" +
-            "            text-align: center !important;\n" +
-            "        }\n" +
-            "\n" +
-            "        .DRAot9rDvc5ggNSzK6hY > .BB8BdTLAPMS9cAdduzJV {\n" +
-            "            background-color: transparent !important;\n" +
-            "            display: flex !important;\n" +
-            "            flex-direction: row !important;\n" +
-            "            flex-wrap: nowrap !important;\n" +
-            "            align-items: center !important;\n" +
-            "            justify-content: center !important;\n" +
-            "            gap: 8px !important;\n" +
-            "            width: auto !important;\n" +
-            "            margin: 0 auto !important;\n" +
-            "        }\n" +
-            "\n" +
-            "        .DRAot9rDvc5ggNSzK6hY button {\n" +
-            "            height: 40px !important;\n" +
-            "            margin-right: 46px !important;\n" +
-            "            display: inline-flex !important;\n" +
-            "            flex-direction: row !important;\n" +
-            "            align-items: center !important;\n" +
-            "            justify-content: center !important;\n" +
-            "            flex: 0 0 auto !important;\n" +
-            "            white-space: nowrap !important;\n" +
-            "            float: none !important;\n" +
-            "        }\n" +
-            "\n" +
-            "        .DRAot9rDvc5ggNSzK6hY button svg {\n" +
-            "            display: inline-block !important;\n" +
-            "            width: 16px !important;\n" +
-            "            height: 16px !important;\n" +
-            "            margin-right: 8px !important;\n" +
-            "            vertical-align: middle !important;\n" +
-            "        }\n" +
-            "    `);\n" +
-            "\n" +
-            "    function getCommonAncestor(node1, node2) {\n" +
-            "        let parents = [];\n" +
-            "        let current = node1;\n" +
-            "        while (current) {\n" +
-            "            parents.push(current);\n" +
-            "            current = current.parentElement;\n" +
-            "        }\n" +
-            "        current = node2;\n" +
-            "        while (current) {\n" +
-            "            if (parents.includes(current)) return current;\n" +
-            "            current = current.parentElement;\n" +
-            "        }\n" +
-            "        return null;\n" +
-            "    }\n" +
-            "\n" +
-            "    function syncSendButtonStyles() {\n" +
-            "        const sendBtn = document.querySelector('button[aria-label=\"Send\"]');\n" +
-            "        if (sendBtn) {\n" +
-            "            const computedStyle = window.getComputedStyle(sendBtn);\n" +
-            "            const bgColor = computedStyle.backgroundColor;\n" +
-            "            if (bgColor !== 'rgba(0, 0, 0, 0)' && bgColor !== 'transparent') {\n" +
-            "                document.documentElement.style.setProperty('--dynamic-send-bg', bgColor);\n" +
-            "                const rgb = bgColor.match(/\\d+/g);\n" +
-            "                if (rgb && rgb.length >= 3) {\n" +
-            "                    const r = parseInt(rgb[0]);\n" +
-            "                    const g = parseInt(rgb[1]);\n" +
-            "                    const b = parseInt(rgb[2]);\n" +
-            "                    const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;\n" +
-            "                    const textColor = yiq >= 128 ? '#000000' : '#ffffff';\n" +
-            "                    document.documentElement.style.setProperty('--dynamic-send-color', textColor);\n" +
-            "                }\n" +
-            "            }\n" +
-            "        }\n" +
-            "    }\n" +
-            "\n" +
-            "    function optimizeLayout() {\n" +
-            "        const textarea = document.querySelector('textarea[name=\"user-prompt\"]');\n" +
-            "        const sendBtn = document.querySelector('button[aria-label=\"Send\"]');\n" +
-            "        const stopBtn = document.querySelector('button[aria-label=\"Stop generating\"]');\n" +
-            "        if (textarea && (sendBtn || stopBtn)) {\n" +
-            "            const activeActionBtn = sendBtn || stopBtn;\n" +
-            "            const mainBox = getCommonAncestor(textarea, activeActionBtn);\n" +
-            "            if (mainBox) {\n" +
-            "                mainBox.classList.add('duck-main-box');\n" +
-            "                Array.from(mainBox.children).forEach(child => {\n" +
-            "                    if (child.contains(textarea)) child.classList.add('duck-ta-row');\n" +
-            "                    if (child.contains(activeActionBtn)) child.classList.add('duck-tb-row');\n" +
-            "                });\n" +
-            "            }\n" +
-            "            const mapWrapper = (selector, classNames) => {\n" +
-            "                const btn = document.querySelector(selector);\n" +
-            "                if (btn && btn.parentElement) {\n" +
-            "                    classNames.split(' ').forEach(cls => btn.parentElement.classList.add(cls));\n" +
-            "                }\n" +
-            "            };\n" +
-            "            mapWrapper('button[data-testid=\"duckai-attach-button\"]', 'duck-fab-btn duck-fab-1');\n" +
-            "            mapWrapper('button[data-testid=\"duckai-tools-button\"]', 'duck-fab-btn duck-fab-2');\n" +
-            "            mapWrapper('button[data-testid=\"duckai-reasoning-button\"]', 'duck-fab-btn duck-fab-3');\n" +
-            "            mapWrapper('button[data-testid=\"model-picker-button\"]', 'duck-fab-4');\n" +
-            "            mapWrapper('button[aria-label=\"Send\"]', 'duck-send-btn');\n" +
-            "            mapWrapper('button[aria-label=\"Stop generating\"]', 'duck-stop-btn');\n" +
-            "            syncSendButtonStyles();\n" +
-            "        }\n" +
-            "    }\n" +
-            "\n" +
-            "    function setupAutoGrow() {\n" +
-            "        const textarea = document.querySelector('textarea[name=\"user-prompt\"]');\n" +
-            "        if (textarea && !textarea.dataset.autogrow) {\n" +
-            "            textarea.dataset.autogrow = \"true\";\n" +
-            "            const resize = () => {\n" +
-            "                textarea.style.height = '48px';\n" +
-            "                textarea.style.height = Math.min(textarea.scrollHeight, 150) + 'px';\n" +
-            "            };\n" +
-            "            textarea.addEventListener('input', resize);\n" +
-            "            resize();\n" +
-            "        }\n" +
-            "    }\n" +
-            "\n" +
-            "    const observer = new MutationObserver(() => {\n" +
-            "        optimizeLayout();\n" +
-            "        setupAutoGrow();\n" +
-            "    });\n" +
-            "    if (document.body) {\n" +
-            "        observer.observe(document.body, { childList: true, subtree: true });\n" +
-            "    }\n" +
-            "})();";
-
     private void showScriptsManagerDialog() {
         runOnUiThread(() -> {
             if (scriptsManagerDialog != null && scriptsManagerDialog.isShowing()) {
@@ -1916,6 +892,10 @@ public class MainActivity extends Activity {
             scriptsManagerDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
             WebView webView = new WebView(MainActivity.this);
+            // Handles "renderer died" (closes this dialog instead of the app crashing) and keeps
+            // web links opening in the browser. See web/DialogWebViewClient.java.
+            final android.app.Dialog thisDialog = scriptsManagerDialog;
+            webView.setWebViewClient(new DialogWebViewClient(thisDialog::dismiss));
             WebSettings ws = webView.getSettings();
             ws.setJavaScriptEnabled(true);
             ws.setDomStorageEnabled(true);
@@ -1979,7 +959,7 @@ public class MainActivity extends Activity {
             script.put("description", "Unified, clean split-screen with centered items and coordinated floating buttons. Created by iJahangard.");
             script.put("match", "*://*.duck.ai/*, *://*.duckduckgo.com/*");
             script.put("enabled", false);
-            script.put("code", DEFAULT_SAMPLE_USER_SCRIPT);
+            script.put("code", js(Scripts.USER_SCRIPT_SAMPLE));
             array.put(script);
             return array.toString();
         } catch (Exception e) {
@@ -2436,7 +1416,7 @@ public class MainActivity extends Activity {
         super.onStop();
         runOnUiThread(() -> {
             if (chatWebView != null && chatWebView.getUrl() != null && chatWebView.getUrl().startsWith("https://duck")) {
-                chatWebView.evaluateJavascript(DUMP_CHATS_JS, null);
+                chatWebView.evaluateJavascript(js(Scripts.DUMP_CHATS), null);
             }
         });
     }
@@ -2494,7 +1474,21 @@ public class MainActivity extends Activity {
                         chatWebView.loadUrl("https://duck.ai/chat?q=" + Uri.encode(query));
                     }
                 } else {
-                    chatWebView.loadUrl(data.toString());
+                    // Other apps can open this screen with any address (the activity is "exported").
+                    // Only load chat-site addresses in-app; everything else (javascript:, file:, other
+                    // websites...) would run with the app's JavaScript bridge (PROJECT.md P14).
+                    String requested = data.toString();
+                    String safeUrl = NavigationPolicy.toInAppUrl(requested);
+                    if (safeUrl != null) {
+                        chatWebView.loadUrl(safeUrl);
+                    } else if (BuildConfig.DEBUG && NavigationPolicy.isRendererTestUrl(requested)) {
+                        // Debug builds only: lets the owner test renderer-crash recovery with
+                        // adb (see CHANGES.md, "How to test the crash recovery").
+                        chatWebView.loadUrl(requested);
+                    } else {
+                        Log.w(TAG, "Refused to load a non-chat address requested by another app");
+                        chatWebView.loadUrl("https://duck.ai/");
+                    }
                 }
             } else {
                 chatWebView.loadUrl("https://duck.ai/");
@@ -2639,7 +1633,7 @@ public class MainActivity extends Activity {
                 String currentUrl = chatWebView.getUrl();
                 if (currentUrl != null && currentUrl.startsWith("https://duck.ai")) {
                     safeEvaluateJavascript(chatWebView, "window.isVoiceChatActive = true;");
-                    chatWebView.evaluateJavascript(VOICE_JS, null);
+                    chatWebView.evaluateJavascript(js(Scripts.VOICE_CHAT), null);
                 } else {
                     chatWebView.loadUrl("https://duck.ai/");
                 }
@@ -2658,7 +1652,7 @@ public class MainActivity extends Activity {
             if (autoFocus) {
                 String currentUrl = chatWebView.getUrl();
                 if (currentUrl != null && currentUrl.startsWith("https://duck.ai")) {
-                    chatWebView.evaluateJavascript(AUTO_FOCUS_JS, null);
+                    chatWebView.evaluateJavascript(js(Scripts.AUTO_FOCUS), null);
                 } else {
                     pendingAutoFocus = true;
                     chatWebView.loadUrl("https://duck.ai/");
@@ -2723,6 +1717,10 @@ public class MainActivity extends Activity {
             promptDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
             
             WebView webView = new WebView(MainActivity.this);
+            // Handles "renderer died" (closes this dialog instead of the app crashing) and keeps
+            // web links opening in the browser. See web/DialogWebViewClient.java.
+            final android.app.Dialog thisDialog = promptDialog;
+            webView.setWebViewClient(new DialogWebViewClient(thisDialog::dismiss));
             webView.setBackgroundColor(Color.TRANSPARENT);
             WebSettings ws = webView.getSettings();
             ws.setJavaScriptEnabled(true);
@@ -2798,7 +1796,73 @@ public class MainActivity extends Activity {
         });
     }
 
+    // Times (ms since boot) of recent renderer recoveries, used to detect a crash loop.
+    private final java.util.ArrayDeque<Long> rendererRecoveryTimes = new java.util.ArrayDeque<>();
+    private static final int MAX_RECOVERIES_PER_MINUTE = 3;
+
     private class MyWebViewClient extends WebViewClient {
+
+        /**
+         * Android 8.0+ calls this when the renderer process behind the chat WebView died, either
+         * because Android reclaimed memory ({@code didCrash() == false}, common in the background) or
+         * because it crashed ({@code didCrash() == true}). Before this handler existed, the whole app
+         * was killed in both cases (PROJECT.md P2).
+         *
+         * <p>Recovery: replace the dead WebView with a fresh one in the same spot, configure it exactly
+         * like the original ({@link #configureChatWebView}) and reload the page the user was on. If
+         * the page keeps crashing (3 times within a minute), load the local offline chat viewer
+         * instead, to avoid an endless crash-and-reload loop.</p>
+         *
+         * @return true = "handled, don't kill the app"
+         */
+        @Override
+        @androidx.annotation.RequiresApi(Build.VERSION_CODES.O)
+        public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+            boolean crashed = detail.didCrash();
+            Log.w(TAG, "Chat WebView renderer gone (crashed=" + crashed + "); recovering");
+
+            if (view != chatWebView) {
+                // A WebView that is no longer the current one (shouldn't happen): just free it.
+                WebViewRecovery.discard(view);
+                return true;
+            }
+
+            String lastUrl = view.getUrl(); // read before the dead view is destroyed
+
+            // The old file-picker callback belongs to the dead WebView: forget it (don't call it).
+            mUploadMessage = null;
+            hasInjectedProgressJs = false;
+            if (progressBar != null) {
+                progressBar.setVisibility(View.GONE);
+            }
+
+            chatWebView = WebViewRecovery.replace(view);
+            configureChatWebView(chatWebView);
+
+            // Crash-loop guard: keep only recoveries from the last 60 seconds.
+            long now = android.os.SystemClock.elapsedRealtime();
+            rendererRecoveryTimes.addLast(now);
+            while (!rendererRecoveryTimes.isEmpty() && now - rendererRecoveryTimes.peekFirst() > 60_000) {
+                rendererRecoveryTimes.removeFirst();
+            }
+
+            if (rendererRecoveryTimes.size() >= MAX_RECOVERIES_PER_MINUTE) {
+                Toast.makeText(MainActivity.this,
+                        "The chat page keeps crashing. Showing saved chats instead.", Toast.LENGTH_LONG).show();
+                chatWebView.loadUrl("file:///android_asset/chats_viewer.html");
+            } else {
+                if (crashed) {
+                    Toast.makeText(MainActivity.this,
+                            "The chat page stopped unexpectedly and was reloaded.", Toast.LENGTH_SHORT).show();
+                }
+                // Only reload real web pages; anything else (or nothing) → start page.
+                boolean isWebPage = lastUrl != null
+                        && (lastUrl.startsWith("https://") || lastUrl.startsWith("http://"));
+                chatWebView.loadUrl(isWebPage ? lastUrl : "https://duck.ai/");
+            }
+            return true;
+        }
+
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, String url) {
             if (url == null) return false;
@@ -2808,8 +1872,10 @@ public class MainActivity extends Activity {
             Uri uri = Uri.parse(url);
             String host = uri.getHost();
             
-            // Allow duck.ai and duckduckgo.com links to load inside the app
-            if (host != null && (host.endsWith("duck.ai") || host.endsWith("duckduckgo.com"))) {
+            // Allow duck.ai and duckduckgo.com (and their real subdomains) to load inside the app.
+            // NavigationPolicy uses an exact domain match; the old endsWith("duck.ai") also let
+            // look-alike sites such as "evilduck.ai" load in-app (PROJECT.md P14).
+            if (NavigationPolicy.isInAppHost(host)) {
                 return false;
             }
 
@@ -2835,28 +1901,28 @@ public class MainActivity extends Activity {
             super.onPageFinished(view, url);
             progressBar.setVisibility(View.GONE);
             if (isSafeMode) return;
-            safeEvaluateJavascript(view, BLOB_JS);
-            safeEvaluateJavascript(view, CLIPBOARD_JS);
-            safeEvaluateJavascript(view, IMAGE_ZOOM_MONITOR_JS);
+            safeEvaluateJavascript(view, js(Scripts.BLOB_DOWNLOAD_PATCH));
+            safeEvaluateJavascript(view, js(Scripts.CLIPBOARD_PATCH));
+            safeEvaluateJavascript(view, js(Scripts.IMAGE_ZOOM_MONITOR));
             SharedPreferences prefs = view.getContext().getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
             if (prefs.getBoolean("rtl_resolver", false)) {
-                safeEvaluateJavascript(view, RTL_RESOLVER_JS);
+                safeEvaluateJavascript(view, js(Scripts.RTL_RESOLVER));
             }
             if (!pendingVoiceChat && (pendingAutoFocus || prefs.getBoolean("auto_focus_keyboard", false))) {
-                safeEvaluateJavascript(view, AUTO_FOCUS_JS);
+                safeEvaluateJavascript(view, js(Scripts.AUTO_FOCUS));
                 pendingAutoFocus = false;
             }
-            safeEvaluateJavascript(view, SETTINGS_INJECT_JS);
-            safeEvaluateJavascript(view, SWIPE_SCROLL_JS);
+            safeEvaluateJavascript(view, js(Scripts.SETTINGS_BUTTON));
+            safeEvaluateJavascript(view, js(Scripts.SWIPE_SCROLL));
             injectUserScripts(view, url);
             if (pendingContinueLastChat) {
-                safeEvaluateJavascript(view, CONTINUE_CHAT_JS);
+                safeEvaluateJavascript(view, js(Scripts.CONTINUE_LAST_CHAT));
             }
             if (pendingVoiceChat) {
                 safeEvaluateJavascript(view, "window.isVoiceChatActive = true;");
                 safeEvaluateJavascript(view,
                         "setTimeout(function() {" +
-                                VOICE_JS +
+                                js(Scripts.VOICE_CHAT) +
                                 "}, 1500);");
                 pendingVoiceChat = false;
             }
@@ -2899,19 +1965,19 @@ public class MainActivity extends Activity {
             if (isSafeMode) return;
             if (newProgress > 5 && !hasInjectedProgressJs) {
                 hasInjectedProgressJs = true;
-                safeEvaluateJavascript(view, BLOB_JS);
-                safeEvaluateJavascript(view, CLIPBOARD_JS);
-                safeEvaluateJavascript(view, SETTINGS_INJECT_JS);
-                safeEvaluateJavascript(view, SWIPE_SCROLL_JS);
+                safeEvaluateJavascript(view, js(Scripts.BLOB_DOWNLOAD_PATCH));
+                safeEvaluateJavascript(view, js(Scripts.CLIPBOARD_PATCH));
+                safeEvaluateJavascript(view, js(Scripts.SETTINGS_BUTTON));
+                safeEvaluateJavascript(view, js(Scripts.SWIPE_SCROLL));
                 SharedPreferences prefs = view.getContext().getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
                 if (prefs.getBoolean("rtl_resolver", false)) {
-                    safeEvaluateJavascript(view, RTL_RESOLVER_JS);
+                    safeEvaluateJavascript(view, js(Scripts.RTL_RESOLVER));
                 }
             }
             if (newProgress == 100) {
                 SharedPreferences prefs = view.getContext().getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
                 if (!pendingVoiceChat && prefs.getBoolean("auto_focus_keyboard", false)) {
-                    safeEvaluateJavascript(view, AUTO_FOCUS_JS);
+                    safeEvaluateJavascript(view, js(Scripts.AUTO_FOCUS));
                 }
             }
         }
