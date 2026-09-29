@@ -132,6 +132,19 @@ public final class ThemeManager {
         return MODE_OLED.equals(mode(context)) ? base.toOled() : base;
     }
 
+    /**
+     * @return the wallpaper-based scheme for the current light/dark mode (for the Material You tile in
+     *         the Color popup, even while a palette is selected), or {@code null} below Android 12
+     */
+    public static Scheme materialYouPreview(Context context) {
+        if (!isMaterialYouAvailable()) {
+            return null;
+        }
+        boolean dark = isNight(context);
+        Palettes.Palette fallback = Palettes.byId(context, Palettes.DEFAULT_ID);
+        return DynamicColors.scheme(context, dark, dark ? fallback.dark : fallback.light);
+    }
+
     // ------------------------------------------------------------------ applying
 
     /**

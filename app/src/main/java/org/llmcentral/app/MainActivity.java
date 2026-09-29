@@ -80,6 +80,8 @@ import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
 import org.llmcentral.app.ui.ProviderBadge;
 import org.llmcentral.app.ui.SwitcherPopup;
+import org.llmcentral.app.account.AccountsBridge;
+import org.llmcentral.app.theme.AppearanceBridge;
 import org.llmcentral.app.theme.Scheme;
 import org.llmcentral.app.theme.ThemeBridge;
 import org.llmcentral.app.theme.ThemeManager;
@@ -367,7 +369,8 @@ public class MainActivity extends Activity {
         View chip = findViewById(R.id.providerChip);
         if (chip != null) {
             chip.setOnClickListener(v -> SwitcherPopup.show(v, accounts.visible(), tabManager.current(),
-                    ThemeManager.scheme(this), account -> tabManager.show(account), this::showSettingsDialog));
+                    ThemeManager.scheme(this), account -> tabManager.show(account),
+                    () -> openSettings("accounts")));
         }
         View settings = findViewById(R.id.settingsButton);
         if (settings != null) {
@@ -697,6 +700,16 @@ public class MainActivity extends Activity {
 
     @JavascriptInterface
     public void showSettingsDialog() {
+        openSettings(null);
+    }
+
+    /**
+     * Opens the settings page (assets/settings.html) full screen.
+     *
+     * @param section id of a section to scroll to ("accounts" from the switcher's "Manage accounts"),
+     *                or null for the top
+     */
+    private void openSettings(String section) {
         runOnUiThread(() -> {
             android.app.Dialog dialog = new android.app.Dialog(MainActivity.this);
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -859,7 +872,80 @@ public class MainActivity extends Activity {
 
             // Theme colours for the page (read-only, local page only; see theme/ThemeBridge).
             webView.addJavascriptInterface(new ThemeBridge(this), "AndroidTheme");
-            webView.loadUrl("file:///android_asset/settings.html");
+            // Accounts and Appearance sections (see account/AccountsBridge, theme/AppearanceBridge).
+            webView.addJavascriptInterface(new AccountsBridge(new AccountsBridge.Host() {
+                @Override
+                public AccountStore accounts() {
+                    return accounts;
+                }
+
+                @Override
+                public SharedPreferences prefs() {
+                    return getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
+                }
+
+                @Override
+                public Account currentAccount() {
+                    return tabManager.current();
+                }
+
+                @Override
+                public void runOnUiThread(Runnable action) {
+                    MainActivity.this.runOnUiThread(action);
+                }
+
+                @Override
+                public void onAccountsChanged() {
+                    tabManager.updateAccounts(accounts); // new names, removed tabs, top bar
+                }
+
+                @Override
+                public void closeAccountTab(String accountId) {
+                    tabManager.closeAccount(accountId);
+                }
+
+                @Override
+                public void openAccount(Account account) {
+                    dialog.dismiss();
+                    tabManager.show(account);
+                }
+            }), "AndroidAccounts");
+            webView.addJavascriptInterface(new AppearanceBridge(this, new AppearanceBridge.Host() {
+                @Override
+                public void runOnUiThread(Runnable action) {
+                    MainActivity.this.runOnUiThread(action);
+                }
+
+                @Override
+                public void onThemeChanged() {
+                    applyTheme(); // top bar, system bars… repaint at once
+                }
+            }), "AndroidAppearance");
+            // Light ↔ dark can only fully switch (websites, system dialogs) by rebuilding the screen:
+            // do it when the settings close, so the settings page itself isn't interrupted.
+            dialog.setOnDismissListener(d -> {
+                if (appliedNight != ThemeManager.isNight(MainActivity.this)) {
+                    recreate();
+                }
+            });
+            // Back first closes a pop-up inside the page (rename box, account menu…), then the page.
+            dialog.setOnKeyListener((d, keyCode, event) -> {
+                if (keyCode != KeyEvent.KEYCODE_BACK) {
+                    return false;
+                }
+                if (event.getAction() == KeyEvent.ACTION_UP) {
+                    webView.evaluateJavascript("window.handleBack ? handleBack() : false", handled -> {
+                        if (!"true".equals(handled)) {
+                            dialog.dismiss();
+                        }
+                    });
+                }
+                return true;
+            });
+
+            // Only a plain section name may be appended (never anything from outside the app).
+            boolean validSection = section != null && section.matches("[a-z]{1,20}");
+            webView.loadUrl("file:///android_asset/settings.html" + (validSection ? "#" + section : ""));
             
             dialog.setContentView(webView);
             dialog.show();
