@@ -74,10 +74,19 @@ import org.llmcentral.app.web.NavigationPolicy;
 import org.llmcentral.app.web.Scripts;
 import org.llmcentral.app.web.TabLru;
 import org.llmcentral.app.web.TabManager;
+import org.llmcentral.app.account.Account;
+import org.llmcentral.app.account.AccountStore;
 import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
 import org.llmcentral.app.ui.ProviderBadge;
 import org.llmcentral.app.ui.SwitcherPopup;
+import org.llmcentral.app.account.AccountsBridge;
+import org.llmcentral.app.theme.AppearanceBridge;
+import org.llmcentral.app.theme.Scheme;
+import org.llmcentral.app.theme.ThemeBridge;
+import org.llmcentral.app.theme.ThemeManager;
+import org.llmcentral.app.ui.NativeTheme;
+import org.llmcentral.app.web.Profiles;
 import org.llmcentral.app.web.WebViewRecovery;
 
 import java.io.UnsupportedEncodingException;
@@ -101,9 +110,19 @@ public class MainActivity extends Activity {
     private Uri pendingSharedFileUri = null;
     private java.util.List<Uri> pendingSharedFileUris = null;
     private static boolean isSafeMode = false;
-    // One WebView per provider ("tab"); chatWebView above is always the duck.ai tab. See web/TabManager.
+    // One WebView per account ("tab"); chatWebView above is always the duck.ai tab. See web/TabManager.
     private TabManager tabManager;
+    // The user's accounts (names, which ones show in the menu). See account/AccountStore.
+    private AccountStore accounts;
+    // Account shown last time, reopened on a normal launch. Round 3 saved a provider id under
+    // "last_provider"; first accounts use their provider's id, so that old value still works.
+    private static final String PREF_LAST_ACCOUNT = "last_account";
     private static final String PREF_LAST_PROVIDER = "last_provider";
+    // Cookie jar of the tab that started the current file download (each account has its own).
+    private CookieManager downloadCookieManager;
+    // Light or dark when this screen was built. If the theme setting flips it, the screen is rebuilt
+    // (recreate()) so websites and system dialogs switch too. See theme/ThemeManager.
+    private boolean appliedNight;
     private static final String PREF_MAX_LIVE_TABS = "max_live_tabs";
     // Android's original "uncaught exception" handler (the one that closes a crashed app). See onCreate.
     private static Thread.UncaughtExceptionHandler systemCrashHandler;
@@ -183,9 +202,41 @@ public class MainActivity extends Activity {
     }
 
     protected void setActivityTheme() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            setTheme(android.R.style.Theme_DeviceDefault_DayNight);
+        // Framework light/dark theme matching the app's Theme setting (system dialogs follow it).
+        setTheme(ThemeManager.activityTheme(this));
+    }
+
+    /**
+     * Runs before anything else in the activity, even before onCreate. If the user chose "Light" or
+     * "Dark" instead of "System default", this makes the whole screen use that mode whatever the phone
+     * is set to (and, on Android 13+, should make websites that support dark mode follow). See
+     * ThemeManager.nightOverride.
+     */
+    @Override
+    protected void attachBaseContext(Context newBase) {
+        super.attachBaseContext(newBase);
+        android.content.res.Configuration override = ThemeManager.nightOverride(newBase);
+        if (override != null) {
+            applyOverrideConfiguration(override);
         }
+    }
+
+    /** @return true when this screen is the assistant's bottom drawer (ChatActivity overrides it). */
+    protected boolean isDrawerLayout() {
+        return false;
+    }
+
+    /**
+     * Paints the app's native parts with the current theme (PROJECT.md §4): window and system bars,
+     * top bar and loading bar. Called at start and whenever a theme setting changes.
+     */
+    protected void applyTheme() {
+        Scheme scheme = ThemeManager.scheme(this);
+        if (!isDrawerLayout()) {
+            ThemeManager.styleWindow(this, scheme); // the drawer's window must stay see-through
+        }
+        NativeTheme.styleTopBar(findViewById(R.id.topBar), scheme);
+        NativeTheme.styleProgressBar(progressBar, scheme);
     }
 
     protected int getLayoutResourceId() {
@@ -258,22 +309,29 @@ public class MainActivity extends Activity {
 
         configureWebView(chatWebView, Providers.DUCK);
 
-        // The WebView from the layout is the duck.ai tab; other providers get their own WebView
-        // the first time they're opened (TabManager). Default: 3 tabs stay loaded (R-PERF-1).
-        tabManager = new TabManager(chatWebView, this::configureWebView, new TabManager.Listener() {
+        accounts = AccountStore.load(prefs);
+        // Before any account WebView exists: delete the data folders of removed accounts
+        // (see web/Profiles for why this waits for a fresh start).
+        Profiles.cleanUp(accounts.all());
+
+        // The WebView from the layout is the duck.ai tab; other accounts get their own WebView (in
+        // their own profile) the first time they're opened. Default: 3 tabs stay loaded (R-PERF-1).
+        tabManager = new TabManager(chatWebView, accounts.duck(), this::configureWebView, new TabManager.Listener() {
             @Override
-            public void onProviderShown(ProviderSpec provider) {
-                onTabShown(provider);
+            public void onAccountShown(Account account) {
+                onTabShown(account);
             }
 
             @Override
-            public void onTabGaveUp(ProviderSpec provider) {
-                Toast.makeText(MainActivity.this, provider.displayName
+            public void onTabGaveUp(Account account) {
+                Toast.makeText(MainActivity.this, account.name
                         + " keeps crashing and was closed.", Toast.LENGTH_LONG).show();
             }
         }, prefs.getInt(PREF_MAX_LIVE_TABS, 3));
         setupTopBar();
         updateTopBar(tabManager.current());
+        appliedNight = ThemeManager.isNight(this);
+        applyTheme();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -291,26 +349,29 @@ public class MainActivity extends Activity {
             handleIntent(getIntent(), false);
         }
 
-        // Normal app launch: reopen the provider the user was using last time.
+        // Normal app launch: reopen the account the user was using last time.
         String launchAction = getIntent() != null ? getIntent().getAction() : null;
         if (Intent.ACTION_MAIN.equals(launchAction) || launchAction == null) {
-            ProviderSpec last = Providers.byId(prefs.getString(PREF_LAST_PROVIDER, Providers.DUCK_ID));
-            if (!last.isDuck()) {
+            String lastId = prefs.getString(PREF_LAST_ACCOUNT,
+                    prefs.getString(PREF_LAST_PROVIDER, Providers.DUCK_ID));
+            Account last = accounts.find(lastId);
+            if (last != null && !last.isDuck()) {
                 tabManager.show(last);
             }
         }
     }
 
     /**
-     * Connects the native top bar (layout/top_bar.xml): the provider chip opens the switcher list,
-     * the gear opens settings. Works the same for every provider (PROJECT.md R-SW-1/2), unlike
-     * duckAssist's settings button, which was injected into duck.ai's page only.
+     * Connects the native top bar (layout/top_bar.xml): the chip opens the account switcher, the gear
+     * opens settings. Works the same for every provider (PROJECT.md R-SW-1/2), unlike duckAssist's
+     * settings button, which was injected into duck.ai's page only.
      */
     private void setupTopBar() {
         View chip = findViewById(R.id.providerChip);
         if (chip != null) {
-            chip.setOnClickListener(v -> SwitcherPopup.show(v, Providers.ALL, tabManager.current(),
-                    provider -> tabManager.show(provider)));
+            chip.setOnClickListener(v -> SwitcherPopup.show(v, accounts.visible(), tabManager.current(),
+                    ThemeManager.scheme(this), account -> tabManager.show(account),
+                    () -> openSettings("accounts")));
         }
         View settings = findViewById(R.id.settingsButton);
         if (settings != null) {
@@ -318,35 +379,38 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Shows the current provider's badge and name in the top bar chip. */
-    private void updateTopBar(ProviderSpec provider) {
+    /** Shows the current account's provider badge and name in the top bar chip. */
+    private void updateTopBar(Account account) {
         TextView badge = findViewById(R.id.providerBadge);
         TextView name = findViewById(R.id.providerName);
         View chip = findViewById(R.id.providerChip);
         if (badge == null || name == null || chip == null) {
             return;
         }
+        ProviderSpec provider = Providers.byId(account.providerId);
         ProviderBadge.apply(badge, provider, ProviderBadge.dp(this, 28));
-        name.setText(provider.displayName);
-        // What screen readers announce for the chip, e.g. "Switch AI provider: ChatGPT".
-        chip.setContentDescription(getString(R.string.switch_provider) + ": " + provider.displayName);
+        name.setText(account.name);
+        // What screen readers announce for the chip, e.g. "Switch account: Work, ChatGPT".
+        String label = account.name.equals(provider.displayName)
+                ? account.name : account.name + ", " + provider.displayName;
+        chip.setContentDescription(getString(R.string.switch_provider) + ": " + label);
     }
 
-    /** Called by TabManager after a provider's tab became visible. */
-    private void onTabShown(ProviderSpec provider) {
-        updateTopBar(provider);
+    /** Called by TabManager after an account's tab became visible (or was renamed). */
+    private void onTabShown(Account account) {
+        updateTopBar(account);
         // A half-finished loading bar from the previous tab must not stay on screen.
         if (progressBar != null) {
             progressBar.setVisibility(View.GONE);
         }
         getSharedPreferences("duck_assist_prefs", MODE_PRIVATE).edit()
-                .putString(PREF_LAST_PROVIDER, provider.id).apply();
+                .putString(PREF_LAST_ACCOUNT, account.id).apply();
     }
 
     /** Brings the duck.ai tab to the front (the app's duck.ai-only features load pages there). */
     private void showDuckTab() {
         if (tabManager != null && !tabManager.current().isDuck()) {
-            tabManager.show(Providers.DUCK);
+            tabManager.show(accounts.duck());
         }
     }
 
@@ -393,7 +457,16 @@ public class MainActivity extends Activity {
         // Text size chosen by the user (pinch gesture), see currentZoomLevel.
         webSettings.setTextZoom(Math.round(currentZoomLevel));
 
-        CookieManager cookieManager = CookieManager.getInstance();
+        // The app draws its own provider icons, so the sites' favicons (tab icons) are never needed:
+        // skipping their download saves data and a little time (PROJECT.md R-PERF-4).
+        if (androidx.webkit.WebViewFeature.isFeatureSupported(
+                androidx.webkit.WebViewFeature.DOWNLOAD_FAVICONS_ENABLED)) {
+            androidx.webkit.WebSettingsCompat.setDownloadFaviconsEnabled(webSettings, false);
+        }
+
+        // Each account has its own cookie jar (its WebView profile, see web/Profiles), so ask this
+        // WebView's profile for it instead of the app-wide CookieManager.getInstance().
+        CookieManager cookieManager = Profiles.cookieManager(webView);
         cookieManager.setAcceptCookie(true);
         // duck.ai needs no third-party cookies. Sign-in pages of other providers often use a
         // security check (e.g. Cloudflare) inside an embedded frame, which needs them.
@@ -403,6 +476,8 @@ public class MainActivity extends Activity {
         webView.setWebChromeClient(new MyWebChromeClient(provider));
 
         webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
+            // Downloads may need the account's login cookies; remember whose they are.
+            downloadCookieManager = cookieManager;
             if (url.startsWith("blob:")) {
                 if (!provider.isDuck()) {
                     // blob: downloads need the helper script + bridge, which only duck.ai's tab has.
@@ -626,6 +701,16 @@ public class MainActivity extends Activity {
 
     @JavascriptInterface
     public void showSettingsDialog() {
+        openSettings(null);
+    }
+
+    /**
+     * Opens the settings page (assets/settings.html) full screen.
+     *
+     * @param section id of a section to scroll to ("accounts" from the switcher's "Manage accounts"),
+     *                or null for the top
+     */
+    private void openSettings(String section) {
         runOnUiThread(() -> {
             android.app.Dialog dialog = new android.app.Dialog(MainActivity.this);
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -786,7 +871,82 @@ public class MainActivity extends Activity {
                 }
             }, "AndroidSettings");
 
-            webView.loadUrl("file:///android_asset/settings.html");
+            // Theme colours for the page (read-only, local page only; see theme/ThemeBridge).
+            webView.addJavascriptInterface(new ThemeBridge(this), "AndroidTheme");
+            // Accounts and Appearance sections (see account/AccountsBridge, theme/AppearanceBridge).
+            webView.addJavascriptInterface(new AccountsBridge(new AccountsBridge.Host() {
+                @Override
+                public AccountStore accounts() {
+                    return accounts;
+                }
+
+                @Override
+                public SharedPreferences prefs() {
+                    return getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
+                }
+
+                @Override
+                public Account currentAccount() {
+                    return tabManager.current();
+                }
+
+                @Override
+                public void runOnUiThread(Runnable action) {
+                    MainActivity.this.runOnUiThread(action);
+                }
+
+                @Override
+                public void onAccountsChanged() {
+                    tabManager.updateAccounts(accounts); // new names, removed tabs, top bar
+                }
+
+                @Override
+                public void closeAccountTab(String accountId) {
+                    tabManager.closeAccount(accountId);
+                }
+
+                @Override
+                public void openAccount(Account account) {
+                    dialog.dismiss();
+                    tabManager.show(account);
+                }
+            }), "AndroidAccounts");
+            webView.addJavascriptInterface(new AppearanceBridge(this, new AppearanceBridge.Host() {
+                @Override
+                public void runOnUiThread(Runnable action) {
+                    MainActivity.this.runOnUiThread(action);
+                }
+
+                @Override
+                public void onThemeChanged() {
+                    applyTheme(); // top bar, system bars… repaint at once
+                }
+            }), "AndroidAppearance");
+            // Light ↔ dark can only fully switch (websites, system dialogs) by rebuilding the screen:
+            // do it when the settings close, so the settings page itself isn't interrupted.
+            dialog.setOnDismissListener(d -> {
+                if (appliedNight != ThemeManager.isNight(MainActivity.this)) {
+                    recreate();
+                }
+            });
+            // Back first closes a pop-up inside the page (rename box, account menu…), then the page.
+            dialog.setOnKeyListener((d, keyCode, event) -> {
+                if (keyCode != KeyEvent.KEYCODE_BACK) {
+                    return false;
+                }
+                if (event.getAction() == KeyEvent.ACTION_UP) {
+                    webView.evaluateJavascript("window.handleBack ? handleBack() : false", handled -> {
+                        if (!"true".equals(handled)) {
+                            dialog.dismiss();
+                        }
+                    });
+                }
+                return true;
+            });
+
+            // Only a plain section name may be appended (never anything from outside the app).
+            boolean validSection = section != null && section.matches("[a-z]{1,20}");
+            webView.loadUrl("file:///android_asset/settings.html" + (validSection ? "#" + section : ""));
             
             dialog.setContentView(webView);
             dialog.show();
@@ -1011,6 +1171,8 @@ public class MainActivity extends Activity {
                 }
             }, "AndroidChatsViewer");
             
+            // Theme colours for the page (read-only, local page only; see theme/ThemeBridge).
+            webView.addJavascriptInterface(new ThemeBridge(this), "AndroidTheme");
             webView.loadUrl("file:///android_asset/chats_viewer.html");
             chatsViewerDialog.setContentView(webView);
             chatsViewerDialog.show();
@@ -1077,6 +1239,8 @@ public class MainActivity extends Activity {
                 }
             }, "AndroidScripts");
 
+            // Theme colours for the page (read-only, local page only; see theme/ThemeBridge).
+            webView.addJavascriptInterface(new ThemeBridge(this), "AndroidTheme");
             webView.loadUrl("file:///android_asset/scripts_manager.html");
             scriptsManagerDialog.setContentView(webView);
             scriptsManagerDialog.show();
@@ -1359,7 +1523,12 @@ public class MainActivity extends Activity {
     private void executeStandardDownload(String url, String userAgent, String mimetype, String filename) {
         Uri source = Uri.parse(url);
         DownloadManager.Request request = new DownloadManager.Request(source);
-        request.addRequestHeader("Cookie", CookieManager.getInstance().getCookie(url));
+        // Send the login cookies of the account that started the download (its own cookie jar).
+        CookieManager cookies = downloadCookieManager != null ? downloadCookieManager : CookieManager.getInstance();
+        String cookieHeader = cookies.getCookie(url);
+        if (cookieHeader != null) {
+            request.addRequestHeader("Cookie", cookieHeader);
+        }
         request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
 
         if (filename.endsWith(".md")) {
@@ -1544,6 +1713,50 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        // The theme may have been changed in the app's other screen (assistant drawer): rebuild if
+        // light/dark flipped, otherwise just repaint (palette / Material You).
+        if (tabManager != null) {
+            if (appliedNight != ThemeManager.isNight(this)) {
+                recreate();
+                return;
+            }
+            applyTheme();
+        }
+        // The account list may have been changed by the app's other screen (the assistant drawer is a
+        // separate activity with its own copy): reload it and refresh tabs + top bar if it differs.
+        if (accounts != null && tabManager != null) {
+            AccountStore fresh = AccountStore.load(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE));
+            if (!fresh.toJson().equals(accounts.toJson())) {
+                accounts = fresh;
+                tabManager.updateAccounts(accounts);
+            }
+        }
+    }
+
+    /**
+     * The manifest lists "uiMode" in configChanges, so switching the phone's dark mode doesn't rebuild
+     * this screen; Android calls this instead. With the "System default" theme, repaint in the new mode.
+     */
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        if (tabManager != null && ThemeManager.MODE_SYSTEM.equals(ThemeManager.mode(this))) {
+            appliedNight = ThemeManager.isNight(this);
+            applyTheme();
+        }
+    }
+
+    /**
+     * Android asks running apps to free memory when the phone runs low. Closing the hidden account
+     * tabs (not duck.ai, not the visible one) frees the most; they reload when opened again
+     * (PROJECT.md R-PERF-1). Docs: https://developer.android.com/reference/android/content/ComponentCallbacks2
+     */
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (tabManager != null && (level >= TRIM_MEMORY_BACKGROUND || level == TRIM_MEMORY_RUNNING_CRITICAL)) {
+            tabManager.closeHiddenTabs();
+        }
     }
 
     @Override
@@ -1554,6 +1767,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onStop() {
         super.onStop();
+        // Save every open account's login cookies to disk now (the app may be closed by Android soon).
+        if (tabManager != null) {
+            tabManager.flushCookies();
+        }
         runOnUiThread(() -> {
             if (chatWebView != null && chatWebView.getUrl() != null && chatWebView.getUrl().startsWith("https://duck")) {
                 chatWebView.evaluateJavascript(js(Scripts.DUMP_CHATS), null);
@@ -1935,6 +2152,8 @@ public class MainActivity extends Activity {
                 }
             }, "AndroidPrompt");
 
+            // Theme colours for the page (read-only, local page only; see theme/ThemeBridge).
+            webView.addJavascriptInterface(new ThemeBridge(this), "AndroidTheme");
             webView.loadUrl("file:///android_asset/prompt_dialog.html");
             promptDialog.setContentView(webView);
             promptDialog.show();
@@ -2417,7 +2636,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         //clearCacheData();
         if (tabManager != null) {
-            tabManager.destroyProviderTabs();
+            tabManager.destroyAccountTabs();
         }
         if (chatWebView != null) {
             chatWebView.destroy();

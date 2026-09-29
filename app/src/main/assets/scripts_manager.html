@@ -439,6 +439,10 @@
             border-top: 1px solid var(--border-color);
         }
     </style>
+    <!-- App theme (palette / Material You / dark mode) as CSS variables, from theme/ThemeBridge.
+         Must stay the last thing in <head> so these colours win over the defaults above.
+         Without the app (e.g. opened in a browser) the page keeps its own colours. -->
+    <script>if (window.AndroidTheme) { document.write('<style id="app-theme">' + AndroidTheme.css() + '</style>'); }</script>
 </head>
 <body>
     <div class="container">

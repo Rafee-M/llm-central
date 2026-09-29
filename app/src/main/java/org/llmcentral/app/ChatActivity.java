@@ -40,6 +40,19 @@ public class ChatActivity extends MainActivity {
     }
 
     @Override
+    protected boolean isDrawerLayout() {
+        return shouldUseDrawer();
+    }
+
+    /** Also paints the drawer sheet and its grab handle with the theme (see ui/NativeTheme). */
+    @Override
+    protected void applyTheme() {
+        super.applyTheme();
+        org.llmcentral.app.ui.NativeTheme.styleDrawer(findViewById(R.id.bottomDrawerCard),
+                findViewById(R.id.dragHandle), org.llmcentral.app.theme.ThemeManager.scheme(this));
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
