@@ -94,6 +94,8 @@ public class MainActivity extends Activity {
     private Uri pendingSharedFileUri = null;
     private java.util.List<Uri> pendingSharedFileUris = null;
     private static boolean isSafeMode = false;
+    // Android's original "uncaught exception" handler (the one that closes a crashed app). See onCreate.
+    private static Thread.UncaughtExceptionHandler systemCrashHandler;
     private boolean isImageZoomActive = false;
     private boolean hasInjectedProgressJs = false;
 
@@ -189,7 +191,21 @@ public class MainActivity extends Activity {
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         super.onCreate(savedInstanceState);
         
+        // Remember Android's own crash handler (only the first time: later onCreate calls would
+        // otherwise capture our own handler from the previous activity instance).
+        if (systemCrashHandler == null) {
+            systemCrashHandler = Thread.getDefaultUncaughtExceptionHandler();
+        }
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            if (thread == android.os.Looper.getMainLooper().getThread() && systemCrashHandler != null) {
+                // The main (UI) thread is dead: nothing can run on it any more, so the "safe mode"
+                // reload below could never happen and the app would just freeze. Let Android handle
+                // it the normal way (close the app so it can be reopened cleanly). PROJECT.md P6.
+                systemCrashHandler.uncaughtException(thread, throwable);
+                return;
+            }
+            // A background thread failed; the app itself still works. Keep the original behaviour:
+            // switch to safe mode (no injected scripts) and reload duck.ai.
             Log.e(TAG, "Uncaught error/exception intercepted. Activating Safe Mode fallback to pure duck.ai webview", throwable);
             isSafeMode = true;
             runOnUiThread(() -> {
@@ -1442,8 +1458,10 @@ public class MainActivity extends Activity {
         String action = intent.getAction();
         String type = intent.getType();
         Uri data = intent.getData();
-        Log.d(TAG, "handleIntent: action = " + action + ", type = " + type + ", data = " + (data != null ? data.toString() : "null"));
-        if (intent.getExtras() != null) {
+        // Debug builds only: the data URL and extras can contain the user's prompt or shared text,
+        // which must not end up in the system log of release builds (PROJECT.md P15, R-SEC-3).
+        if (BuildConfig.DEBUG) Log.d(TAG, "handleIntent: action = " + action + ", type = " + type + ", data = " + (data != null ? data.toString() : "null"));
+        if (BuildConfig.DEBUG && intent.getExtras() != null) {
             for (String key : intent.getExtras().keySet()) {
                 Log.d(TAG, "  extra: " + key + " = " + intent.getExtras().get(key));
             }
@@ -1984,7 +2002,11 @@ public class MainActivity extends Activity {
 
         @Override
         public boolean onConsoleMessage(android.webkit.ConsoleMessage consoleMessage) {
-            Log.d(TAG, "JS Console: " + consoleMessage.message() + " (Line " + consoleMessage.lineNumber() + ")");
+            // Page console messages can contain chat text, so they go to the system log (logcat)
+            // only in debug builds, never in release builds (PROJECT.md P15, R-SEC-3).
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "JS Console: " + consoleMessage.message() + " (Line " + consoleMessage.lineNumber() + ")");
+            }
             return true;
         }
 
