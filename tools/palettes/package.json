@@ -1,0 +1,8 @@
+{
+  "name": "llmcentral-palette-generator",
+  "private": true,
+  "description": "Development-time tool: computes assets/palettes.json with Material Color Utilities. Not part of the app.",
+  "type": "module",
+  "scripts": { "generate": "node generate.mjs" },
+  "dependencies": { "@material/material-color-utilities": "0.3.0" }
+}

@@ -1,16 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Colours of the native top bar and the provider menu (LIGHT mode).
-    values-night/colors.xml holds the dark-mode versions; Android picks the right file automatically
-    depending on the phone's dark-mode setting. They follow Material 3's neutral "surface" colours.
-    Phase 3 (Material You, PROJECT.md §4) will replace them with the user's chosen theme colours.
+    Start-up colours of the native top bar (LIGHT mode; values-night/ has the dark ones).
+    They are only visible for a split second: MainActivity.applyTheme() immediately repaints the bar
+    with the user's theme (palette / Material You / dark mode) from theme/ThemeManager.
 -->
 <resources>
     <color name="top_bar_background">#FFF7F2FA</color>  <!-- M3 surface container low -->
     <color name="chip_background">#FFECE6F0</color>     <!-- M3 surface container high -->
-    <color name="menu_background">#FFF3EDF7</color>     <!-- M3 surface container -->
     <color name="on_surface">#FF1D1B20</color>          <!-- main text -->
     <color name="on_surface_variant">#FF49454F</color>  <!-- secondary text / icons -->
-    <color name="outline_variant">#FFCAC4D0</color>
-    <color name="selected_background">#FFE8DEF8</color>
 </resources>

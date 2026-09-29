@@ -16,6 +16,7 @@ import org.llmcentral.app.R;
 import org.llmcentral.app.account.Account;
 import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
+import org.llmcentral.app.theme.Scheme;
 
 import java.util.List;
 
@@ -27,7 +28,8 @@ import java.util.List;
  *
  * <p>Built with plain Android views ({@link PopupWindow} + {@link LinearLayout}), without any UI
  * library, to keep the app small (decision D1). The rounded Material 3-style look comes from
- * {@link GradientDrawable}s and the colours in {@code res/values/colors.xml}.</p>
+ * {@link GradientDrawable}s; the colours come from the current theme ({@link Scheme}), so the menu
+ * follows the palette, Material You and dark mode.</p>
  */
 public final class SwitcherPopup {
 
@@ -47,8 +49,8 @@ public final class SwitcherPopup {
      * @param current  the account on screen (highlighted)
      * @param onManage runs when "Manage accounts" is tapped
      */
-    public static void show(View anchor, List<Account> accounts, Account current, OnPick onPick,
-                            Runnable onManage) {
+    public static void show(View anchor, List<Account> accounts, Account current, Scheme scheme,
+                            OnPick onPick, Runnable onManage) {
         Context context = anchor.getContext();
         LinearLayout list = new LinearLayout(context);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -57,7 +59,7 @@ public final class SwitcherPopup {
 
         // Rounded "card" background, like a Material 3 menu.
         GradientDrawable background = new GradientDrawable();
-        background.setColor(context.getColor(R.color.menu_background));
+        background.setColor(scheme.get(Scheme.SURFACE_CONTAINER));
         background.setCornerRadius(ProviderBadge.dp(context, 20));
         list.setBackground(background);
 
@@ -69,7 +71,7 @@ public final class SwitcherPopup {
 
         for (Account account : accounts) {
             boolean isCurrent = account.id.equals(current.id);
-            list.addView(createAccountRow(context, account, isCurrent, v -> {
+            list.addView(createAccountRow(context, scheme, account, isCurrent, v -> {
                 popup.dismiss();
                 onPick.onPick(account);
             }));
@@ -77,12 +79,12 @@ public final class SwitcherPopup {
 
         // Thin divider, then "Manage accounts".
         View divider = new View(context);
-        divider.setBackgroundColor(context.getColor(R.color.outline_variant));
+        divider.setBackgroundColor(scheme.get(Scheme.OUTLINE_VARIANT));
         LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, ProviderBadge.dp(context, 1)));
         dividerParams.setMargins(pad, pad, pad, pad);
         list.addView(divider, dividerParams);
-        list.addView(createManageRow(context, v -> {
+        list.addView(createManageRow(context, scheme, v -> {
             popup.dismiss();
             onManage.run();
         }));
@@ -91,14 +93,14 @@ public final class SwitcherPopup {
     }
 
     /** One row: [badge] Name (provider) — at least 56dp tall so it's easy to tap. */
-    private static View createAccountRow(Context context, Account account, boolean isCurrent,
-                                         View.OnClickListener onClick) {
+    private static View createAccountRow(Context context, Scheme scheme, Account account,
+                                         boolean isCurrent, View.OnClickListener onClick) {
         ProviderSpec provider = Providers.byId(account.providerId);
         LinearLayout row = baseRow(context, onClick);
         if (isCurrent) {
             // Material 3 marks the selected menu item with a tinted, rounded background.
             GradientDrawable selected = new GradientDrawable();
-            selected.setColor(context.getColor(R.color.selected_background));
+            selected.setColor(scheme.get(Scheme.SECONDARY_CONTAINER));
             selected.setCornerRadius(ProviderBadge.dp(context, 14));
             row.setBackground(selected);
             row.setSelected(true);
@@ -116,12 +118,13 @@ public final class SwitcherPopup {
         textParams.setMarginStart(ProviderBadge.dp(context, 14));
         row.addView(texts, textParams);
 
-        TextView name = text(context, account.name, 16, R.color.on_surface);
+        int nameColor = scheme.get(isCurrent ? Scheme.ON_SECONDARY_CONTAINER : Scheme.ON_SURFACE);
+        TextView name = text(context, account.name, 16, nameColor);
         texts.addView(name);
         String description = account.name;
         if (!account.name.equals(provider.displayName)) {
             // Second line tells which website this named account belongs to.
-            texts.addView(text(context, provider.displayName, 13, R.color.on_surface_variant));
+            texts.addView(text(context, provider.displayName, 13, scheme.get(Scheme.ON_SURFACE_VARIANT)));
             description = account.name + ", " + provider.displayName;
         }
         row.setContentDescription(isCurrent
@@ -129,16 +132,17 @@ public final class SwitcherPopup {
         return row;
     }
 
-    private static View createManageRow(Context context, View.OnClickListener onClick) {
+    private static View createManageRow(Context context, Scheme scheme, View.OnClickListener onClick) {
         LinearLayout row = baseRow(context, onClick);
         // The same gear icon as the settings button, centred in a badge-sized box so the text lines up.
         ImageView icon = new ImageView(context);
         icon.setImageResource(R.drawable.ic_settings);
+        icon.setImageTintList(android.content.res.ColorStateList.valueOf(scheme.get(Scheme.ON_SURFACE_VARIANT)));
         icon.setScaleType(ImageView.ScaleType.CENTER);
         icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         int size = ProviderBadge.dp(context, 32);
         row.addView(icon, new LinearLayout.LayoutParams(size, size));
-        TextView label = text(context, context.getString(R.string.manage_accounts), 16, R.color.on_surface);
+        TextView label = text(context, context.getString(R.string.manage_accounts), 16, scheme.get(Scheme.ON_SURFACE));
         LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         params.setMarginStart(ProviderBadge.dp(context, 14));
@@ -164,11 +168,11 @@ public final class SwitcherPopup {
         return row;
     }
 
-    private static TextView text(Context context, String value, int sizeSp, int colorRes) {
+    private static TextView text(Context context, String value, int sizeSp, int color) {
         TextView view = new TextView(context);
         view.setText(value);
         view.setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp);
-        view.setTextColor(context.getColor(colorRes));
+        view.setTextColor(color);
         view.setSingleLine(true);
         view.setEllipsize(TextUtils.TruncateAt.END);
         return view;

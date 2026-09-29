@@ -80,6 +80,10 @@ import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
 import org.llmcentral.app.ui.ProviderBadge;
 import org.llmcentral.app.ui.SwitcherPopup;
+import org.llmcentral.app.theme.Scheme;
+import org.llmcentral.app.theme.ThemeBridge;
+import org.llmcentral.app.theme.ThemeManager;
+import org.llmcentral.app.ui.NativeTheme;
 import org.llmcentral.app.web.Profiles;
 import org.llmcentral.app.web.WebViewRecovery;
 
@@ -114,6 +118,9 @@ public class MainActivity extends Activity {
     private static final String PREF_LAST_PROVIDER = "last_provider";
     // Cookie jar of the tab that started the current file download (each account has its own).
     private CookieManager downloadCookieManager;
+    // Light or dark when this screen was built. If the theme setting flips it, the screen is rebuilt
+    // (recreate()) so websites and system dialogs switch too. See theme/ThemeManager.
+    private boolean appliedNight;
     private static final String PREF_MAX_LIVE_TABS = "max_live_tabs";
     // Android's original "uncaught exception" handler (the one that closes a crashed app). See onCreate.
     private static Thread.UncaughtExceptionHandler systemCrashHandler;
@@ -193,9 +200,40 @@ public class MainActivity extends Activity {
     }
 
     protected void setActivityTheme() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            setTheme(android.R.style.Theme_DeviceDefault_DayNight);
+        // Framework light/dark theme matching the app's Theme setting (system dialogs follow it).
+        setTheme(ThemeManager.activityTheme(this));
+    }
+
+    /**
+     * Runs before anything else in the activity, even before onCreate. If the user chose "Light" or
+     * "Dark" instead of "System default", this makes the whole screen (and, on Android 13+, websites
+     * that support dark mode) use that mode whatever the phone is set to. See ThemeManager.nightOverride.
+     */
+    @Override
+    protected void attachBaseContext(Context newBase) {
+        super.attachBaseContext(newBase);
+        android.content.res.Configuration override = ThemeManager.nightOverride(newBase);
+        if (override != null) {
+            applyOverrideConfiguration(override);
         }
+    }
+
+    /** @return true when this screen is the assistant's bottom drawer (ChatActivity overrides it). */
+    protected boolean isDrawerLayout() {
+        return false;
+    }
+
+    /**
+     * Paints the app's native parts with the current theme (PROJECT.md §4): window and system bars,
+     * top bar and loading bar. Called at start and whenever a theme setting changes.
+     */
+    protected void applyTheme() {
+        Scheme scheme = ThemeManager.scheme(this);
+        if (!isDrawerLayout()) {
+            ThemeManager.styleWindow(this, scheme); // the drawer's window must stay see-through
+        }
+        NativeTheme.styleTopBar(findViewById(R.id.topBar), scheme);
+        NativeTheme.styleProgressBar(progressBar, scheme);
     }
 
     protected int getLayoutResourceId() {
@@ -289,6 +327,8 @@ public class MainActivity extends Activity {
         }, prefs.getInt(PREF_MAX_LIVE_TABS, 3), prefs);
         setupTopBar();
         updateTopBar(tabManager.current());
+        appliedNight = ThemeManager.isNight(this);
+        applyTheme();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -327,7 +367,7 @@ public class MainActivity extends Activity {
         View chip = findViewById(R.id.providerChip);
         if (chip != null) {
             chip.setOnClickListener(v -> SwitcherPopup.show(v, accounts.visible(), tabManager.current(),
-                    account -> tabManager.show(account), this::showSettingsDialog));
+                    ThemeManager.scheme(this), account -> tabManager.show(account), this::showSettingsDialog));
         }
         View settings = findViewById(R.id.settingsButton);
         if (settings != null) {
@@ -817,6 +857,8 @@ public class MainActivity extends Activity {
                 }
             }, "AndroidSettings");
 
+            // Theme colours for the page (read-only, local page only; see theme/ThemeBridge).
+            webView.addJavascriptInterface(new ThemeBridge(this), "AndroidTheme");
             webView.loadUrl("file:///android_asset/settings.html");
             
             dialog.setContentView(webView);
@@ -1042,6 +1084,8 @@ public class MainActivity extends Activity {
                 }
             }, "AndroidChatsViewer");
             
+            // Theme colours for the page (read-only, local page only; see theme/ThemeBridge).
+            webView.addJavascriptInterface(new ThemeBridge(this), "AndroidTheme");
             webView.loadUrl("file:///android_asset/chats_viewer.html");
             chatsViewerDialog.setContentView(webView);
             chatsViewerDialog.show();
@@ -1108,6 +1152,8 @@ public class MainActivity extends Activity {
                 }
             }, "AndroidScripts");
 
+            // Theme colours for the page (read-only, local page only; see theme/ThemeBridge).
+            webView.addJavascriptInterface(new ThemeBridge(this), "AndroidTheme");
             webView.loadUrl("file:///android_asset/scripts_manager.html");
             scriptsManagerDialog.setContentView(webView);
             scriptsManagerDialog.show();
@@ -1580,6 +1626,15 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        // The theme may have been changed in the app's other screen (assistant drawer): rebuild if
+        // light/dark flipped, otherwise just repaint (palette / Material You).
+        if (tabManager != null) {
+            if (appliedNight != ThemeManager.isNight(this)) {
+                recreate();
+                return;
+            }
+            applyTheme();
+        }
         // The account list may have been changed by the app's other screen (the assistant drawer is a
         // separate activity with its own copy): reload it and refresh tabs + top bar if it differs.
         if (accounts != null && tabManager != null) {
@@ -1588,6 +1643,19 @@ public class MainActivity extends Activity {
                 accounts = fresh;
                 tabManager.updateAccounts(accounts);
             }
+        }
+    }
+
+    /**
+     * The manifest lists "uiMode" in configChanges, so switching the phone's dark mode doesn't rebuild
+     * this screen; Android calls this instead. With the "System default" theme, repaint in the new mode.
+     */
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        if (tabManager != null && ThemeManager.MODE_SYSTEM.equals(ThemeManager.mode(this))) {
+            appliedNight = ThemeManager.isNight(this);
+            applyTheme();
         }
     }
 
@@ -1997,6 +2065,8 @@ public class MainActivity extends Activity {
                 }
             }, "AndroidPrompt");
 
+            // Theme colours for the page (read-only, local page only; see theme/ThemeBridge).
+            webView.addJavascriptInterface(new ThemeBridge(this), "AndroidTheme");
             webView.loadUrl("file:///android_asset/prompt_dialog.html");
             promptDialog.setContentView(webView);
             promptDialog.show();

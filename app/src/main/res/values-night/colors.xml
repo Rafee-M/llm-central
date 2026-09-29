@@ -3,9 +3,6 @@
 <resources>
     <color name="top_bar_background">#FF1D1B20</color>
     <color name="chip_background">#FF2B2930</color>
-    <color name="menu_background">#FF211F26</color>
     <color name="on_surface">#FFE6E0E9</color>
     <color name="on_surface_variant">#FFCAC4D0</color>
-    <color name="outline_variant">#FF49454F</color>
-    <color name="selected_background">#FF4A4458</color>
 </resources>

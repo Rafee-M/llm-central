@@ -4,7 +4,8 @@
       left  = provider switcher chip: [badge] Name ▾  → opens the provider list (ui/SwitcherPopup)
       right = settings button (gear)                 → opens the app's settings
     Included by activity_main.xml and activity_chat.xml with <include layout="@layout/top_bar"/>,
-    so both screens share exactly the same bar. MainActivity.setupTopBar() connects the buttons.
+    so both screens share exactly the same bar. MainActivity.setupTopBar() connects the buttons and
+    ui/NativeTheme colours it with the current theme (the colours below are only start-up defaults).
 -->
 <!-- tools:ignore="Overdraw": lint checks this file on its own and thinks it's a whole screen. It is
      only a strip inside the screen (included), so its background doesn't paint over the window's. -->
@@ -12,7 +13,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/topBar"
     android:layout_width="match_parent"
-    android:layout_height="52dp"
+    android:layout_height="56dp"
     android:background="@color/top_bar_background"
     android:gravity="center_vertical"
     android:orientation="horizontal"
@@ -20,7 +21,7 @@
     android:paddingEnd="4dp"
     tools:ignore="Overdraw">
 
-    <!-- The chip. minHeight 40dp + the bar's 52dp keep it comfortably tappable. -->
+    <!-- The chip: 40dp tall inside the 56dp bar, comfortably tappable. -->
     <LinearLayout
         android:id="@+id/providerChip"
         android:layout_width="wrap_content"
@@ -47,13 +48,17 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="10dp"
+            android:ellipsize="end"
             android:importantForAccessibility="no"
+            android:maxWidth="200dp"
+            android:singleLine="true"
             android:textColor="@color/on_surface"
             android:textSize="16sp"
             android:textStyle="bold" />
 
         <!-- Small arrow that tells the user "this opens a list". -->
         <TextView
+            android:id="@+id/providerArrow"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="6dp"
