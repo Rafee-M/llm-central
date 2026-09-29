@@ -69,6 +69,7 @@ import androidx.webkit.URLUtilCompat;
 
 import org.llmcentral.app.scripts.UserScriptMatcher;
 import org.llmcentral.app.web.DialogWebViewClient;
+import org.llmcentral.app.web.NavigationPolicy;
 import org.llmcentral.app.web.Scripts;
 import org.llmcentral.app.web.WebViewRecovery;
 
@@ -1473,7 +1474,21 @@ public class MainActivity extends Activity {
                         chatWebView.loadUrl("https://duck.ai/chat?q=" + Uri.encode(query));
                     }
                 } else {
-                    chatWebView.loadUrl(data.toString());
+                    // Other apps can open this screen with any address (the activity is "exported").
+                    // Only load chat-site addresses in-app; everything else (javascript:, file:, other
+                    // websites...) would run with the app's JavaScript bridge (PROJECT.md P14).
+                    String requested = data.toString();
+                    String safeUrl = NavigationPolicy.toInAppUrl(requested);
+                    if (safeUrl != null) {
+                        chatWebView.loadUrl(safeUrl);
+                    } else if (BuildConfig.DEBUG && NavigationPolicy.isRendererTestUrl(requested)) {
+                        // Debug builds only: lets the owner test renderer-crash recovery with
+                        // adb (see CHANGES.md, "How to test the crash recovery").
+                        chatWebView.loadUrl(requested);
+                    } else {
+                        Log.w(TAG, "Refused to load a non-chat address requested by another app");
+                        chatWebView.loadUrl("https://duck.ai/");
+                    }
                 }
             } else {
                 chatWebView.loadUrl("https://duck.ai/");
@@ -1857,8 +1872,10 @@ public class MainActivity extends Activity {
             Uri uri = Uri.parse(url);
             String host = uri.getHost();
             
-            // Allow duck.ai and duckduckgo.com links to load inside the app
-            if (host != null && (host.endsWith("duck.ai") || host.endsWith("duckduckgo.com"))) {
+            // Allow duck.ai and duckduckgo.com (and their real subdomains) to load inside the app.
+            // NavigationPolicy uses an exact domain match; the old endsWith("duck.ai") also let
+            // look-alike sites such as "evilduck.ai" load in-app (PROJECT.md P14).
+            if (NavigationPolicy.isInAppHost(host)) {
                 return false;
             }
 
