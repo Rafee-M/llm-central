@@ -1,9 +1,12 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 plugins {
-    id 'com.android.application' version '8.2.2' apply false
-    id 'com.android.library' version '8.2.2' apply false
+    // Android Gradle Plugin (AGP): the tool that turns this project into an APK.
+    // 8.13.2 is the last 8.x release (tested up to Android API 36.1; needs Gradle 8.13+ and JDK 17).
+    // AGP 9 would require a bigger build-script migration and brings nothing we need yet.
+    id 'com.android.application' version '8.13.2' apply false
+    id 'com.android.library' version '8.13.2' apply false
 }
 
 task clean(type: Delete) {
-    delete rootProject.buildDir
+    delete rootProject.layout.buildDirectory  // 'buildDir' is deprecated in Gradle 8
 }
