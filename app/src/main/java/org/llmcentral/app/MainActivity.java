@@ -30,6 +30,7 @@ import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 import android.widget.EditText;
+import android.widget.TextView;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import androidx.core.content.FileProvider;
@@ -74,6 +75,8 @@ import org.llmcentral.app.web.Scripts;
 import org.llmcentral.app.web.TabManager;
 import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
+import org.llmcentral.app.ui.ProviderBadge;
+import org.llmcentral.app.ui.SwitcherPopup;
 import org.llmcentral.app.web.WebViewRecovery;
 
 import java.io.UnsupportedEncodingException;
@@ -268,6 +271,8 @@ public class MainActivity extends Activity {
                         + " keeps crashing and was closed.", Toast.LENGTH_LONG).show();
             }
         }, prefs.getInt(PREF_MAX_LIVE_TABS, 3));
+        setupTopBar();
+        updateTopBar(tabManager.current());
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -295,8 +300,40 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * Connects the native top bar (layout/top_bar.xml): the provider chip opens the switcher list,
+     * the gear opens settings. Works the same for every provider (PROJECT.md R-SW-1/2), unlike
+     * duckAssist's settings button, which was injected into duck.ai's page only.
+     */
+    private void setupTopBar() {
+        View chip = findViewById(R.id.providerChip);
+        if (chip != null) {
+            chip.setOnClickListener(v -> SwitcherPopup.show(v, Providers.ALL, tabManager.current(),
+                    provider -> tabManager.show(provider)));
+        }
+        View settings = findViewById(R.id.settingsButton);
+        if (settings != null) {
+            settings.setOnClickListener(v -> showSettingsDialog());
+        }
+    }
+
+    /** Shows the current provider's badge and name in the top bar chip. */
+    private void updateTopBar(ProviderSpec provider) {
+        TextView badge = findViewById(R.id.providerBadge);
+        TextView name = findViewById(R.id.providerName);
+        View chip = findViewById(R.id.providerChip);
+        if (badge == null || name == null || chip == null) {
+            return;
+        }
+        ProviderBadge.apply(badge, provider, ProviderBadge.dp(this, 28));
+        name.setText(provider.displayName);
+        // What screen readers announce for the chip, e.g. "Switch AI provider: ChatGPT".
+        chip.setContentDescription(getString(R.string.switch_provider) + ": " + provider.displayName);
+    }
+
     /** Called by TabManager after a provider's tab became visible. */
     private void onTabShown(ProviderSpec provider) {
+        updateTopBar(provider);
         // A half-finished loading bar from the previous tab must not stay on screen.
         if (progressBar != null) {
             progressBar.setVisibility(View.GONE);
@@ -2033,7 +2070,6 @@ public class MainActivity extends Activity {
                 safeEvaluateJavascript(view, js(Scripts.AUTO_FOCUS));
                 pendingAutoFocus = false;
             }
-            safeEvaluateJavascript(view, js(Scripts.SETTINGS_BUTTON));
             safeEvaluateJavascript(view, js(Scripts.SWIPE_SCROLL));
             injectUserScripts(view, url);
             if (pendingContinueLastChat) {
@@ -2094,7 +2130,6 @@ public class MainActivity extends Activity {
                 hasInjectedProgressJs = true;
                 safeEvaluateJavascript(view, js(Scripts.BLOB_DOWNLOAD_PATCH));
                 safeEvaluateJavascript(view, js(Scripts.CLIPBOARD_PATCH));
-                safeEvaluateJavascript(view, js(Scripts.SETTINGS_BUTTON));
                 safeEvaluateJavascript(view, js(Scripts.SWIPE_SCROLL));
                 SharedPreferences prefs = view.getContext().getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
                 if (prefs.getBoolean("rtl_resolver", false)) {

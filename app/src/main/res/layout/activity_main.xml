@@ -1,22 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="vertical"
+<!--
+    Full-screen layout: native top bar (provider switcher + settings) above the web content.
+    The RelativeLayout below is the "tab container": it holds duck.ai's WebView (chatWebView) and,
+    added at runtime by web/TabManager, one WebView per other provider, with the loading bar on top.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fitsSystemWindows="true">
+    android:fitsSystemWindows="true"
+    android:orientation="vertical">
 
-    <WebView
-        android:id="@+id/chatWebView"
+    <include layout="@layout/top_bar" />
+
+    <RelativeLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="0dp"
+        android:layout_weight="1">
 
-    <ProgressBar
-        android:id="@+id/progressBar"
-        style="?android:attr/progressBarStyleHorizontal"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_alignParentTop="true"
-        android:indeterminate="true"
-        android:visibility="gone" />
+        <WebView
+            android:id="@+id/chatWebView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
 
-</RelativeLayout>
+        <ProgressBar
+            android:id="@+id/progressBar"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_alignParentTop="true"
+            android:indeterminate="true"
+            android:visibility="gone" />
+    </RelativeLayout>
+</LinearLayout>
