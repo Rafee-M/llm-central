@@ -68,7 +68,9 @@ import java.util.Locale;
 import androidx.webkit.URLUtilCompat;
 
 import org.llmcentral.app.scripts.UserScriptMatcher;
+import org.llmcentral.app.web.DialogWebViewClient;
 import org.llmcentral.app.web.Scripts;
+import org.llmcentral.app.web.WebViewRecovery;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
@@ -203,28 +205,6 @@ public class MainActivity extends Activity {
         progressBar = findViewById(R.id.progressBar);
         chatWebView = findViewById(R.id.chatWebView);
 
-        WebSettings webSettings = chatWebView.getSettings();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
-        }
-        webSettings.setJavaScriptEnabled(true);
-        webSettings.setDomStorageEnabled(true);
-        webSettings.setLoadWithOverviewMode(true);
-        webSettings.setUseWideViewPort(true);
-        webSettings.setSupportZoom(true);
-        webSettings.setBuiltInZoomControls(true);
-        webSettings.setDisplayZoomControls(false);
-        webSettings.setAllowFileAccess(true);
-        webSettings.setAllowContentAccess(true);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            webSettings.setMediaPlaybackRequiresUserGesture(false);
-        }
-        webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        webSettings.setDatabaseEnabled(true);
-        webSettings.setDomStorageEnabled(true);
-        webSettings.setSaveFormData(false);
-        webSettings.setGeolocationEnabled(false);
-
         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
         java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
             try {
@@ -246,18 +226,71 @@ public class MainActivity extends Activity {
                 lastFetchedChatsJson = "{}";
             }
         });
-        int savedZoom = prefs.getInt("text_zoom", 100);
-        currentZoomLevel = (float) savedZoom;
-        webSettings.setTextZoom(savedZoom);
+        currentZoomLevel = (float) prefs.getInt("text_zoom", 100);
+
+        configureChatWebView(chatWebView);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[] { Manifest.permission.RECORD_AUDIO }, 123);
+            }
+        }
+
+        boolean restored = false;
+        if (savedInstanceState != null) {
+            if (chatWebView.restoreState(savedInstanceState) != null) {
+                restored = true;
+            }
+        }
+        if (!restored) {
+            handleIntent(getIntent(), false);
+        }
+    }
+
+    /**
+     * Applies all settings, listeners and bridges to the main chat WebView.
+     *
+     * <p>Called from onCreate() for the WebView in the layout, and again for the replacement WebView
+     * that is created after the renderer process died (see MyWebViewClient.onRenderProcessGone).
+     * Keeping this in one method guarantees both get exactly the same setup.</p>
+     *
+     * <p>Note: code inside the listeners below uses the field {@code chatWebView} (not the parameter),
+     * so it always talks to the WebView that is currently on screen.</p>
+     */
+    private void configureChatWebView(WebView webView) {
+        WebSettings webSettings = webView.getSettings();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
+        }
+        webSettings.setJavaScriptEnabled(true);
+        webSettings.setDomStorageEnabled(true);
+        webSettings.setLoadWithOverviewMode(true);
+        webSettings.setUseWideViewPort(true);
+        webSettings.setSupportZoom(true);
+        webSettings.setBuiltInZoomControls(true);
+        webSettings.setDisplayZoomControls(false);
+        webSettings.setAllowFileAccess(true);
+        webSettings.setAllowContentAccess(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+            webSettings.setMediaPlaybackRequiresUserGesture(false);
+        }
+        webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        webSettings.setDatabaseEnabled(true);
+        webSettings.setDomStorageEnabled(true);
+        webSettings.setSaveFormData(false);
+        webSettings.setGeolocationEnabled(false);
+
+        // Text size chosen by the user (pinch gesture), see currentZoomLevel.
+        webSettings.setTextZoom(Math.round(currentZoomLevel));
 
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
-        cookieManager.setAcceptThirdPartyCookies(chatWebView, false);
+        cookieManager.setAcceptThirdPartyCookies(webView, false);
 
-        chatWebView.setWebViewClient(new MyWebViewClient());
-        chatWebView.setWebChromeClient(new MyWebChromeClient());
+        webView.setWebViewClient(new MyWebViewClient());
+        webView.setWebChromeClient(new MyWebChromeClient());
 
-        chatWebView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
+        webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
             if (url.startsWith("blob:")) {
                 // Values that come from the web page (URL, file name, type) are turned into safe JS string
                 // literals with JSONObject.quote(), which escapes quotes, backslashes and line breaks.
@@ -316,7 +349,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        chatWebView.addJavascriptInterface(this, "Android");
+        webView.addJavascriptInterface(this, "Android");
 
         ScaleGestureDetector scaleGestureDetector = new ScaleGestureDetector(this, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
             @Override
@@ -337,7 +370,7 @@ public class MainActivity extends Activity {
             scaleGestureDetector.setQuickScaleEnabled(false);
         }
 
-        chatWebView.setOnTouchListener(new View.OnTouchListener() {
+        webView.setOnTouchListener(new View.OnTouchListener() {
             @SuppressLint("ClickableViewAccessibility")
             @Override
             public boolean onTouch(View v, MotionEvent event) {
@@ -348,21 +381,6 @@ public class MainActivity extends Activity {
                 return event.getPointerCount() > 1 || scaleGestureDetector.isInProgress();
             }
         });
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[] { Manifest.permission.RECORD_AUDIO }, 123);
-            }
-        }
-
-        boolean restored = false;
-        if (savedInstanceState != null) {
-            if (chatWebView.restoreState(savedInstanceState) != null) {
-                restored = true;
-            }
-        }
-        if (!restored) {
-            handleIntent(getIntent(), false);
-        }
     }
 
     @JavascriptInterface
@@ -493,6 +511,9 @@ public class MainActivity extends Activity {
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
             
             WebView webView = new WebView(MainActivity.this);
+            // Handles "renderer died" (closes this dialog instead of the app crashing) and keeps
+            // web links opening in the browser. See web/DialogWebViewClient.java.
+            webView.setWebViewClient(new DialogWebViewClient(dialog::dismiss));
             WebSettings ws = webView.getSettings();
             ws.setJavaScriptEnabled(true);
             ws.setDomStorageEnabled(true);
@@ -806,6 +827,10 @@ public class MainActivity extends Activity {
             chatsViewerDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
             
             WebView webView = new WebView(MainActivity.this);
+            // Handles "renderer died" (closes this dialog instead of the app crashing) and keeps
+            // web links opening in the browser. See web/DialogWebViewClient.java.
+            final android.app.Dialog thisDialog = chatsViewerDialog;
+            webView.setWebViewClient(new DialogWebViewClient(thisDialog::dismiss));
             WebSettings ws = webView.getSettings();
             ws.setJavaScriptEnabled(true);
             ws.setDomStorageEnabled(true);
@@ -866,6 +891,10 @@ public class MainActivity extends Activity {
             scriptsManagerDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
             WebView webView = new WebView(MainActivity.this);
+            // Handles "renderer died" (closes this dialog instead of the app crashing) and keeps
+            // web links opening in the browser. See web/DialogWebViewClient.java.
+            final android.app.Dialog thisDialog = scriptsManagerDialog;
+            webView.setWebViewClient(new DialogWebViewClient(thisDialog::dismiss));
             WebSettings ws = webView.getSettings();
             ws.setJavaScriptEnabled(true);
             ws.setDomStorageEnabled(true);
@@ -1673,6 +1702,10 @@ public class MainActivity extends Activity {
             promptDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
             
             WebView webView = new WebView(MainActivity.this);
+            // Handles "renderer died" (closes this dialog instead of the app crashing) and keeps
+            // web links opening in the browser. See web/DialogWebViewClient.java.
+            final android.app.Dialog thisDialog = promptDialog;
+            webView.setWebViewClient(new DialogWebViewClient(thisDialog::dismiss));
             webView.setBackgroundColor(Color.TRANSPARENT);
             WebSettings ws = webView.getSettings();
             ws.setJavaScriptEnabled(true);
@@ -1748,7 +1781,73 @@ public class MainActivity extends Activity {
         });
     }
 
+    // Times (ms since boot) of recent renderer recoveries, used to detect a crash loop.
+    private final java.util.ArrayDeque<Long> rendererRecoveryTimes = new java.util.ArrayDeque<>();
+    private static final int MAX_RECOVERIES_PER_MINUTE = 3;
+
     private class MyWebViewClient extends WebViewClient {
+
+        /**
+         * Android 8.0+ calls this when the renderer process behind the chat WebView died, either
+         * because Android reclaimed memory ({@code didCrash() == false}, common in the background) or
+         * because it crashed ({@code didCrash() == true}). Before this handler existed, the whole app
+         * was killed in both cases (PROJECT.md P2).
+         *
+         * <p>Recovery: replace the dead WebView with a fresh one in the same spot, configure it exactly
+         * like the original ({@link #configureChatWebView}) and reload the page the user was on. If
+         * the page keeps crashing (3 times within a minute), load the local offline chat viewer
+         * instead, to avoid an endless crash-and-reload loop.</p>
+         *
+         * @return true = "handled, don't kill the app"
+         */
+        @Override
+        @androidx.annotation.RequiresApi(Build.VERSION_CODES.O)
+        public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+            boolean crashed = detail.didCrash();
+            Log.w(TAG, "Chat WebView renderer gone (crashed=" + crashed + "); recovering");
+
+            if (view != chatWebView) {
+                // A WebView that is no longer the current one (shouldn't happen): just free it.
+                WebViewRecovery.discard(view);
+                return true;
+            }
+
+            String lastUrl = view.getUrl(); // read before the dead view is destroyed
+
+            // The old file-picker callback belongs to the dead WebView: forget it (don't call it).
+            mUploadMessage = null;
+            hasInjectedProgressJs = false;
+            if (progressBar != null) {
+                progressBar.setVisibility(View.GONE);
+            }
+
+            chatWebView = WebViewRecovery.replace(view);
+            configureChatWebView(chatWebView);
+
+            // Crash-loop guard: keep only recoveries from the last 60 seconds.
+            long now = android.os.SystemClock.elapsedRealtime();
+            rendererRecoveryTimes.addLast(now);
+            while (!rendererRecoveryTimes.isEmpty() && now - rendererRecoveryTimes.peekFirst() > 60_000) {
+                rendererRecoveryTimes.removeFirst();
+            }
+
+            if (rendererRecoveryTimes.size() >= MAX_RECOVERIES_PER_MINUTE) {
+                Toast.makeText(MainActivity.this,
+                        "The chat page keeps crashing. Showing saved chats instead.", Toast.LENGTH_LONG).show();
+                chatWebView.loadUrl("file:///android_asset/chats_viewer.html");
+            } else {
+                if (crashed) {
+                    Toast.makeText(MainActivity.this,
+                            "The chat page stopped unexpectedly and was reloaded.", Toast.LENGTH_SHORT).show();
+                }
+                // Only reload real web pages; anything else (or nothing) → start page.
+                boolean isWebPage = lastUrl != null
+                        && (lastUrl.startsWith("https://") || lastUrl.startsWith("http://"));
+                chatWebView.loadUrl(isWebPage ? lastUrl : "https://duck.ai/");
+            }
+            return true;
+        }
+
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, String url) {
             if (url == null) return false;
