@@ -45,7 +45,11 @@
                 android:background="#D1D1D6" />
         </LinearLayout>
 
-        <!-- WebView container that fills the remaining space -->
+        <!-- Same top bar as the full-screen layout (provider switcher + settings). It sits below the
+             drag handle, not inside it, so tapping the chip never starts a drag. -->
+        <include layout="@layout/top_bar" />
+
+        <!-- WebView container (the "tab container", see activity_main.xml) that fills the remaining space -->
         <RelativeLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"

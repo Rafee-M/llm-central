@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Rounded "pill" behind the provider switcher chip in the top bar (Material 3 style). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/chip_background" />
+    <corners android:radius="20dp" />
+</shape>

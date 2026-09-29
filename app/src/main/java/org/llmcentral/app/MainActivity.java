@@ -30,6 +30,7 @@ import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 import android.widget.EditText;
+import android.widget.TextView;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import androidx.core.content.FileProvider;
@@ -71,6 +72,12 @@ import org.llmcentral.app.scripts.UserScriptMatcher;
 import org.llmcentral.app.web.DialogWebViewClient;
 import org.llmcentral.app.web.NavigationPolicy;
 import org.llmcentral.app.web.Scripts;
+import org.llmcentral.app.web.TabLru;
+import org.llmcentral.app.web.TabManager;
+import org.llmcentral.app.provider.ProviderSpec;
+import org.llmcentral.app.provider.Providers;
+import org.llmcentral.app.ui.ProviderBadge;
+import org.llmcentral.app.ui.SwitcherPopup;
 import org.llmcentral.app.web.WebViewRecovery;
 
 import java.io.UnsupportedEncodingException;
@@ -94,6 +101,12 @@ public class MainActivity extends Activity {
     private Uri pendingSharedFileUri = null;
     private java.util.List<Uri> pendingSharedFileUris = null;
     private static boolean isSafeMode = false;
+    // One WebView per provider ("tab"); chatWebView above is always the duck.ai tab. See web/TabManager.
+    private TabManager tabManager;
+    private static final String PREF_LAST_PROVIDER = "last_provider";
+    private static final String PREF_MAX_LIVE_TABS = "max_live_tabs";
+    // Android's original "uncaught exception" handler (the one that closes a crashed app). See onCreate.
+    private static Thread.UncaughtExceptionHandler systemCrashHandler;
     private boolean isImageZoomActive = false;
     private boolean hasInjectedProgressJs = false;
 
@@ -189,7 +202,21 @@ public class MainActivity extends Activity {
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         super.onCreate(savedInstanceState);
         
+        // Remember Android's own crash handler (only the first time: later onCreate calls would
+        // otherwise capture our own handler from the previous activity instance).
+        if (systemCrashHandler == null) {
+            systemCrashHandler = Thread.getDefaultUncaughtExceptionHandler();
+        }
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            if (thread == android.os.Looper.getMainLooper().getThread() && systemCrashHandler != null) {
+                // The main (UI) thread is dead: nothing can run on it any more, so the "safe mode"
+                // reload below could never happen and the app would just freeze. Let Android handle
+                // it the normal way (close the app so it can be reopened cleanly). PROJECT.md P6.
+                systemCrashHandler.uncaughtException(thread, throwable);
+                return;
+            }
+            // A background thread failed; the app itself still works. Keep the original behaviour:
+            // switch to safe mode (no injected scripts) and reload duck.ai.
             Log.e(TAG, "Uncaught error/exception intercepted. Activating Safe Mode fallback to pure duck.ai webview", throwable);
             isSafeMode = true;
             runOnUiThread(() -> {
@@ -229,7 +256,24 @@ public class MainActivity extends Activity {
         });
         currentZoomLevel = (float) prefs.getInt("text_zoom", 100);
 
-        configureChatWebView(chatWebView);
+        configureWebView(chatWebView, Providers.DUCK);
+
+        // The WebView from the layout is the duck.ai tab; other providers get their own WebView
+        // the first time they're opened (TabManager). Default: 3 tabs stay loaded (R-PERF-1).
+        tabManager = new TabManager(chatWebView, this::configureWebView, new TabManager.Listener() {
+            @Override
+            public void onProviderShown(ProviderSpec provider) {
+                onTabShown(provider);
+            }
+
+            @Override
+            public void onTabGaveUp(ProviderSpec provider) {
+                Toast.makeText(MainActivity.this, provider.displayName
+                        + " keeps crashing and was closed.", Toast.LENGTH_LONG).show();
+            }
+        }, prefs.getInt(PREF_MAX_LIVE_TABS, 3));
+        setupTopBar();
+        updateTopBar(tabManager.current());
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -246,19 +290,84 @@ public class MainActivity extends Activity {
         if (!restored) {
             handleIntent(getIntent(), false);
         }
+
+        // Normal app launch: reopen the provider the user was using last time.
+        String launchAction = getIntent() != null ? getIntent().getAction() : null;
+        if (Intent.ACTION_MAIN.equals(launchAction) || launchAction == null) {
+            ProviderSpec last = Providers.byId(prefs.getString(PREF_LAST_PROVIDER, Providers.DUCK_ID));
+            if (!last.isDuck()) {
+                tabManager.show(last);
+            }
+        }
     }
 
     /**
-     * Applies all settings, listeners and bridges to the main chat WebView.
-     *
-     * <p>Called from onCreate() for the WebView in the layout, and again for the replacement WebView
-     * that is created after the renderer process died (see MyWebViewClient.onRenderProcessGone).
-     * Keeping this in one method guarantees both get exactly the same setup.</p>
-     *
-     * <p>Note: code inside the listeners below uses the field {@code chatWebView} (not the parameter),
-     * so it always talks to the WebView that is currently on screen.</p>
+     * Connects the native top bar (layout/top_bar.xml): the provider chip opens the switcher list,
+     * the gear opens settings. Works the same for every provider (PROJECT.md R-SW-1/2), unlike
+     * duckAssist's settings button, which was injected into duck.ai's page only.
      */
-    private void configureChatWebView(WebView webView) {
+    private void setupTopBar() {
+        View chip = findViewById(R.id.providerChip);
+        if (chip != null) {
+            chip.setOnClickListener(v -> SwitcherPopup.show(v, Providers.ALL, tabManager.current(),
+                    provider -> tabManager.show(provider)));
+        }
+        View settings = findViewById(R.id.settingsButton);
+        if (settings != null) {
+            settings.setOnClickListener(v -> showSettingsDialog());
+        }
+    }
+
+    /** Shows the current provider's badge and name in the top bar chip. */
+    private void updateTopBar(ProviderSpec provider) {
+        TextView badge = findViewById(R.id.providerBadge);
+        TextView name = findViewById(R.id.providerName);
+        View chip = findViewById(R.id.providerChip);
+        if (badge == null || name == null || chip == null) {
+            return;
+        }
+        ProviderBadge.apply(badge, provider, ProviderBadge.dp(this, 28));
+        name.setText(provider.displayName);
+        // What screen readers announce for the chip, e.g. "Switch AI provider: ChatGPT".
+        chip.setContentDescription(getString(R.string.switch_provider) + ": " + provider.displayName);
+    }
+
+    /** Called by TabManager after a provider's tab became visible. */
+    private void onTabShown(ProviderSpec provider) {
+        updateTopBar(provider);
+        // A half-finished loading bar from the previous tab must not stay on screen.
+        if (progressBar != null) {
+            progressBar.setVisibility(View.GONE);
+        }
+        getSharedPreferences("duck_assist_prefs", MODE_PRIVATE).edit()
+                .putString(PREF_LAST_PROVIDER, provider.id).apply();
+    }
+
+    /** Brings the duck.ai tab to the front (the app's duck.ai-only features load pages there). */
+    private void showDuckTab() {
+        if (tabManager != null && !tabManager.current().isDuck()) {
+            tabManager.show(Providers.DUCK);
+        }
+    }
+
+    /** @return true if this WebView is the tab on screen (hidden tabs must not move the loading bar). */
+    private boolean isVisibleTab(WebView view) {
+        return tabManager == null || view == tabManager.currentWebView();
+    }
+
+    /**
+     * Applies all settings, listeners and bridges to a provider's WebView ("tab").
+     *
+     * <p>Called for duck.ai's WebView from the layout (onCreate), for every other provider's WebView
+     * when TabManager creates it, and for replacement WebViews after the renderer died. Keeping this
+     * in one method guarantees they all get the same setup.</p>
+     *
+     * <p><b>duck.ai vs. the others:</b> only duck.ai's tab gets the app's JavaScript bridge
+     * ({@code window.Android}) and the injected helper scripts. The bridge can read saved duck.ai
+     * chats and save files, so it must never be reachable by other websites (PROJECT.md P1).
+     * Other providers get a plain, secure browser tab.</p>
+     */
+    private void configureWebView(WebView webView, ProviderSpec provider) {
         WebSettings webSettings = webView.getSettings();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
@@ -286,13 +395,21 @@ public class MainActivity extends Activity {
 
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
-        cookieManager.setAcceptThirdPartyCookies(webView, false);
+        // duck.ai needs no third-party cookies. Sign-in pages of other providers often use a
+        // security check (e.g. Cloudflare) inside an embedded frame, which needs them.
+        cookieManager.setAcceptThirdPartyCookies(webView, !provider.isDuck());
 
-        webView.setWebViewClient(new MyWebViewClient());
-        webView.setWebChromeClient(new MyWebChromeClient());
+        webView.setWebViewClient(new MyWebViewClient(provider));
+        webView.setWebChromeClient(new MyWebChromeClient(provider));
 
         webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
             if (url.startsWith("blob:")) {
+                if (!provider.isDuck()) {
+                    // blob: downloads need the helper script + bridge, which only duck.ai's tab has.
+                    Toast.makeText(MainActivity.this, "This kind of download isn't supported for "
+                            + provider.displayName + " yet.", Toast.LENGTH_SHORT).show();
+                    return;
+                }
                 // Values that come from the web page (URL, file name, type) are turned into safe JS string
                 // literals with JSONObject.quote(), which escapes quotes, backslashes and line breaks.
                 // Pasting them in raw (as before) would let a crafted file name inject its own JavaScript.
@@ -350,7 +467,9 @@ public class MainActivity extends Activity {
             }
         });
 
-        webView.addJavascriptInterface(this, "Android");
+        if (provider.isDuck()) {
+            webView.addJavascriptInterface(this, "Android");
+        }
 
         ScaleGestureDetector scaleGestureDetector = new ScaleGestureDetector(this, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
             @Override
@@ -360,7 +479,7 @@ public class MainActivity extends Activity {
                 // Clamp text zoom between 50% and 300%
                 currentZoomLevel = Math.max(50f, Math.min(currentZoomLevel, 300f));
                 int newZoom = Math.round(currentZoomLevel);
-                chatWebView.getSettings().setTextZoom(newZoom);
+                webView.getSettings().setTextZoom(newZoom);
                 
                 SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
                 prefs.edit().putInt("text_zoom", newZoom).apply();
@@ -536,6 +655,7 @@ public class MainActivity extends Activity {
                         obj.put("prompt_on_launch", prefs.getBoolean("prompt_on_launch", false));
                         obj.put("ask_duck_suffix", prefs.getString("ask_duck_suffix", ""));
                         obj.put("shared_doc_suffix", prefs.getString("shared_doc_suffix", ""));
+                        obj.put("max_live_tabs", prefs.getInt(PREF_MAX_LIVE_TABS, 3));
                     } catch (Exception e) {
                         Log.e(TAG, "Error generating settings JSON", e);
                     }
@@ -554,6 +674,9 @@ public class MainActivity extends Activity {
                             autoFocus = false;
                         }
                         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
+                        // "Providers kept loaded" (1–5); anything else from the page is clamped.
+                        int maxTabs = Math.max(TabLru.MIN_LIVE_TABS,
+                                Math.min(TabLru.MAX_LIVE_TABS, obj.optInt("max_live_tabs", 3)));
                         boolean oldRtl = prefs.getBoolean("rtl_resolver", false);
                         boolean newRtl = obj.optBoolean("rtl_resolver", false);
                         prefs.edit()
@@ -566,7 +689,14 @@ public class MainActivity extends Activity {
                              .putBoolean("prompt_on_launch", promptLaunch)
                              .putString("ask_duck_suffix", obj.optString("ask_duck_suffix", ""))
                              .putString("shared_doc_suffix", obj.optString("shared_doc_suffix", ""))
+                             .putInt(PREF_MAX_LIVE_TABS, maxTabs)
                              .apply();
+                        // Apply right away: lowering the number closes the least recently used tabs.
+                        runOnUiThread(() -> {
+                            if (tabManager != null) {
+                                tabManager.setMaxLiveTabs(maxTabs);
+                            }
+                        });
                         if (newRtl != oldRtl && chatWebView != null) {
                             runOnUiThread(() -> {
                                 if (newRtl) {
@@ -597,6 +727,9 @@ public class MainActivity extends Activity {
                             autoFocus = false;
                         }
                         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
+                        // "Providers kept loaded" (1–5); anything else from the page is clamped.
+                        int maxTabs = Math.max(TabLru.MIN_LIVE_TABS,
+                                Math.min(TabLru.MAX_LIVE_TABS, obj.optInt("max_live_tabs", 3)));
                         boolean oldRtl = prefs.getBoolean("rtl_resolver", false);
                         boolean newRtl = obj.optBoolean("rtl_resolver", false);
                         prefs.edit()
@@ -609,7 +742,14 @@ public class MainActivity extends Activity {
                              .putBoolean("prompt_on_launch", promptLaunch)
                              .putString("ask_duck_suffix", obj.optString("ask_duck_suffix", ""))
                              .putString("shared_doc_suffix", obj.optString("shared_doc_suffix", ""))
+                             .putInt(PREF_MAX_LIVE_TABS, maxTabs)
                              .apply();
+                        // Apply right away: lowering the number closes the least recently used tabs.
+                        runOnUiThread(() -> {
+                            if (tabManager != null) {
+                                tabManager.setMaxLiveTabs(maxTabs);
+                            }
+                        });
                         if (newRtl != oldRtl && chatWebView != null) {
                             runOnUiThread(() -> {
                                 if (newRtl) {
@@ -1442,11 +1582,19 @@ public class MainActivity extends Activity {
         String action = intent.getAction();
         String type = intent.getType();
         Uri data = intent.getData();
-        Log.d(TAG, "handleIntent: action = " + action + ", type = " + type + ", data = " + (data != null ? data.toString() : "null"));
-        if (intent.getExtras() != null) {
+        // Debug builds only: the data URL and extras can contain the user's prompt or shared text,
+        // which must not end up in the system log of release builds (PROJECT.md P15, R-SEC-3).
+        if (BuildConfig.DEBUG) Log.d(TAG, "handleIntent: action = " + action + ", type = " + type + ", data = " + (data != null ? data.toString() : "null"));
+        if (BuildConfig.DEBUG && intent.getExtras() != null) {
             for (String key : intent.getExtras().keySet()) {
                 Log.d(TAG, "  extra: " + key + " = " + intent.getExtras().get(key));
             }
+        }
+
+        // Links, sharing, "Ask duck.ai" and the assistant gesture are all duck.ai features:
+        // show the duck.ai tab first. A normal launch (MAIN) keeps whatever tab is open.
+        if (action != null && !Intent.ACTION_MAIN.equals(action)) {
+            showDuckTab();
         }
 
         if (Intent.ACTION_VIEW.equals(action)) {
@@ -1648,7 +1796,9 @@ public class MainActivity extends Activity {
             pendingVoiceChat = false;
             safeEvaluateJavascript(chatWebView, "window.isVoiceChatActive = false;");
             SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-            boolean autoFocus = prefs.getBoolean("auto_focus_keyboard", false);
+            // "Auto-focus keyboard" only applies while duck.ai is the tab on screen.
+            boolean autoFocus = prefs.getBoolean("auto_focus_keyboard", false)
+                    && (tabManager == null || tabManager.current().isDuck());
             if (autoFocus) {
                 String currentUrl = chatWebView.getUrl();
                 if (currentUrl != null && currentUrl.startsWith("https://duck.ai")) {
@@ -1676,6 +1826,7 @@ public class MainActivity extends Activity {
 
     private void loadDuckChatPrompt(String promptText) {
         if (promptText == null || promptText.trim().isEmpty()) return;
+        showDuckTab();
         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
         boolean continueLastChat = prefs.getBoolean("continue_last_chat", false);
         if (continueLastChat) {
@@ -1732,6 +1883,7 @@ public class MainActivity extends Activity {
                 @JavascriptInterface
                 public void sendPrompt(String text) {
                     runOnUiThread(() -> {
+                        showDuckTab();
                         if (promptDialog != null && promptDialog.isShowing()) {
                             promptDialog.dismiss();
                         }
@@ -1802,6 +1954,13 @@ public class MainActivity extends Activity {
 
     private class MyWebViewClient extends WebViewClient {
 
+        /** The provider whose tab this client serves (decides allowed links and injected scripts). */
+        private final ProviderSpec provider;
+
+        MyWebViewClient(ProviderSpec provider) {
+            this.provider = provider;
+        }
+
         /**
          * Android 8.0+ calls this when the renderer process behind the chat WebView died, either
          * because Android reclaimed memory ({@code didCrash() == false}, common in the background) or
@@ -1809,7 +1968,7 @@ public class MainActivity extends Activity {
          * was killed in both cases (PROJECT.md P2).
          *
          * <p>Recovery: replace the dead WebView with a fresh one in the same spot, configure it exactly
-         * like the original ({@link #configureChatWebView}) and reload the page the user was on. If
+         * like the original ({@link #configureWebView}) and reload the page the user was on. If
          * the page keeps crashing (3 times within a minute), load the local offline chat viewer
          * instead, to avoid an endless crash-and-reload loop.</p>
          *
@@ -1818,6 +1977,15 @@ public class MainActivity extends Activity {
         @Override
         @androidx.annotation.RequiresApi(Build.VERSION_CODES.O)
         public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+            if (!provider.isDuck()) {
+                // Other providers' tabs are recovered (or closed) by TabManager.
+                if (tabManager != null) {
+                    tabManager.onRendererGone(view);
+                } else {
+                    WebViewRecovery.discard(view);
+                }
+                return true;
+            }
             boolean crashed = detail.didCrash();
             Log.w(TAG, "Chat WebView renderer gone (crashed=" + crashed + "); recovering");
 
@@ -1837,7 +2005,10 @@ public class MainActivity extends Activity {
             }
 
             chatWebView = WebViewRecovery.replace(view);
-            configureChatWebView(chatWebView);
+            configureWebView(chatWebView, Providers.DUCK);
+            if (tabManager != null) {
+                tabManager.replaceDuckView(chatWebView); // keeps it hidden if another tab is on screen
+            }
 
             // Crash-loop guard: keep only recoveries from the last 60 seconds.
             long now = android.os.SystemClock.elapsedRealtime();
@@ -1872,10 +2043,9 @@ public class MainActivity extends Activity {
             Uri uri = Uri.parse(url);
             String host = uri.getHost();
             
-            // Allow duck.ai and duckduckgo.com (and their real subdomains) to load inside the app.
-            // NavigationPolicy uses an exact domain match; the old endsWith("duck.ai") also let
-            // look-alike sites such as "evilduck.ai" load in-app (PROJECT.md P14).
-            if (NavigationPolicy.isInAppHost(host)) {
+            // Only this provider's own sites and login pages load inside its tab (exact domain match,
+            // see ProviderSpec.ownsHost / PROJECT.md P14). Everything else opens in the browser.
+            if (provider.ownsHost(host)) {
                 return false;
             }
 
@@ -1893,14 +2063,24 @@ public class MainActivity extends Activity {
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
             super.onPageStarted(view, url, favicon);
             hasInjectedProgressJs = false;
-            progressBar.setVisibility(View.VISIBLE);
+            if (isVisibleTab(view)) {
+                progressBar.setVisibility(View.VISIBLE);
+            }
         }
 
         @Override
         public void onPageFinished(WebView view, String url) {
             super.onPageFinished(view, url);
-            progressBar.setVisibility(View.GONE);
+            if (isVisibleTab(view)) {
+                progressBar.setVisibility(View.GONE);
+            }
             if (isSafeMode) return;
+            if (!provider.isDuck()) {
+                // Other providers: no duck.ai helper scripts (they target duck.ai's page and need the
+                // bridge). The user's own scripts still run where their "match" setting allows.
+                injectUserScripts(view, url);
+                return;
+            }
             safeEvaluateJavascript(view, js(Scripts.BLOB_DOWNLOAD_PATCH));
             safeEvaluateJavascript(view, js(Scripts.CLIPBOARD_PATCH));
             safeEvaluateJavascript(view, js(Scripts.IMAGE_ZOOM_MONITOR));
@@ -1912,7 +2092,6 @@ public class MainActivity extends Activity {
                 safeEvaluateJavascript(view, js(Scripts.AUTO_FOCUS));
                 pendingAutoFocus = false;
             }
-            safeEvaluateJavascript(view, js(Scripts.SETTINGS_BUTTON));
             safeEvaluateJavascript(view, js(Scripts.SWIPE_SCROLL));
             injectUserScripts(view, url);
             if (pendingContinueLastChat) {
@@ -1959,15 +2138,20 @@ public class MainActivity extends Activity {
     }
 
     private class MyWebChromeClient extends WebChromeClient {
+
+        private final ProviderSpec provider;
+
+        MyWebChromeClient(ProviderSpec provider) {
+            this.provider = provider;
+        }
         @Override
         public void onProgressChanged(WebView view, int newProgress) {
             super.onProgressChanged(view, newProgress);
-            if (isSafeMode) return;
+            if (isSafeMode || !provider.isDuck()) return; // helper scripts are duck.ai-only
             if (newProgress > 5 && !hasInjectedProgressJs) {
                 hasInjectedProgressJs = true;
                 safeEvaluateJavascript(view, js(Scripts.BLOB_DOWNLOAD_PATCH));
                 safeEvaluateJavascript(view, js(Scripts.CLIPBOARD_PATCH));
-                safeEvaluateJavascript(view, js(Scripts.SETTINGS_BUTTON));
                 safeEvaluateJavascript(view, js(Scripts.SWIPE_SCROLL));
                 SharedPreferences prefs = view.getContext().getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
                 if (prefs.getBoolean("rtl_resolver", false)) {
@@ -1984,13 +2168,24 @@ public class MainActivity extends Activity {
 
         @Override
         public boolean onConsoleMessage(android.webkit.ConsoleMessage consoleMessage) {
-            Log.d(TAG, "JS Console: " + consoleMessage.message() + " (Line " + consoleMessage.lineNumber() + ")");
+            // Page console messages can contain chat text, so they go to the system log (logcat)
+            // only in debug builds, never in release builds (PROJECT.md P15, R-SEC-3).
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "JS Console: " + consoleMessage.message() + " (Line " + consoleMessage.lineNumber() + ")");
+            }
             return true;
         }
 
         @Override
         public void onPermissionRequest(final PermissionRequest request) {
             MainActivity.this.runOnUiThread(() -> {
+                // Microphone access (voice chat) only for the provider's own pages, never for
+                // embedded content from other sites (ads, trackers...).
+                Uri origin = request.getOrigin();
+                if (origin == null || !provider.ownsHost(origin.getHost())) {
+                    request.deny();
+                    return;
+                }
                 for (String resource : request.getResources()) {
                     if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
                         request.grant(new String[] { resource });
@@ -2206,8 +2401,9 @@ public class MainActivity extends Activity {
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             if (keyCode == KeyEvent.KEYCODE_BACK) {
-                if (chatWebView.canGoBack()) {
-                    chatWebView.goBack();
+                WebView current = tabManager != null ? tabManager.currentWebView() : chatWebView;
+                if (current != null && current.canGoBack()) {
+                    current.goBack();
                 } else {
                     finish();
                 }
@@ -2220,6 +2416,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         //clearCacheData();
+        if (tabManager != null) {
+            tabManager.destroyProviderTabs();
+        }
         if (chatWebView != null) {
             chatWebView.destroy();
         }

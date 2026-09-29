@@ -42,7 +42,6 @@ public final class Scripts {
     public static final String RTL_RESOLVER = "rtl_resolver.js";
     public static final String RTL_CLEANUP = "rtl_cleanup.js";
     public static final String VOICE_CHAT = "voice_chat.js";
-    public static final String SETTINGS_BUTTON = "settings_button.js";
     public static final String CONTINUE_LAST_CHAT = "continue_last_chat.js";
     public static final String DUMP_CHATS = "dump_chats.js";
     /** Not injected automatically: the example shown in the user-script manager (off by default). */
@@ -51,7 +50,7 @@ public final class Scripts {
     /** Every script file above; used by the unit test. Add new names here too. */
     public static final String[] ALL = {
             BLOB_DOWNLOAD_PATCH, IMAGE_ZOOM_MONITOR, AUTO_FOCUS, CLIPBOARD_PATCH, SWIPE_SCROLL,
-            RTL_RESOLVER, RTL_CLEANUP, VOICE_CHAT, SETTINGS_BUTTON, CONTINUE_LAST_CHAT, DUMP_CHATS,
+            RTL_RESOLVER, RTL_CLEANUP, VOICE_CHAT, CONTINUE_LAST_CHAT, DUMP_CHATS,
             USER_SCRIPT_SAMPLE
     };
 

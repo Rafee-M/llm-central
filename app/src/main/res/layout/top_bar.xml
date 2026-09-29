@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Native top bar shown above every provider's page (PROJECT.md R-SW-1):
+      left  = provider switcher chip: [badge] Name ▾  → opens the provider list (ui/SwitcherPopup)
+      right = settings button (gear)                 → opens the app's settings
+    Included by activity_main.xml and activity_chat.xml with <include layout="@layout/top_bar"/>,
+    so both screens share exactly the same bar. MainActivity.setupTopBar() connects the buttons.
+-->
+<!-- tools:ignore="Overdraw": lint checks this file on its own and thinks it's a whole screen. It is
+     only a strip inside the screen (included), so its background doesn't paint over the window's. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/topBar"
+    android:layout_width="match_parent"
+    android:layout_height="52dp"
+    android:background="@color/top_bar_background"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="8dp"
+    android:paddingEnd="4dp"
+    tools:ignore="Overdraw">
+
+    <!-- The chip. minHeight 40dp + the bar's 52dp keep it comfortably tappable. -->
+    <LinearLayout
+        android:id="@+id/providerChip"
+        android:layout_width="wrap_content"
+        android:layout_height="40dp"
+        android:background="@drawable/chip_background"
+        android:clickable="true"
+        android:contentDescription="@string/switch_provider"
+        android:focusable="true"
+        android:foreground="?android:attr/selectableItemBackground"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="6dp"
+        android:paddingEnd="12dp">
+
+        <!-- Round letter badge; drawn in code by ui/ProviderBadge. -->
+        <TextView
+            android:id="@+id/providerBadge"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:importantForAccessibility="no" />
+
+        <TextView
+            android:id="@+id/providerName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:importantForAccessibility="no"
+            android:textColor="@color/on_surface"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <!-- Small arrow that tells the user "this opens a list". -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:importantForAccessibility="no"
+            android:text="@string/dropdown_arrow"
+            android:textColor="@color/on_surface_variant"
+            android:textSize="14sp" />
+    </LinearLayout>
+
+    <!-- Empty space that pushes the settings button to the right edge. -->
+    <View
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <ImageButton
+        android:id="@+id/settingsButton"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/open_settings"
+        android:src="@drawable/ic_settings" />
+</LinearLayout>

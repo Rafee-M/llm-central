@@ -6,20 +6,27 @@ plugins {
 System.setProperty("line.separator", "\n")
 
 android {
-    compileSdk 35
-    namespace 'org.llmcentral.app'
-    android.buildFeatures.buildConfig true
+    // Gradle 8.13+ wants "name = value" (with '='); the old "name value" form is deprecated.
+    // compileSdk = which Android API version the code is compiled against (lets us *use* newer APIs,
+    // behind version checks). It does not change how the app behaves; targetSdk below does.
+    compileSdk = 36
+    namespace = 'org.llmcentral.app'
+    buildFeatures {
+        buildConfig = true
+    }
     defaultConfig {
         // applicationId = the app's permanent identity on a phone and in app stores.
         // Android treats a different applicationId as a completely different app, so never
         // change it after the first public release (users would lose their data and updates).
-        applicationId "org.llmcentral.app"
-        minSdk 24
-        targetSdk 35
+        applicationId = "org.llmcentral.app"
+        minSdk = 24
+        // targetSdk stays 35 on purpose: raising it changes Android behaviour (back gesture, large screens...)
+        // and needs testing on a phone first. Lint's "OldTargetApi" warning about it is expected.
+        targetSdk = 35
         // New app identity → version numbering restarts (duckAssist was at 251 / 0.4.6).
         // versionCode must increase with every release; versionName is what users see.
-        versionCode 1
-        versionName "0.1.0"
+        versionCode = 1
+        versionName = "0.1.0"
         manifestPlaceholders = [appName: "@string/app_name"]
 
         // Only package translations the app actually has (en = default "values/").
@@ -34,10 +41,10 @@ android {
         // over one signed with a different key ("App not installed"), forcing an uninstall that deletes app data.
         // Debug keys are not secret. The real release key is never committed (see "release" below).
         debug {
-            storeFile file('debug.keystore')
-            storePassword 'android'
-            keyAlias 'androiddebugkey'
-            keyPassword 'android'
+            storeFile = file('debug.keystore')
+            storePassword = 'android'
+            keyAlias = 'androiddebugkey'
+            keyPassword = 'android'
         }
         release {
             // Load signing properties from local.properties
@@ -59,22 +66,22 @@ android {
 
     buildTypes {
         debug {
-            debuggable true
-            applicationIdSuffix ".debug"
-            versionNameSuffix "-debug"
+            debuggable = true
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
             manifestPlaceholders = [appName: "LLM Central (Debug)"]
         }
         release {
             manifestPlaceholders = [appName: "@string/app_name"]
-            debuggable false
+            debuggable = false
             // R8: removes unused code and shortens class names.
-            minifyEnabled true
+            minifyEnabled = true
             // Removes resources (images, layouts, strings) that no code references. Needs minifyEnabled.
-            shrinkResources true
+            shrinkResources = true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             def releaseSigning = signingConfigs.findByName('release')
             if (releaseSigning != null && releaseSigning.storeFile != null) {
-                signingConfig releaseSigning
+                signingConfig = releaseSigning
             }
         }
     }
@@ -97,12 +104,13 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_11
-        targetCompatibility JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
     
-    lintOptions {
-        disable "MissingTranslation" // Translation is crowd-sourced, so this lint warning is useless
+    // 'lint { }' replaces the old 'lintOptions { }' block (removed in newer plugin versions).
+    lint {
+        disable += ['MissingTranslation'] // Translation is crowd-sourced, so this lint warning is useless
     }
 }
 

@@ -1,17 +1,23 @@
 # LLM Central
 
-> **Status: early development.** Today the app still works like duckAssist (duck.ai only).
-> Multi-provider and multi-account support are being built. See [`PROJECT.md`](PROJECT.md) for the plan
+> **Status: early development.** duck.ai, ChatGPT, Claude, DeepSeek and Z.ai work as switchable tabs
+> (one account each). Multiple accounts per provider and Material You theming are being built. See [`PROJECT.md`](PROJECT.md) for the plan
 > and [`CHANGES.md`](CHANGES.md) for what has changed.
 
 **LLM Central** is a lightweight, privacy-focused Android app that puts several AI chat websites in one
-place: duck.ai, ChatGPT, Claude, DeepSeek and more. It supports **multiple isolated accounts per
-provider**, instant switching between them, and Material You theming, while keeping the APK tiny (~220 KB).
+place: duck.ai, ChatGPT, Claude, DeepSeek, Z.ai and more, with instant switching between them, while keeping
+the APK tiny (~230 KB). Multiple isolated accounts per provider and Material You theming are on the way.
 
 It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju, which is itself a fork of
 [gptAssist](https://github.com/woheller69/gptAssist) by woheller69.
 
-## Features available today (inherited from duckAssist)
+## Features available today
+
+- 🔀 **Several AI providers in one app**: duck.ai, ChatGPT, Claude, DeepSeek and Z.ai. Tap the chip in the
+  top bar to switch; up to 3 providers (changeable in Settings, 1–5) stay loaded, so switching back is instant.
+- ⚙️ **Settings button on every provider** in the top bar.
+
+### Inherited from duckAssist (duck.ai)
 
 - 🎯 **Focused interface** for [duck.ai](https://duck.ai/), with a native loading progress bar.
 - 🎙️ **Digital assistant integration**: set the app as your device's default digital assistant and open
@@ -27,8 +33,8 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 
 ## Planned (see PROJECT.md)
 
-Multiple providers and accounts, a provider/account switcher, universal Material You settings, a default
-assistant provider, and per-account offline history.
+Multiple accounts per provider, universal Material You settings, a default assistant provider, and
+per-account offline history.
 
 ## Signing in to providers
 
