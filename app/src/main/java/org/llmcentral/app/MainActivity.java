@@ -74,10 +74,13 @@ import org.llmcentral.app.web.NavigationPolicy;
 import org.llmcentral.app.web.Scripts;
 import org.llmcentral.app.web.TabLru;
 import org.llmcentral.app.web.TabManager;
+import org.llmcentral.app.account.Account;
+import org.llmcentral.app.account.AccountStore;
 import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
 import org.llmcentral.app.ui.ProviderBadge;
 import org.llmcentral.app.ui.SwitcherPopup;
+import org.llmcentral.app.web.Profiles;
 import org.llmcentral.app.web.WebViewRecovery;
 
 import java.io.UnsupportedEncodingException;
@@ -101,9 +104,16 @@ public class MainActivity extends Activity {
     private Uri pendingSharedFileUri = null;
     private java.util.List<Uri> pendingSharedFileUris = null;
     private static boolean isSafeMode = false;
-    // One WebView per provider ("tab"); chatWebView above is always the duck.ai tab. See web/TabManager.
+    // One WebView per account ("tab"); chatWebView above is always the duck.ai tab. See web/TabManager.
     private TabManager tabManager;
+    // The user's accounts (names, which ones show in the menu). See account/AccountStore.
+    private AccountStore accounts;
+    // Account shown last time, reopened on a normal launch. Round 3 saved a provider id under
+    // "last_provider"; first accounts use their provider's id, so that old value still works.
+    private static final String PREF_LAST_ACCOUNT = "last_account";
     private static final String PREF_LAST_PROVIDER = "last_provider";
+    // Cookie jar of the tab that started the current file download (each account has its own).
+    private CookieManager downloadCookieManager;
     private static final String PREF_MAX_LIVE_TABS = "max_live_tabs";
     // Android's original "uncaught exception" handler (the one that closes a crashed app). See onCreate.
     private static Thread.UncaughtExceptionHandler systemCrashHandler;
@@ -258,20 +268,25 @@ public class MainActivity extends Activity {
 
         configureWebView(chatWebView, Providers.DUCK);
 
-        // The WebView from the layout is the duck.ai tab; other providers get their own WebView
-        // the first time they're opened (TabManager). Default: 3 tabs stay loaded (R-PERF-1).
-        tabManager = new TabManager(chatWebView, this::configureWebView, new TabManager.Listener() {
+        accounts = AccountStore.load(prefs);
+        // Before any account WebView exists: delete the data folders of accounts that were signed
+        // out or removed last time (see web/Profiles for why this waits for a fresh start).
+        Profiles.cleanUp(prefs, accounts.all());
+
+        // The WebView from the layout is the duck.ai tab; other accounts get their own WebView (in
+        // their own profile) the first time they're opened. Default: 3 tabs stay loaded (R-PERF-1).
+        tabManager = new TabManager(chatWebView, accounts.duck(), this::configureWebView, new TabManager.Listener() {
             @Override
-            public void onProviderShown(ProviderSpec provider) {
-                onTabShown(provider);
+            public void onAccountShown(Account account) {
+                onTabShown(account);
             }
 
             @Override
-            public void onTabGaveUp(ProviderSpec provider) {
-                Toast.makeText(MainActivity.this, provider.displayName
+            public void onTabGaveUp(Account account) {
+                Toast.makeText(MainActivity.this, account.name
                         + " keeps crashing and was closed.", Toast.LENGTH_LONG).show();
             }
-        }, prefs.getInt(PREF_MAX_LIVE_TABS, 3));
+        }, prefs.getInt(PREF_MAX_LIVE_TABS, 3), prefs);
         setupTopBar();
         updateTopBar(tabManager.current());
 
@@ -291,26 +306,28 @@ public class MainActivity extends Activity {
             handleIntent(getIntent(), false);
         }
 
-        // Normal app launch: reopen the provider the user was using last time.
+        // Normal app launch: reopen the account the user was using last time.
         String launchAction = getIntent() != null ? getIntent().getAction() : null;
         if (Intent.ACTION_MAIN.equals(launchAction) || launchAction == null) {
-            ProviderSpec last = Providers.byId(prefs.getString(PREF_LAST_PROVIDER, Providers.DUCK_ID));
-            if (!last.isDuck()) {
+            String lastId = prefs.getString(PREF_LAST_ACCOUNT,
+                    prefs.getString(PREF_LAST_PROVIDER, Providers.DUCK_ID));
+            Account last = accounts.find(lastId);
+            if (last != null && !last.isDuck()) {
                 tabManager.show(last);
             }
         }
     }
 
     /**
-     * Connects the native top bar (layout/top_bar.xml): the provider chip opens the switcher list,
-     * the gear opens settings. Works the same for every provider (PROJECT.md R-SW-1/2), unlike
-     * duckAssist's settings button, which was injected into duck.ai's page only.
+     * Connects the native top bar (layout/top_bar.xml): the chip opens the account switcher, the gear
+     * opens settings. Works the same for every provider (PROJECT.md R-SW-1/2), unlike duckAssist's
+     * settings button, which was injected into duck.ai's page only.
      */
     private void setupTopBar() {
         View chip = findViewById(R.id.providerChip);
         if (chip != null) {
-            chip.setOnClickListener(v -> SwitcherPopup.show(v, Providers.ALL, tabManager.current(),
-                    provider -> tabManager.show(provider)));
+            chip.setOnClickListener(v -> SwitcherPopup.show(v, accounts.visible(), tabManager.current(),
+                    account -> tabManager.show(account), this::showSettingsDialog));
         }
         View settings = findViewById(R.id.settingsButton);
         if (settings != null) {
@@ -318,35 +335,38 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Shows the current provider's badge and name in the top bar chip. */
-    private void updateTopBar(ProviderSpec provider) {
+    /** Shows the current account's provider badge and name in the top bar chip. */
+    private void updateTopBar(Account account) {
         TextView badge = findViewById(R.id.providerBadge);
         TextView name = findViewById(R.id.providerName);
         View chip = findViewById(R.id.providerChip);
         if (badge == null || name == null || chip == null) {
             return;
         }
+        ProviderSpec provider = Providers.byId(account.providerId);
         ProviderBadge.apply(badge, provider, ProviderBadge.dp(this, 28));
-        name.setText(provider.displayName);
-        // What screen readers announce for the chip, e.g. "Switch AI provider: ChatGPT".
-        chip.setContentDescription(getString(R.string.switch_provider) + ": " + provider.displayName);
+        name.setText(account.name);
+        // What screen readers announce for the chip, e.g. "Switch account: Work, ChatGPT".
+        String label = account.name.equals(provider.displayName)
+                ? account.name : account.name + ", " + provider.displayName;
+        chip.setContentDescription(getString(R.string.switch_provider) + ": " + label);
     }
 
-    /** Called by TabManager after a provider's tab became visible. */
-    private void onTabShown(ProviderSpec provider) {
-        updateTopBar(provider);
+    /** Called by TabManager after an account's tab became visible (or was renamed). */
+    private void onTabShown(Account account) {
+        updateTopBar(account);
         // A half-finished loading bar from the previous tab must not stay on screen.
         if (progressBar != null) {
             progressBar.setVisibility(View.GONE);
         }
         getSharedPreferences("duck_assist_prefs", MODE_PRIVATE).edit()
-                .putString(PREF_LAST_PROVIDER, provider.id).apply();
+                .putString(PREF_LAST_ACCOUNT, account.id).apply();
     }
 
     /** Brings the duck.ai tab to the front (the app's duck.ai-only features load pages there). */
     private void showDuckTab() {
         if (tabManager != null && !tabManager.current().isDuck()) {
-            tabManager.show(Providers.DUCK);
+            tabManager.show(accounts.duck());
         }
     }
 
@@ -393,7 +413,16 @@ public class MainActivity extends Activity {
         // Text size chosen by the user (pinch gesture), see currentZoomLevel.
         webSettings.setTextZoom(Math.round(currentZoomLevel));
 
-        CookieManager cookieManager = CookieManager.getInstance();
+        // The app draws its own provider icons, so the sites' favicons (tab icons) are never needed:
+        // skipping their download saves data and a little time (PROJECT.md R-PERF-4).
+        if (androidx.webkit.WebViewFeature.isFeatureSupported(
+                androidx.webkit.WebViewFeature.DOWNLOAD_FAVICONS_ENABLED)) {
+            androidx.webkit.WebSettingsCompat.setDownloadFaviconsEnabled(webSettings, false);
+        }
+
+        // Each account has its own cookie jar (its WebView profile, see web/Profiles), so ask this
+        // WebView's profile for it instead of the app-wide CookieManager.getInstance().
+        CookieManager cookieManager = Profiles.cookieManager(webView);
         cookieManager.setAcceptCookie(true);
         // duck.ai needs no third-party cookies. Sign-in pages of other providers often use a
         // security check (e.g. Cloudflare) inside an embedded frame, which needs them.
@@ -403,6 +432,8 @@ public class MainActivity extends Activity {
         webView.setWebChromeClient(new MyWebChromeClient(provider));
 
         webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
+            // Downloads may need the account's login cookies; remember whose they are.
+            downloadCookieManager = cookieManager;
             if (url.startsWith("blob:")) {
                 if (!provider.isDuck()) {
                     // blob: downloads need the helper script + bridge, which only duck.ai's tab has.
@@ -1359,7 +1390,12 @@ public class MainActivity extends Activity {
     private void executeStandardDownload(String url, String userAgent, String mimetype, String filename) {
         Uri source = Uri.parse(url);
         DownloadManager.Request request = new DownloadManager.Request(source);
-        request.addRequestHeader("Cookie", CookieManager.getInstance().getCookie(url));
+        // Send the login cookies of the account that started the download (its own cookie jar).
+        CookieManager cookies = downloadCookieManager != null ? downloadCookieManager : CookieManager.getInstance();
+        String cookieHeader = cookies.getCookie(url);
+        if (cookieHeader != null) {
+            request.addRequestHeader("Cookie", cookieHeader);
+        }
         request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
 
         if (filename.endsWith(".md")) {
@@ -1544,6 +1580,28 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        // The account list may have been changed by the app's other screen (the assistant drawer is a
+        // separate activity with its own copy): reload it and refresh tabs + top bar if it differs.
+        if (accounts != null && tabManager != null) {
+            AccountStore fresh = AccountStore.load(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE));
+            if (!fresh.toJson().equals(accounts.toJson())) {
+                accounts = fresh;
+                tabManager.updateAccounts(accounts);
+            }
+        }
+    }
+
+    /**
+     * Android asks running apps to free memory when the phone runs low. Closing the hidden account
+     * tabs (not duck.ai, not the visible one) frees the most; they reload when opened again
+     * (PROJECT.md R-PERF-1). Docs: https://developer.android.com/reference/android/content/ComponentCallbacks2
+     */
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (tabManager != null && (level >= TRIM_MEMORY_BACKGROUND || level == TRIM_MEMORY_RUNNING_CRITICAL)) {
+            tabManager.closeHiddenTabs();
+        }
     }
 
     @Override
@@ -1554,6 +1612,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onStop() {
         super.onStop();
+        // Save every open account's login cookies to disk now (the app may be closed by Android soon).
+        if (tabManager != null) {
+            tabManager.flushCookies();
+        }
         runOnUiThread(() -> {
             if (chatWebView != null && chatWebView.getUrl() != null && chatWebView.getUrl().startsWith("https://duck")) {
                 chatWebView.evaluateJavascript(js(Scripts.DUMP_CHATS), null);
@@ -2417,7 +2479,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         //clearCacheData();
         if (tabManager != null) {
-            tabManager.destroyProviderTabs();
+            tabManager.destroyAccountTabs();
         }
         if (chatWebView != null) {
             chatWebView.destroy();
