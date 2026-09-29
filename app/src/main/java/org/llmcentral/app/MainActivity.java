@@ -72,6 +72,7 @@ import org.llmcentral.app.scripts.UserScriptMatcher;
 import org.llmcentral.app.web.DialogWebViewClient;
 import org.llmcentral.app.web.NavigationPolicy;
 import org.llmcentral.app.web.Scripts;
+import org.llmcentral.app.web.TabLru;
 import org.llmcentral.app.web.TabManager;
 import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
@@ -654,6 +655,7 @@ public class MainActivity extends Activity {
                         obj.put("prompt_on_launch", prefs.getBoolean("prompt_on_launch", false));
                         obj.put("ask_duck_suffix", prefs.getString("ask_duck_suffix", ""));
                         obj.put("shared_doc_suffix", prefs.getString("shared_doc_suffix", ""));
+                        obj.put("max_live_tabs", prefs.getInt(PREF_MAX_LIVE_TABS, 3));
                     } catch (Exception e) {
                         Log.e(TAG, "Error generating settings JSON", e);
                     }
@@ -672,6 +674,9 @@ public class MainActivity extends Activity {
                             autoFocus = false;
                         }
                         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
+                        // "Providers kept loaded" (1–5); anything else from the page is clamped.
+                        int maxTabs = Math.max(TabLru.MIN_LIVE_TABS,
+                                Math.min(TabLru.MAX_LIVE_TABS, obj.optInt("max_live_tabs", 3)));
                         boolean oldRtl = prefs.getBoolean("rtl_resolver", false);
                         boolean newRtl = obj.optBoolean("rtl_resolver", false);
                         prefs.edit()
@@ -684,7 +689,14 @@ public class MainActivity extends Activity {
                              .putBoolean("prompt_on_launch", promptLaunch)
                              .putString("ask_duck_suffix", obj.optString("ask_duck_suffix", ""))
                              .putString("shared_doc_suffix", obj.optString("shared_doc_suffix", ""))
+                             .putInt(PREF_MAX_LIVE_TABS, maxTabs)
                              .apply();
+                        // Apply right away: lowering the number closes the least recently used tabs.
+                        runOnUiThread(() -> {
+                            if (tabManager != null) {
+                                tabManager.setMaxLiveTabs(maxTabs);
+                            }
+                        });
                         if (newRtl != oldRtl && chatWebView != null) {
                             runOnUiThread(() -> {
                                 if (newRtl) {
@@ -715,6 +727,9 @@ public class MainActivity extends Activity {
                             autoFocus = false;
                         }
                         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
+                        // "Providers kept loaded" (1–5); anything else from the page is clamped.
+                        int maxTabs = Math.max(TabLru.MIN_LIVE_TABS,
+                                Math.min(TabLru.MAX_LIVE_TABS, obj.optInt("max_live_tabs", 3)));
                         boolean oldRtl = prefs.getBoolean("rtl_resolver", false);
                         boolean newRtl = obj.optBoolean("rtl_resolver", false);
                         prefs.edit()
@@ -727,7 +742,14 @@ public class MainActivity extends Activity {
                              .putBoolean("prompt_on_launch", promptLaunch)
                              .putString("ask_duck_suffix", obj.optString("ask_duck_suffix", ""))
                              .putString("shared_doc_suffix", obj.optString("shared_doc_suffix", ""))
+                             .putInt(PREF_MAX_LIVE_TABS, maxTabs)
                              .apply();
+                        // Apply right away: lowering the number closes the least recently used tabs.
+                        runOnUiThread(() -> {
+                            if (tabManager != null) {
+                                tabManager.setMaxLiveTabs(maxTabs);
+                            }
+                        });
                         if (newRtl != oldRtl && chatWebView != null) {
                             runOnUiThread(() -> {
                                 if (newRtl) {
