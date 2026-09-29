@@ -1,3 +1,5 @@
 /build
 *.jks
 *.keystore
+# Shared DEBUG signing key (not secret; release keys stay ignored). Lets CI debug APKs update each other.
+!debug.keystore
