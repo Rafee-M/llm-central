@@ -1,5 +1,7 @@
 package org.llmcentral.app.web;
 
+import org.llmcentral.app.provider.Providers;
+
 import java.net.URI;
 import java.util.Locale;
 
@@ -21,23 +23,22 @@ import java.util.Locale;
  * </ol>
  *
  * <p>Plain Java only ({@link java.net.URI}), so it can be tested on the computer
- * (NavigationPolicyTest). In Phase 1 the domain list will come from each provider's
- * {@code ProviderSpec} instead of this fixed list.</p>
+ * (NavigationPolicyTest). Each provider's own domain list lives in its {@code ProviderSpec}
+ * ({@code provider/Providers.java}); this class holds the shared matching rule.</p>
  */
 public final class NavigationPolicy {
-
-    /** Domains (and their subdomains) that may load inside the app. */
-    static final String[] IN_APP_DOMAINS = {"duck.ai", "duckduckgo.com"};
 
     private NavigationPolicy() {
         // Only static methods.
     }
 
     /**
-     * @return true if {@code host} is one of {@link #IN_APP_DOMAINS} or a subdomain of one.
-     *         Examples: "duck.ai" ✓, "www.duckduckgo.com" ✓, "evilduck.ai" ✗, "duck.ai.evil.com" ✗.
+     * The exact domain rule used everywhere in the app (also by every {@code ProviderSpec}).
+     *
+     * @return true if {@code host} equals one of {@code domains} or is a real subdomain of one.
+     *         Examples for "duck.ai": "duck.ai" ✓, "www.duck.ai" ✓, "evilduck.ai" ✗, "duck.ai.evil.com" ✗.
      */
-    public static boolean isInAppHost(String host) {
+    public static boolean hostMatches(String host, String[] domains) {
         if (host == null || host.isEmpty()) {
             return false;
         }
@@ -45,13 +46,21 @@ public final class NavigationPolicy {
         if (h.endsWith(".")) {
             h = h.substring(0, h.length() - 1); // "duck.ai." is the same host as "duck.ai"
         }
-        for (String domain : IN_APP_DOMAINS) {
+        for (String domain : domains) {
             // The "." prefix is the key: "x.duck.ai" ends with ".duck.ai", "evilduck.ai" doesn't.
             if (h.equals(domain) || h.endsWith("." + domain)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * @return true if {@code host} belongs to duck.ai (the only provider that other apps can open
+     *         directly, see {@link #toInAppUrl}). Its domain list lives in {@code Providers.DUCK}.
+     */
+    public static boolean isInAppHost(String host) {
+        return Providers.DUCK.ownsHost(host);
     }
 
     /**
