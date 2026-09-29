@@ -208,8 +208,9 @@ public class MainActivity extends Activity {
 
     /**
      * Runs before anything else in the activity, even before onCreate. If the user chose "Light" or
-     * "Dark" instead of "System default", this makes the whole screen (and, on Android 13+, websites
-     * that support dark mode) use that mode whatever the phone is set to. See ThemeManager.nightOverride.
+     * "Dark" instead of "System default", this makes the whole screen use that mode whatever the phone
+     * is set to (and, on Android 13+, should make websites that support dark mode follow). See
+     * ThemeManager.nightOverride.
      */
     @Override
     protected void attachBaseContext(Context newBase) {

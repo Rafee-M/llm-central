@@ -1,12 +1,12 @@
 # LLM Central
 
-> **Status: early development.** duck.ai, ChatGPT, Claude, DeepSeek and Z.ai work as switchable tabs
-> (one account each). Multiple accounts per provider and Material You theming are being built. See [`PROJECT.md`](PROJECT.md) for the plan
+> **Status: early development.** duck.ai, ChatGPT, Claude, DeepSeek and Z.ai work as switchable tabs, with
+> several isolated accounts per provider and Material You theming. See [`PROJECT.md`](PROJECT.md) for the plan
 > and [`CHANGES.md`](CHANGES.md) for what has changed.
 
 **LLM Central** is a lightweight, privacy-focused Android app that puts several AI chat websites in one
-place: duck.ai, ChatGPT, Claude, DeepSeek, Z.ai and more, with instant switching between them, while keeping
-the APK tiny (~230 KB). Multiple isolated accounts per provider and Material You theming are on the way.
+place: duck.ai, ChatGPT, Claude, DeepSeek, Z.ai and more, with several isolated accounts per provider and
+instant switching between them, while keeping the APK tiny (~260 KB).
 
 It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju, which is itself a fork of
 [gptAssist](https://github.com/woheller69/gptAssist) by woheller69.
@@ -14,8 +14,13 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 ## Features available today
 
 - 🔀 **Several AI providers in one app**: duck.ai, ChatGPT, Claude, DeepSeek and Z.ai. Tap the chip in the
-  top bar to switch; up to 3 providers (changeable in Settings, 1–5) stay loaded, so switching back is instant.
-- ⚙️ **Settings button on every provider** in the top bar.
+  top bar to switch; up to 3 accounts (changeable in Settings, 1–5) stay loaded, so switching back is instant.
+- 👥 **Several accounts per provider** (e.g. ChatGPT "Work" and "Personal"), each in its own container with
+  separate logins, cookies and site data. Name them, choose which ones appear in the menu, sign out or remove
+  them in Settings → Accounts. (Needs a recent Android System WebView.)
+- 🎨 **Material You**: Light / Dark / Black (OLED) / System theme, 8 colour palettes, or your wallpaper colours
+  (Android 12+), in Settings → Appearance.
+- ⚙️ **Settings button on every provider** in the top bar; a minimal Material 3 settings screen.
 
 ### Inherited from duckAssist (duck.ai)
 
@@ -33,8 +38,7 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 
 ## Planned (see PROJECT.md)
 
-Multiple accounts per provider, universal Material You settings, a default assistant provider, and
-per-account offline history.
+A default assistant account, share targets per account, per-account offline history, and account re-ordering.
 
 ## Signing in to providers
 
@@ -43,7 +47,7 @@ for each provider instead.
 
 ## Building
 
-Needs JDK 17+ and the Android SDK (platform 35). Then:
+Needs JDK 17+ and the Android SDK (platform 36). Then:
 
 ```bash
 ./gradlew test assembleDebug        # unit tests + debug APK

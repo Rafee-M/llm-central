@@ -33,8 +33,9 @@ import java.util.List;
  *
  * <p><b>Forcing light or dark:</b> a phone in dark mode can still show the app in light mode (and
  * the reverse) by giving the screen an "override configuration" with the chosen night mode
- * ({@link #nightOverride}). That also makes websites that support dark mode follow the app on
- * Android 13+. Changing it needs the screen to be rebuilt once ({@code Activity.recreate()}).</p>
+ * ({@link #nightOverride}). On Android 13+ that should also make websites that support dark mode
+ * follow the app (to be confirmed on a device). Changing it needs the screen to be rebuilt once
+ * ({@code Activity.recreate()}).</p>
  */
 public final class ThemeManager {
 
