@@ -1,6 +1,5 @@
 package org.llmcentral.app.web;
 
-import android.content.SharedPreferences;
 import android.os.Build;
 import android.view.View;
 import android.view.ViewGroup;
@@ -51,7 +50,6 @@ public final class TabManager {
     private final ViewGroup container;
     private final Configurer configurer;
     private final Listener listener;
-    private final SharedPreferences prefs;
     // account id → its WebView / its Account (the Account object is refreshed after renames).
     private final Map<String, WebView> liveTabs = new HashMap<>();
     private final Map<String, Account> liveAccounts = new HashMap<>();
@@ -66,12 +64,11 @@ public final class TabManager {
      * @param maxLiveTabs how many tabs may stay loaded (setting {@code max_live_tabs}, 1–5)
      */
     public TabManager(WebView duckView, Account duck, Configurer configurer, Listener listener,
-                      int maxLiveTabs, SharedPreferences prefs) {
+                      int maxLiveTabs) {
         this.container = (ViewGroup) duckView.getParent();
         this.configurer = configurer;
         this.listener = listener;
         this.maxLiveTabs = maxLiveTabs;
-        this.prefs = prefs;
         this.current = duck;
         liveTabs.put(duck.id, duckView);
         liveAccounts.put(duck.id, duck);
@@ -275,7 +272,7 @@ public final class TabManager {
 
     /** Container first (WebView requires it), then the normal set-up. */
     private void prepare(WebView webView, Account account) {
-        Profiles.attach(webView, account, prefs);
+        Profiles.attach(webView, account);
         configurer.configure(webView, Providers.byId(account.providerId));
         lowerPriorityWhenHidden(webView);
     }

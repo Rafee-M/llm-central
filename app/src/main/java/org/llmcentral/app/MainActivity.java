@@ -309,9 +309,9 @@ public class MainActivity extends Activity {
         configureWebView(chatWebView, Providers.DUCK);
 
         accounts = AccountStore.load(prefs);
-        // Before any account WebView exists: delete the data folders of accounts that were signed
-        // out or removed last time (see web/Profiles for why this waits for a fresh start).
-        Profiles.cleanUp(prefs, accounts.all());
+        // Before any account WebView exists: delete the data folders of removed accounts
+        // (see web/Profiles for why this waits for a fresh start).
+        Profiles.cleanUp(accounts.all());
 
         // The WebView from the layout is the duck.ai tab; other accounts get their own WebView (in
         // their own profile) the first time they're opened. Default: 3 tabs stay loaded (R-PERF-1).
@@ -326,7 +326,7 @@ public class MainActivity extends Activity {
                 Toast.makeText(MainActivity.this, account.name
                         + " keeps crashing and was closed.", Toast.LENGTH_LONG).show();
             }
-        }, prefs.getInt(PREF_MAX_LIVE_TABS, 3), prefs);
+        }, prefs.getInt(PREF_MAX_LIVE_TABS, 3));
         setupTopBar();
         updateTopBar(tabManager.current());
         appliedNight = ThemeManager.isNight(this);

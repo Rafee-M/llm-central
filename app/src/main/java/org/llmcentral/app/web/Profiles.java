@@ -1,6 +1,5 @@
 package org.llmcentral.app.web;
 
-import android.content.SharedPreferences;
 import android.util.Log;
 import android.webkit.CookieManager;
 import android.webkit.WebView;
@@ -37,20 +36,14 @@ import java.util.Set;
  *
  * <p><b>Deleting an account's data</b> has a catch: {@link ProfileStore#deleteProfile} refuses to
  * delete a profile that this app run already used (verified in the androidx.webkit 1.17.1 source).
- * So signing out / removing works in two parts:
- * <ol>
- *   <li>right away: the profile's cookies, storage and cache are wiped ({@link #forget}), so the
- *       account is logged out immediately;</li>
- *   <li>on the next app start, before any WebView exists: the now-empty profile folder is deleted
- *       ({@link #cleanUp}).</li>
- * </ol></p>
+ * So {@link #forget} deletes the profile if it can, and otherwise wipes its contents (cookies,
+ * storage, cache), which logs the account out immediately either way. The empty folder of a
+ * <i>removed</i> account is deleted at the next app start by {@link #cleanUp}, before any WebView
+ * exists; a signed-out account simply keeps its (now empty) container for the next login.</p>
  */
 public final class Profiles {
 
     private static final String TAG = "Profiles";
-
-    /** Preferences key: profile names whose folders are deleted on the next start. */
-    static final String PREF_PENDING_DELETES = "pending_profile_deletes";
 
     /** Profile names we create all start with this ({@link Account#profileName()}). */
     private static final String ACCOUNT_PREFIX = "acct_";
@@ -76,14 +69,12 @@ public final class Profiles {
      * the WebView (before settings, clients, {@code loadUrl} or {@code evaluateJavascript}); WebView
      * throws otherwise. TabManager calls it right after {@code new WebView(...)}.
      */
-    public static void attach(WebView webView, Account account, SharedPreferences prefs) {
+    public static void attach(WebView webView, Account account) {
         String name = account.profileName();
         if (name == null || !isSupported()) {
             return; // default profile: nothing to do
         }
         WebViewCompat.setProfile(webView, name); // creates the profile the first time
-        // The account is in use (again), so its folder must not be deleted at the next start.
-        cancelPendingDelete(prefs, name);
         limitCache(WebViewCompat.getProfile(webView));
     }
 
@@ -107,7 +98,7 @@ public final class Profiles {
      * WebView was destroyed (TabManager.closeAccount). Works for "Sign out" (account stays) and for
      * "Remove" (account goes). Must run on the main thread.
      */
-    public static void forget(Account account, SharedPreferences prefs) {
+    public static void forget(Account account) {
         String name = account.profileName();
         if (name == null || !isSupported()) {
             return;
@@ -118,47 +109,41 @@ public final class Profiles {
             store.deleteProfile(name);
             return;
         } catch (IllegalStateException inUse) {
-            // Used in this app run → wipe the contents now, delete the folder at the next start.
+            // Used in this app run (or still open in the app's other screen) → wipe its contents.
         }
         Profile profile = store.getProfile(name);
         if (profile != null) {
             wipe(profile);
         }
-        schedulePendingDelete(prefs, name);
     }
 
     /**
-     * Start-up housekeeping, called before any account WebView is created: deletes the folders queued
-     * by {@link #forget} and any leftover {@code acct_} profile whose account no longer exists (e.g.
-     * if the app was closed in the middle of removing one).
+     * Start-up housekeeping, called before any account WebView is created: deletes every
+     * {@code acct_} profile whose account no longer exists (removed accounts whose folder couldn't be
+     * deleted while the app was running, or leftovers if the app was closed in the middle).
      */
-    public static void cleanUp(SharedPreferences prefs, List<Account> accounts) {
-        Set<String> stillPending = new HashSet<>();
+    public static void cleanUp(List<Account> accounts) {
         // (Checked here, not via isSupported(), so Android's lint tool can see the check.)
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
-            Set<String> keep = new HashSet<>();
-            for (Account a : accounts) {
-                if (a.profileName() != null) {
-                    keep.add(a.profileName());
-                }
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+            return;
+        }
+        Set<String> keep = new HashSet<>();
+        for (Account a : accounts) {
+            if (a.profileName() != null) {
+                keep.add(a.profileName());
             }
-            ProfileStore store = ProfileStore.getInstance();
-            Set<String> toDelete = new HashSet<>(prefs.getStringSet(PREF_PENDING_DELETES, new HashSet<>()));
-            for (String name : store.getAllProfileNames()) {
-                if (name.startsWith(ACCOUNT_PREFIX) && !keep.contains(name)) {
-                    toDelete.add(name); // orphan: its account was removed
-                }
-            }
-            for (String name : toDelete) {
+        }
+        ProfileStore store = ProfileStore.getInstance();
+        for (String name : store.getAllProfileNames()) {
+            if (name.startsWith(ACCOUNT_PREFIX) && !keep.contains(name)) {
                 try {
-                    store.deleteProfile(name); // false = didn't exist; fine either way
+                    store.deleteProfile(name);
                 } catch (RuntimeException e) {
-                    // Still in use in this process (e.g. the screen was recreated): try again next start.
-                    stillPending.add(name);
+                    // Still in use (e.g. the screen was just recreated in the same process): next start.
+                    Log.w(TAG, "Leftover profile still in use; will retry at next start");
                 }
             }
         }
-        prefs.edit().putStringSet(PREF_PENDING_DELETES, stillPending).apply();
     }
 
     /** Deletes everything a profile stored: cookies, local storage, IndexedDB, cache. */
@@ -170,7 +155,8 @@ public final class Profiles {
             // Newer WebView: one call removes all of it (docs: WebStorageCompat.deleteBrowsingData).
             WebStorageCompat.deleteBrowsingData(profile.getWebStorage(), () -> { });
         } else {
-            // Older WebView: the classic calls; the leftover cache goes with the folder at next start.
+            // Older WebView: the classic calls. They leave the HTTP cache, which holds only the
+            // sites' own files (scripts, images), never logins.
             profile.getWebStorage().deleteAllData();
         }
         CookieManager cookies = profile.getCookieManager();
@@ -188,22 +174,6 @@ public final class Profiles {
             cache.setQuotaBytes(Math.min(cache.getDefaultQuotaBytes(), MAX_CACHE_BYTES));
         } catch (RuntimeException e) {
             Log.w(TAG, "Couldn't set the cache limit", e);
-        }
-    }
-
-    private static void schedulePendingDelete(SharedPreferences prefs, String name) {
-        // getStringSet returns a set we must not modify, hence the copy.
-        Set<String> pending = new HashSet<>(prefs.getStringSet(PREF_PENDING_DELETES, new HashSet<>()));
-        pending.add(name);
-        prefs.edit().putStringSet(PREF_PENDING_DELETES, pending).apply();
-    }
-
-    private static void cancelPendingDelete(SharedPreferences prefs, String name) {
-        Set<String> pending = prefs.getStringSet(PREF_PENDING_DELETES, null);
-        if (pending != null && pending.contains(name)) {
-            Set<String> copy = new HashSet<>(pending);
-            copy.remove(name);
-            prefs.edit().putStringSet(PREF_PENDING_DELETES, copy).apply();
         }
     }
 }

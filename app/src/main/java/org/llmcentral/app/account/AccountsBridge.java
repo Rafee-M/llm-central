@@ -131,7 +131,7 @@ public final class AccountsBridge {
         }
         host.runOnUiThread(() -> {
             host.closeAccountTab(account.id);
-            Profiles.forget(account, host.prefs());
+            Profiles.forget(account);
         });
         return json(null);
     }
@@ -147,7 +147,7 @@ public final class AccountsBridge {
         store.save(host.prefs());
         host.runOnUiThread(() -> {
             host.closeAccountTab(removed.id);
-            Profiles.forget(removed, host.prefs());
+            Profiles.forget(removed);
             host.onAccountsChanged();
         });
         return json(null);
