@@ -1,4 +1,4 @@
-package org.duckassist.app;
+package org.llmcentral.app;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
@@ -66,9 +66,8 @@ import java.util.Date;
 import java.util.Locale;
 
 import androidx.webkit.URLUtilCompat;
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
-import org.woheller69.freeDroidWarn.FreeDroidWarn;
+import org.llmcentral.app.scripts.UserScriptMatcher;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
@@ -1033,18 +1032,23 @@ public class MainActivity extends Activity {
 
         chatWebView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
             if (url.startsWith("blob:")) {
-                String escapedCD = contentDisposition != null ? contentDisposition.replace("'", "\\'") : "";
+                // Values that come from the web page (URL, file name, type) are turned into safe JS string
+                // literals with JSONObject.quote(), which escapes quotes, backslashes and line breaks.
+                // Pasting them in raw (as before) would let a crafted file name inject its own JavaScript.
+                String jsUrl = org.json.JSONObject.quote(url);
+                String jsCD = org.json.JSONObject.quote(contentDisposition != null ? contentDisposition : "");
+                String jsMime = org.json.JSONObject.quote(mimetype != null ? mimetype : "");
                 chatWebView.evaluateJavascript(
                         "(function() {" +
-                                "  var url = '" + url + "';" +
+                                "  var url = " + jsUrl + ";" +
                                 "  var blob = window.blobMap ? window.blobMap.get(url) : null;" +
                                 "  console.log('Download request for: ' + url + ' (Map found: ' + (window.blobMap !== undefined) + ')');"
                                 +
                                 "  if (blob) {" +
                                 "    var reader = new FileReader();" +
                                 "    reader.onloadend = function() {" +
-                                "      Android.processBlob(reader.result, blob.type, '" + escapedCD
-                                + "', window.location.href);" +
+                                "      Android.processBlob(reader.result, blob.type, " + jsCD
+                                + ", window.location.href);" +
                                 "    };" +
                                 "    reader.readAsDataURL(blob);" +
                                 "  } else {" +
@@ -1057,8 +1061,8 @@ public class MainActivity extends Activity {
                                 "        var reader = new FileReader();" +
                                 "        reader.readAsDataURL(this.response);" +
                                 "        reader.onloadend = function() {" +
-                                "          Android.processBlob(reader.result, '" + mimetype + "', '" + escapedCD
-                                + "', window.location.href);" +
+                                "          Android.processBlob(reader.result, " + jsMime + ", " + jsCD
+                                + ", window.location.href);" +
                                 "        };" +
                                 "      }" +
                                 "    };" +
@@ -1132,7 +1136,6 @@ public class MainActivity extends Activity {
         if (!restored) {
             handleIntent(getIntent(), false);
         }
-        FreeDroidWarn.showWarningOnUpgrade(this, BuildConfig.VERSION_CODE);
     }
 
     @JavascriptInterface
@@ -2006,7 +2009,8 @@ public class MainActivity extends Activity {
                 }
 
                 String matchPatterns = item.optString("match", "*://*.duck.ai/*");
-                if (!matchesAnyPattern(url, matchPatterns)) {
+                // Only run the script on the sites listed in its "match" setting (see UserScriptMatcher).
+                if (!UserScriptMatcher.matchesAny(url, matchPatterns)) {
                     continue;
                 }
 
@@ -2016,25 +2020,6 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             Log.e(TAG, "Error injecting user scripts", e);
         }
-    }
-
-    private boolean matchesAnyPattern(String url, String matchPatterns) {
-        if (url == null || matchPatterns == null || matchPatterns.trim().isEmpty()) {
-            return true;
-        }
-        String[] patterns = matchPatterns.split(",");
-        for (String pattern : patterns) {
-            String p = pattern.trim();
-            if (p.isEmpty() || p.equals("*")) return true;
-            String regex = p.replace(".", "\\.")
-                            .replace("**", ".*")
-                            .replace("*", ".*")
-                            .replace("?", ".");
-            if (url.matches(regex) || url.contains("duck.ai") || url.contains("duckduckgo.com")) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private String wrapUserScriptCode(String code) {

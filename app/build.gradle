@@ -7,18 +7,38 @@ System.setProperty("line.separator", "\n")
 
 android {
     compileSdk 35
-    namespace 'org.duckassist.app'
+    namespace 'org.llmcentral.app'
     android.buildFeatures.buildConfig true
     defaultConfig {
-        applicationId "org.duckassist.app"
+        // applicationId = the app's permanent identity on a phone and in app stores.
+        // Android treats a different applicationId as a completely different app, so never
+        // change it after the first public release (users would lose their data and updates).
+        applicationId "org.llmcentral.app"
         minSdk 24
         targetSdk 35
-        versionCode 251
-        versionName "0.4.6"
+        // New app identity → version numbering restarts (duckAssist was at 251 / 0.4.6).
+        // versionCode must increase with every release; versionName is what users see.
+        versionCode 1
+        versionName "0.1.0"
         manifestPlaceholders = [appName: "@string/app_name"]
+
+        // Only package translations the app actually has (en = default "values/").
+        // Libraries ship strings for ~90 languages; dropping unused ones saved ~113 KB (see CHANGES.md).
+        // Add the locale here when a new translation folder (values-xx) is added.
+        resourceConfigurations += ['en', 'de', 'nl', 'pt-rBR', 'tr', 'zh-rCN', 'zh-rTW']
     }
 
     signingConfigs {
+        // Debug builds are signed with this fixed, committed key (password "android", like Android's default).
+        // Without it, every CI machine creates a random debug key, and Android refuses to install a debug APK
+        // over one signed with a different key ("App not installed"), forcing an uninstall that deletes app data.
+        // Debug keys are not secret. The real release key is never committed (see "release" below).
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
         release {
             // Load signing properties from local.properties
             def localProperties = new Properties()
@@ -42,12 +62,15 @@ android {
             debuggable true
             applicationIdSuffix ".debug"
             versionNameSuffix "-debug"
-            manifestPlaceholders = [appName: "duckAssist (Debug)"]
+            manifestPlaceholders = [appName: "LLM Central (Debug)"]
         }
         release {
             manifestPlaceholders = [appName: "@string/app_name"]
             debuggable false
+            // R8: removes unused code and shortens class names.
             minifyEnabled true
+            // Removes resources (images, layouts, strings) that no code references. Needs minifyEnabled.
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             def releaseSigning = signingConfigs.findByName('release')
             if (releaseSigning != null && releaseSigning.storeFile != null) {
@@ -66,6 +89,10 @@ android {
         resources {
             excludes += '/assets/dexopt/baseline.prof'
             excludes += '/assets/dexopt/baseline.profm'
+            // Kotlin metadata files pulled in by androidx.webkit's Kotlin dependency. They are only read
+            // by Kotlin reflection, which this Java-only app never uses.
+            excludes += '/kotlin/**'
+            excludes += '/META-INF/*.kotlin_module'
         }
     }
 
@@ -80,7 +107,10 @@ android {
 }
 
 dependencies {
-    implementation 'androidx.webkit:webkit:1.12.1'
-    implementation 'com.github.woheller69:FreeDroidWarn:V1.13'
-    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+    // AndroidX WebKit: newer WebView features (profiles, message listeners, …) with version checks.
+    implementation 'androidx.webkit:webkit:1.17.1'
+    // Removed: FreeDroidWarn (pulled in AppCompat + Kotlin, ~435 KB) and swiperefreshlayout (never used).
+
+    // Unit tests run on the computer (JVM), not the phone, and are not packaged into the APK.
+    testImplementation 'junit:junit:4.13.2'
 }

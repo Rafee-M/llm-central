@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Same backup rules for Android 6–11 (API 23–30), which use this older format.
+    See data_extraction_rules.xml for the explanation of each exclusion.
+    Docs: https://developer.android.com/identity/data/autobackup#include-exclude-android-11
+-->
+<full-backup-content>
+    <exclude domain="root" path="app_webview/" />
+    <exclude domain="file" path="duck_chats_cache.json" />
+    <exclude domain="database" path="duck_chats.db" />
+    <exclude domain="file" path="anydoc_wasm_bg.wasm" />
+</full-backup-content>

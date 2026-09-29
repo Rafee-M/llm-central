@@ -1,4 +1,4 @@
-package org.duckassist.app;
+package org.llmcentral.app;
 
 import android.content.Context;
 import android.content.Intent;
@@ -28,7 +28,15 @@ public class AssistantSession extends VoiceInteractionSession {
         intent.setAction(Intent.ACTION_ASSIST);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         
-        startAssistantActivity(intent);
+        // startAssistantActivity() only exists on Android 8.0+ (API 26). The app supports Android 7
+        // (minSdk 24), where calling it would crash with NoSuchMethodError, so older versions start the
+        // activity the ordinary way. FLAG_ACTIVITY_NEW_TASK (set above) is required for that because we
+        // are starting it from a service context, not from another activity.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            startAssistantActivity(intent);
+        } else {
+            getContext().startActivity(intent);
+        }
         finish();
     }
 }

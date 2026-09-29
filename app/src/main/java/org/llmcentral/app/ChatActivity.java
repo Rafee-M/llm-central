@@ -1,4 +1,4 @@
-package org.duckassist.app;
+package org.llmcentral.app;
 
 import android.os.Bundle;
 import android.view.MotionEvent;

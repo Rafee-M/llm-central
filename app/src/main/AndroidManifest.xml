@@ -8,16 +8,22 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Asking for CAMERA makes app stores assume a camera is REQUIRED and hide the app from devices
+         without one (e.g. some tablets/Chromebooks). The camera is optional here (only for photo
+         uploads), so declare it as not required. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:largeHeap="true"
         android:icon="@mipmap/ic_launcher"
         android:label="${appName}"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.DeviceDefault">
         <activity
-            android:name="org.duckassist.app.MainActivity"
+            android:name="org.llmcentral.app.MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
             android:launchMode="singleTask"
             android:windowSoftInputMode="stateAlwaysHidden|adjustResize"
@@ -40,7 +46,7 @@
         </activity>
 
         <activity
-            android:name="org.duckassist.app.AskActivity"
+            android:name="org.llmcentral.app.AskActivity"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:exported="true">
             <intent-filter>
@@ -74,7 +80,7 @@
         </activity>
 
         <activity
-            android:name="org.duckassist.app.ChatActivity"
+            android:name="org.llmcentral.app.ChatActivity"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
             android:launchMode="singleTask"
