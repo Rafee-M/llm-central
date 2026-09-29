@@ -121,4 +121,7 @@ dependencies {
 
     // Unit tests run on the computer (JVM), not the phone, and are not packaged into the APK.
     testImplementation 'junit:junit:4.13.2'
+    // In JVM tests Android's own classes are empty stubs, including org.json. This real copy of the same
+    // library lets AccountStoreTest/PalettesTest read and write JSON. Test-only: not in the APK.
+    testImplementation 'org.json:json:20260814'
 }

@@ -58,11 +58,17 @@ public final class Providers {
 
     /** @return the provider with this id, or duck.ai if the id is unknown (e.g. from an older version). */
     public static ProviderSpec byId(String id) {
+        ProviderSpec found = find(id);
+        return found != null ? found : DUCK;
+    }
+
+    /** @return the provider with this id, or {@code null} if there is none (strict version of {@link #byId}). */
+    public static ProviderSpec find(String id) {
         for (ProviderSpec p : ALL) {
             if (p.id.equals(id)) {
                 return p;
             }
         }
-        return DUCK;
+        return null;
     }
 }
