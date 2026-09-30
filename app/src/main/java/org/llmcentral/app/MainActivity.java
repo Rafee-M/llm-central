@@ -50,7 +50,7 @@ import org.llmcentral.app.scripts.UserScriptMatcher;
 import org.llmcentral.app.downloads.Downloader;
 import org.llmcentral.app.web.DesktopMode;
 import org.llmcentral.app.web.DialogWebViewClient;
-import org.llmcentral.app.web.DuckBridge;
+import org.llmcentral.app.web.AppBridge;
 import org.llmcentral.app.web.NavigationPolicy;
 import org.llmcentral.app.web.Scripts;
 import org.llmcentral.app.web.TabLru;
@@ -497,10 +497,11 @@ public class MainActivity extends Activity {
 
         webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
             if (url.startsWith("blob:")) {
-                if (!provider.isDuck()) {
-                    // blob: downloads need the helper script + bridge, which only duck.ai's tab has.
-                    Toast.makeText(MainActivity.this, "This kind of download isn't supported for "
-                            + provider.displayName + " yet.", Toast.LENGTH_SHORT).show();
+                // A file the page made itself: only the page can read it, so a small script
+                // (blob_fetch.js) reads it and hands it over through the tab's bridge (web/AppBridge;
+                // duck.ai: the full bridge, other providers: the downloads-only one).
+                if (!AppBridge.isSupported()) {
+                    Toast.makeText(MainActivity.this, R.string.download_needs_newer_webview, Toast.LENGTH_LONG).show();
                     return;
                 }
                 // The script (assets/js/blob_fetch.js) is one function; the three values from the web
@@ -510,7 +511,7 @@ public class MainActivity extends Activity {
                 String args = "(" + org.json.JSONObject.quote(url) + ","
                         + org.json.JSONObject.quote(contentDisposition != null ? contentDisposition : "") + ","
                         + org.json.JSONObject.quote(mimetype != null ? mimetype : "") + ")";
-                chatWebView.evaluateJavascript(js(Scripts.BLOB_FETCH) + args, null);
+                webView.evaluateJavascript(js(Scripts.BLOB_FETCH) + args, null); // in the tab it came from
                 return;
             } else if (url.startsWith("data:")) {
                 downloader.saveDataUrl(provider, url, mimetype, contentDisposition, url);
@@ -522,9 +523,13 @@ public class MainActivity extends Activity {
 
         if (provider.isDuck()) {
             // duck.ai's helper scripts talk to the app through a message bridge that only duck.ai's
-            // own main page can use (web/DuckBridge, PROJECT.md P1). Before round 5 this was
+            // own main page can use (web/AppBridge, PROJECT.md P1). Before round 5 this was
             // addJavascriptInterface(this, "Android"), which every frame of the page could call.
-            DuckBridge.attach(webView, duckBridgeHost);
+            AppBridge.attachDuck(webView, bridgeHost(provider));
+        } else {
+            // Other providers: a downloads-only bridge (one message type, their own chat site only),
+            // so files the page makes can be saved.
+            AppBridge.attachDownloads(webView, provider, bridgeHost(provider));
         }
 
         ScaleGestureDetector scaleGestureDetector = new ScaleGestureDetector(this, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -562,57 +567,59 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * What duck.ai's page may ask the app to do, through the message bridge (web/DuckBridge checks
-     * every message first: it must come from duck.ai's own main page and have an allowed type).
-     * These run on the main thread.
+     * What a page may ask the app to do, through its message bridge (web/AppBridge checks every
+     * message first: it must come from the provider's own main page and have a type its scope
+     * allows; other providers' bridges only ever pass on "blob"). These run on the main thread.
      */
-    private final DuckBridge.Host duckBridgeHost = new DuckBridge.Host() {
-        @Override
-        public void copyToClipboard(String text) {
-            MainActivity.this.copyToClipboard(text);
-        }
-
-        @Override
-        public void onChatsFetched(String json) {
-            MainActivity.this.onChatsFetched(json);
-        }
-
-        @Override
-        public void processBlob(String dataUrl, String mimetype, String contentDisposition, String pageUrl) {
-            downloader.saveDataUrl(Providers.DUCK, dataUrl, mimetype, contentDisposition, pageUrl);
-        }
-
-        @Override
-        public void showSoftKeyboard() {
-            chatWebView.requestFocus();
-            android.view.inputmethod.InputMethodManager imm =
-                (android.view.inputmethod.InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-            if (imm != null) {
-                imm.showSoftInput(chatWebView, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+    private AppBridge.Host bridgeHost(ProviderSpec provider) {
+        return new AppBridge.Host() {
+            @Override
+            public void copyToClipboard(String text) {
+                MainActivity.this.copyToClipboard(text);
             }
-        }
 
-        @Override
-        public void triggerNewChatShortcut() {
-            if (chatWebView != null) {
+            @Override
+            public void onChatsFetched(String json) {
+                MainActivity.this.onChatsFetched(json);
+            }
+
+            @Override
+            public void processBlob(String dataUrl, String mimetype, String contentDisposition, String pageUrl) {
+                downloader.saveDataUrl(provider, dataUrl, mimetype, contentDisposition, pageUrl);
+            }
+
+            @Override
+            public void showSoftKeyboard() {
                 chatWebView.requestFocus();
-                long now = android.os.SystemClock.uptimeMillis();
-                int meta = KeyEvent.META_CTRL_ON | KeyEvent.META_SHIFT_ON;
-                chatWebView.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_O, 0, meta));
-                chatWebView.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_O, 0, meta));
+                android.view.inputmethod.InputMethodManager imm =
+                    (android.view.inputmethod.InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (imm != null) {
+                    imm.showSoftInput(chatWebView, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+                }
             }
-        }
 
-        @Override
-        public void setImageZoomActive(boolean active) {
-            isImageZoomActive = active;
-        }
+            @Override
+            public void triggerNewChatShortcut() {
+                if (chatWebView != null) {
+                    chatWebView.requestFocus();
+                    long now = android.os.SystemClock.uptimeMillis();
+                    int meta = KeyEvent.META_CTRL_ON | KeyEvent.META_SHIFT_ON;
+                    chatWebView.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_O, 0, meta));
+                    chatWebView.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_O, 0, meta));
+                }
+            }
 
-        @Override
-        public void onContinueLastChatSuccess() {
-            pendingContinueLastChat = false;
-        }
-    };
+            @Override
+            public void setImageZoomActive(boolean active) {
+                isImageZoomActive = active;
+            }
+
+            @Override
+            public void onContinueLastChatSuccess() {
+                pendingContinueLastChat = false;
+            }
+        };
+    }
 
     private void copyToClipboard(final String text) {
         runOnUiThread(() -> {
@@ -1044,7 +1051,7 @@ public class MainActivity extends Activity {
      * duck.ai couldn't load (offline) or keeps crashing: show the chats saved on the phone instead.
      *
      * <p>Until round 5 the viewer page was loaded <i>inside</i> the duck.ai tab and used the tab's
-     * {@code Android} bridge. The new bridge (web/DuckBridge) only works for https://duck.ai pages,
+     * {@code Android} bridge. The new bridge (web/AppBridge) only works for https://duck.ai pages,
      * never for a local {@code file:} page, so the viewer now opens in its own window, which has its
      * own small local-only bridge. Closing it tries duck.ai again (as the old in-tab close did).</p>
      * If the duck.ai tab isn't on screen, the window waits until the user switches to it.
@@ -1941,8 +1948,10 @@ public class MainActivity extends Activity {
             DesktopMode.onPageFinished(MainActivity.this, view); // wide page in desktop mode
             if (!provider.isDuck()) {
                 // Other providers: no duck.ai helper scripts (they target duck.ai's page and need the
-                // bridge). A shared prompt waiting for this tab is typed in; the user's own scripts
-                // still run where their "match" setting allows.
+                // bridge). Files the page makes become downloadable (blob_capture.js); a shared prompt
+                // waiting for this tab is typed in; the user's own scripts still run where their
+                // "match" setting allows.
+                safeEvaluateJavascript(view, js(Scripts.BLOB_CAPTURE));
                 promptFiller.onPageFinished(view, url);
                 injectUserScripts(view, url);
                 return;

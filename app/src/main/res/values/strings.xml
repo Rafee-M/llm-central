@@ -13,6 +13,7 @@
     <string name="url_copied">copied to clipboard</string>
     <!-- Downloads (downloads/Downloader) -->
     <string name="download_failed">The file couldn\'t be saved.</string>
+    <string name="download_needs_newer_webview">Saving this file needs a newer Android System WebView (update it from the Play Store).</string>
     <string name="download_too_large">This file is too large to save (over about 75 MB).</string>
     <!-- Top bar (provider switcher) -->
     <string name="switch_provider">Switch account</string>
