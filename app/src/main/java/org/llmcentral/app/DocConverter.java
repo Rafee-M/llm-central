@@ -124,6 +124,18 @@ public class DocConverter {
     private String wasmLoadError = null;
     private String pendingWasmBase64 = null;
 
+    /**
+     * How long the hidden converter WebView is kept after its last use. It holds the converter
+     * engine and the memory the engine grew while converting, inside the web process that also runs
+     * every chat tab. Measured in desktop Chromium: +46 MB with the engine loaded, +118 MB after one
+     * 3.3 MB file; destroying it gave 72 MB back. Kept forever (it was, before), that memory makes
+     * Android more likely to kill the web process (every tab reloads) or the app in the background.
+     * Released, the next document waits a moment longer while the engine starts again (0.1 s on a
+     * computer; estimated up to about a second on a phone).
+     */
+    private static final long IDLE_RELEASE_MS = 60_000;
+    private final Runnable releaseIfIdle = this::releaseIfIdle;
+
     private final List<WasmReadyCallback> wasmReadyCallbacks = new ArrayList<>();
     private final AtomicLong reqIdCounter = new AtomicLong(1);
     private final Map<String, ConversionCallback> pendingCallbacks = new ConcurrentHashMap<>();
@@ -543,6 +555,26 @@ public class DocConverter {
         }
     }
 
+    /**
+     * Frees the hidden converter WebView when nothing uses it (see {@link #IDLE_RELEASE_MS}); the next
+     * document calls {@link #initWebView()} again. Still busy (a document converting, the engine
+     * loading or downloading): check again later. Runs on the main thread (WebView's thread).
+     */
+    private void releaseIfIdle() {
+        if (runnerWebView == null) {
+            return;
+        }
+        if (!pendingCallbacks.isEmpty() || isWasmLoading || !wasmReadyCallbacks.isEmpty()) {
+            mainHandler.postDelayed(releaseIfIdle, IDLE_RELEASE_MS);
+            return;
+        }
+        org.llmcentral.app.web.WebViewRecovery.discard(runnerWebView); // destroy(): the page and its memory go
+        runnerWebView = null;
+        isPageLoaded = false;
+        isWasmLoaded = false;
+        pendingWasmBase64 = null;
+    }
+
     private void initWebView() {
         if (runnerWebView != null) return;
         try {
@@ -645,6 +677,9 @@ public class DocConverter {
 
     private void ensureWasmReady(ConversionCallback statusCb, WasmReadyCallback callback) {
         initWebView();
+        // (Re)start the idle timer: the WebView is freed a minute after the last document.
+        mainHandler.removeCallbacks(releaseIfIdle);
+        mainHandler.postDelayed(releaseIfIdle, IDLE_RELEASE_MS);
 
         if (isWasmLoaded) {
             if (callback != null) callback.onReady();
