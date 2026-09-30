@@ -6,7 +6,7 @@
 
 **LLM Central** is a lightweight, privacy-focused Android app that puts several AI chat websites in one
 place: duck.ai, ChatGPT, Claude, DeepSeek, Z.ai and more, with several isolated accounts per provider and
-instant switching between them, while keeping the APK tiny (~260 KB).
+instant switching between them, while keeping the APK tiny (~280 KB).
 
 It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju, which is itself a fork of
 [gptAssist](https://github.com/woheller69/gptAssist) by woheller69.
@@ -20,14 +20,24 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
   them in Settings → Accounts. (Needs a recent Android System WebView.)
 - 🎨 **Material You**: Light / Dark / Black (OLED) / System theme, 8 colour palettes, or your wallpaper colours
   (Android 12+), in Settings → Appearance.
+- 📌 **Choose where things open**: which account the assistant gesture opens, which one gets **Share** and the
+  **"Ask AI"** text action, and which one the app starts with (Settings → Assistant & sharing / Behaviour).
+  duck.ai stays the default.
+- ✍️ **Prompt pre-fill on every provider**: shared text lands in the chosen chat's message box, ready to edit and send.
+- ↕️ **Re-order accounts** (Settings → Accounts → ⋮ → Move up / Move down).
+- 🔑 **Sign-in pop-ups** (e.g. "Continue with Microsoft/Apple/GitHub") open in the right account.
+- 🖥️ **Desktop site** toggle in the top bar, remembered per account.
+- ⛶ **Hide status bar** (Settings → Appearance) for more room.
 - ⚙️ **Settings button on every provider** in the top bar; a minimal Material 3 settings screen.
+- 🔒 **Safer by design**: only duck.ai's own page can talk to the app, through a checked message bridge; the
+  other chat sites get no bridge at all.
 
 ### Inherited from duckAssist (duck.ai)
 
 - 🎯 **Focused interface** for [duck.ai](https://duck.ai/), with a native loading progress bar.
 - 🎙️ **Digital assistant integration**: set the app as your device's default digital assistant and open
-  it with the system assistant gesture; it can start duck.ai's voice chat automatically.
-- 🚀 **"Ask duck.ai" text action**: select text in any app → overflow menu → *Ask duck.ai*.
+  it with the system assistant gesture; with duck.ai it can start voice chat automatically.
+- 🚀 **"Ask AI" text action**: select text in any app → overflow menu → *Ask AI*.
 - 📁 **File support**: upload files/photos, download attachments to your Downloads folder.
 - 📄 **Offline document conversion**: shared Word/Excel/PowerPoint/OpenDocument/ePub/RTF/CSV files are
   converted on the phone into text or PDF; large PDFs are split into 15-page parts. The converter is
@@ -38,7 +48,7 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 
 ## Planned (see PROJECT.md)
 
-A default assistant account, share targets per account, per-account offline history, and account re-ordering.
+Per-account offline history, `blob:` downloads on every provider, per-account cache settings.
 
 ## Signing in to providers
 
