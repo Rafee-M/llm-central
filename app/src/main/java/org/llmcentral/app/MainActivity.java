@@ -244,6 +244,7 @@ public class MainActivity extends Activity {
         Scheme scheme = ThemeManager.scheme(this);
         if (!isDrawerLayout()) {
             ThemeManager.styleWindow(this, scheme); // the drawer's window must stay see-through
+            ThemeManager.applyStatusBar(this);      // Appearance → "Hide status bar"
         }
         NativeTheme.styleTopBar(findViewById(R.id.topBar), scheme);
         NativeTheme.styleProgressBar(progressBar, scheme);

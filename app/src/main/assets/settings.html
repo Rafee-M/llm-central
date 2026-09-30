@@ -386,6 +386,13 @@
                         <div class="sub" id="materialYouSub">Use colours from your wallpaper</div></div>
                     <label class="switch"><input type="checkbox" role="switch" id="material_you" aria-labelledby="l_my"><span class="track"><span class="thumb"></span></span></label>
                 </div>
+                <!-- Frameless: hides the status bar (clock, notifications) for more room (theme/ThemeManager). -->
+                <div class="row">
+                    <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                    <div class="text"><div class="title" id="l_hsb">Hide status bar</div>
+                        <div class="sub">More room for chats. Swipe down from the top edge to see it for a moment.</div></div>
+                    <label class="switch"><input type="checkbox" role="switch" id="hide_status_bar" aria-labelledby="l_hsb"><span class="track"><span class="thumb"></span></span></label>
+                </div>
             </div>
         </section>
     </main>
@@ -765,6 +772,7 @@
             my.disabled = !appearance.materialYouAvailable;
             document.getElementById('materialYouSub').textContent = appearance.materialYouAvailable
                 ? 'Use colours from your wallpaper' : 'Needs Android 12 or newer';
+            document.getElementById('hide_status_bar').checked = !!appearance.hideStatusBar;
         }
         function loadAppearance() {
             if (!AP) return;
@@ -893,6 +901,9 @@
             }
             document.getElementById('material_you').addEventListener('change', (e) => {
                 if (AP) renderAppearance(parse(AP.setMaterialYou(e.target.checked)));
+            });
+            document.getElementById('hide_status_bar').addEventListener('change', (e) => {
+                if (AP && AP.setHideStatusBar) renderAppearance(parse(AP.setHideStatusBar(e.target.checked)));
             });
             // The app bar gets a tinted background once the page scrolls under it (Material 3).
             window.addEventListener('scroll', () => {
