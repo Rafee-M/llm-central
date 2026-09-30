@@ -16,6 +16,8 @@ import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.util.Log;
@@ -72,6 +74,10 @@ public final class Downloader {
     static final int MAX_DATA_URL_CHARS = 100_000_000;
 
     private final Activity activity;
+    // For the background part (writing the file, the notification): the app, not the screen, so a
+    // screen closed in the meantime is neither kept in memory nor needed.
+    private final Context appContext;
+    private final Handler main = new Handler(Looper.getMainLooper());
     private final Executor background;
     // A download waiting for the permission answer (only the newest one is kept).
     private Runnable waitingForPermission;
@@ -81,6 +87,7 @@ public final class Downloader {
      */
     public Downloader(Activity activity, Executor background) {
         this.activity = activity;
+        this.appContext = activity.getApplicationContext();
         this.background = background;
     }
 
@@ -162,6 +169,9 @@ public final class Downloader {
     /** The "Save file" box: an editable name, the part before the extension pre-selected. */
     private void askName(ProviderSpec provider, String title, String button, String webName,
                          String mimetype, OnName onName) {
+        if (activity.isFinishing() || activity.isDestroyed()) {
+            return; // e.g. the assistant drawer is closing: a dialog can't be shown any more
+        }
         String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(new Date());
         String suggested = DownloadNames.suggested(provider, webName, timestamp);
 
@@ -239,9 +249,9 @@ public final class Downloader {
                 values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
                 values.put(MediaStore.MediaColumns.MIME_TYPE, mimetype);
                 values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + File.separator + folder);
-                Uri uri = activity.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                Uri uri = appContext.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
                 if (uri != null) {
-                    try (OutputStream out = activity.getContentResolver().openOutputStream(uri)) {
+                    try (OutputStream out = appContext.getContentResolver().openOutputStream(uri)) {
                         if (out != null) {
                             out.write(data);
                             fileUri = uri;
@@ -258,25 +268,25 @@ public final class Downloader {
                     out.write(data);
                     fileUri = Uri.fromFile(file);
                 }
-                MediaScannerConnection.scanFile(activity, new String[]{file.getAbsolutePath()}, new String[]{mimetype}, null);
+                MediaScannerConnection.scanFile(appContext, new String[]{file.getAbsolutePath()}, new String[]{mimetype}, null);
             }
         } catch (Exception | OutOfMemoryError e) {
             Log.e(TAG, "Saving the file failed", e);
         }
         final Uri saved = fileUri;
-        activity.runOnUiThread(() -> {
+        main.post(() -> {
             if (saved == null) {
-                Toast.makeText(activity, R.string.download_failed, Toast.LENGTH_SHORT).show();
+                Toast.makeText(appContext, R.string.download_failed, Toast.LENGTH_SHORT).show();
                 return;
             }
-            Toast.makeText(activity, activity.getString(R.string.download) + " " + fileName, Toast.LENGTH_SHORT).show();
+            Toast.makeText(appContext, appContext.getString(R.string.download) + " " + fileName, Toast.LENGTH_SHORT).show();
             showNotification(fileName, mimetype, saved);
         });
     }
 
     /** "Download completed" notification; tapping it opens the file. */
     private void showNotification(String fileName, String mimeType, Uri uri) {
-        NotificationManager manager = (NotificationManager) activity.getSystemService(Context.NOTIFICATION_SERVICE);
+        NotificationManager manager = (NotificationManager) appContext.getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager == null) {
             return;
         }
@@ -292,10 +302,10 @@ public final class Downloader {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             flags |= PendingIntent.FLAG_IMMUTABLE;
         }
-        PendingIntent pendingIntent = PendingIntent.getActivity(activity, 0, intent, flags);
+        PendingIntent pendingIntent = PendingIntent.getActivity(appContext, 0, intent, flags);
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                ? new Notification.Builder(activity, channelId)
-                : new Notification.Builder(activity);
+                ? new Notification.Builder(appContext, channelId)
+                : new Notification.Builder(appContext);
         builder.setSmallIcon(android.R.drawable.stat_sys_download_done)
                 .setContentTitle(fileName)
                 .setContentText("Download completed")
