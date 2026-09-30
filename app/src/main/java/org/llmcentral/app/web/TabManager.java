@@ -95,6 +95,23 @@ public final class TabManager {
         return liveTabs.get(current.id);
     }
 
+    /** @return the WebViews of all loaded tabs (e.g. to clear their cache). */
+    public java.util.List<WebView> liveWebViews() {
+        return new java.util.ArrayList<>(liveTabs.values());
+    }
+
+    /** @return the profile names used by the loaded tabs (duck.ai's default profile isn't named). */
+    public java.util.Set<String> liveProfileNames() {
+        java.util.Set<String> names = new java.util.HashSet<>();
+        for (String id : liveTabs.keySet()) {
+            Account account = liveAccounts.get(id);
+            if (account != null && account.profileName() != null) {
+                names.add(account.profileName());
+            }
+        }
+        return names;
+    }
+
     /** @return true if the account's tab is loaded (showing it won't load a page). */
     public boolean isLoaded(String accountId) {
         return liveTabs.containsKey(accountId);

@@ -48,6 +48,8 @@ import android.os.Looper;
 
 import org.llmcentral.app.scripts.UserScriptMatcher;
 import org.llmcentral.app.downloads.Downloader;
+import org.llmcentral.app.storage.AppCache;
+import org.llmcentral.app.storage.StorageBridge;
 import org.llmcentral.app.web.DesktopMode;
 import org.llmcentral.app.web.DialogWebViewClient;
 import org.llmcentral.app.web.AppBridge;
@@ -138,10 +140,15 @@ public class MainActivity extends Activity {
         }
     }
 
-    // One background thread for the app's slower work (saving files, offline chats), so the screen
-    // never waits for it. Shut down in onDestroy.
-    private final java.util.concurrent.ExecutorService background =
+    // One background thread for the app's slower work (saving files, offline chats, cache clean-up),
+    // so the screen never waits for it. "static" = one thread for the whole app, shared by both
+    // screens and kept while the app runs, so work handed over just before a screen closes (e.g. the
+    // offline chat save) still finishes. Until round 6 every offline-chat save and start created a
+    // new thread pool that was never shut down: one leaked thread each time.
+    private static final java.util.concurrent.ExecutorService background =
             java.util.concurrent.Executors.newSingleThreadExecutor();
+    // Set when duck.ai was on screen since its chats were last saved for offline use (onStop).
+    private boolean duckUsedSinceDump = false;
     // Saves files from the websites into Downloads (downloads/Downloader).
     private Downloader downloader;
     private String lastFetchedChatsJson = "{}";
@@ -151,11 +158,22 @@ public class MainActivity extends Activity {
     private android.app.Dialog scriptsManagerDialog = null;
     private boolean isRequestingViewer = false;
 
-    private void clearCacheData() {
-        if (chatWebView != null) {
-            chatWebView.clearCache(true);
+    /** Paths of shared files still waiting for the page's 📎 button (not to be deleted as "cache"). */
+    private java.util.Set<String> sharedFilesInUse() {
+        java.util.Set<String> paths = new java.util.HashSet<>();
+        java.util.List<Uri> uris = new java.util.ArrayList<>();
+        if (pendingSharedFileUris != null) {
+            uris.addAll(pendingSharedFileUris);
         }
-        Log.d(TAG, "Cache cleared.");
+        if (pendingSharedFileUri != null) {
+            uris.add(pendingSharedFileUri);
+        }
+        for (Uri uri : uris) {
+            if ("file".equals(uri.getScheme()) && uri.getPath() != null) {
+                paths.add(new File(uri.getPath()).getAbsolutePath());
+            }
+        }
+        return paths;
     }
 
     private Uri saveUriToTempFile(Uri uri, String extension) {
@@ -264,7 +282,7 @@ public class MainActivity extends Activity {
         chatWebView = findViewById(R.id.chatWebView);
 
         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-        java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
+        background.execute(() -> {
             try {
                 String cached = ChatDatabaseHelper.getInstance(MainActivity.this).getCachedChatsJson();
                 if (cached != null && !cached.equals("{}") && !cached.isEmpty()) {
@@ -294,6 +312,10 @@ public class MainActivity extends Activity {
         // Before any account WebView exists: delete the data folders of removed accounts
         // (see web/Profiles for why this waits for a fresh start).
         Profiles.cleanUp(accounts.all());
+        // duck.ai's (default) profile gets the same cache cap as the accounts; old temporary files
+        // (shared files, converted documents, camera photos) are deleted in the background.
+        Profiles.limitDefaultCache();
+        background.execute(() -> AppCache.deleteTempFiles(this, AppCache.TEMP_MAX_AGE_MS, null));
 
         // The WebView from the layout is the duck.ai tab; other accounts get their own WebView (in
         // their own profile) the first time they're opened. Default: 3 tabs stay loaded (R-PERF-1).
@@ -428,6 +450,9 @@ public class MainActivity extends Activity {
     /** Called by TabManager after an account's tab became visible (or was renamed). */
     private void onTabShown(Account account) {
         updateTopBar(account);
+        if (account.isDuck()) {
+            duckUsedSinceDump = true;
+        }
         syncDesktopMode(account);
         if (account.isDuck() && duckOffline) {
             showOfflineChats(chatWebView);
@@ -818,6 +843,31 @@ public class MainActivity extends Activity {
 
             // Theme colours for the page (read-only, local page only; see theme/ThemeBridge).
             webView.addJavascriptInterface(new ThemeBridge(this), "AndroidTheme");
+            // Data & tools → "Clear cache" (see storage/StorageBridge).
+            webView.addJavascriptInterface(new StorageBridge(this, background, new StorageBridge.Host() {
+                @Override
+                public void runOnUiThread(Runnable action) {
+                    MainActivity.this.runOnUiThread(action);
+                }
+
+                @Override
+                public void clearWebViewCaches() {
+                    for (WebView tab : tabManager.liveWebViews()) {
+                        tab.clearCache(true); // this tab's own account (profile) only
+                    }
+                    Profiles.clearClosedProfileCaches(MainActivity.this, tabManager.liveProfileNames());
+                }
+
+                @Override
+                public java.util.Set<String> filesInUse() {
+                    return sharedFilesInUse();
+                }
+
+                @Override
+                public void sendToPage(String script) {
+                    webView.evaluateJavascript(script, null);
+                }
+            }), "AndroidStorage");
             // Accounts and Appearance sections (see account/AccountsBridge, theme/AppearanceBridge).
             webView.addJavascriptInterface(new AccountsBridge(new AccountsBridge.Host() {
                 @Override
@@ -906,7 +956,7 @@ public class MainActivity extends Activity {
 
     /** Receives duck.ai's chat dump (from the message bridge), merges it with the saved copy and stores it. */
     private void onChatsFetched(String jsonStr) {
-        java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
+        background.execute(() -> {
             if (jsonStr == null || jsonStr.isEmpty() || jsonStr.equals("{}")) {
                 if (isRequestingViewer) {
                     isRequestingViewer = false;
@@ -1403,6 +1453,9 @@ public class MainActivity extends Activity {
         refreshAccounts();
         if (tabManager != null) {
             syncDesktopMode(tabManager.current());
+            if (tabManager.current().isDuck()) {
+                duckUsedSinceDump = true;
+            }
         }
     }
 
@@ -1453,11 +1506,14 @@ public class MainActivity extends Activity {
         if (tabManager != null) {
             tabManager.flushCookies();
         }
-        runOnUiThread(() -> {
-            if (chatWebView != null && chatWebView.getUrl() != null && chatWebView.getUrl().startsWith("https://duck")) {
-                chatWebView.evaluateJavascript(js(Scripts.DUMP_CHATS), null);
-            }
-        });
+        // Save duck.ai's chats for offline reading, but only if duck.ai was used since the last save:
+        // the dump reads every chat and image, too much work to repeat when only other accounts were
+        // used (round 6).
+        if (duckUsedSinceDump && chatWebView != null && chatWebView.getUrl() != null
+                && chatWebView.getUrl().startsWith("https://duck")) {
+            duckUsedSinceDump = false;
+            chatWebView.evaluateJavascript(js(Scripts.DUMP_CHATS), null);
+        }
     }
 
     @Override
@@ -2311,14 +2367,12 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        //clearCacheData();
         if (tabManager != null) {
             tabManager.destroyAccountTabs();
         }
         if (chatWebView != null) {
             chatWebView.destroy();
         }
-        background.shutdown(); // lets queued work (e.g. a file being saved) finish, then stops the thread
         super.onDestroy();
     }
 }

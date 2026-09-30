@@ -1,5 +1,6 @@
 package org.llmcentral.app.web;
 
+import android.content.Context;
 import android.util.Log;
 import android.webkit.CookieManager;
 import android.webkit.WebView;
@@ -142,6 +143,51 @@ public final class Profiles {
                     // Still in use (e.g. the screen was just recreated in the same process): next start.
                     Log.w(TAG, "Leftover profile still in use; will retry at next start");
                 }
+            }
+        }
+    }
+
+    /**
+     * Caps the HTTP cache of WebView's <i>default</i> profile (duck.ai's) like every account's
+     * ({@link #MAX_CACHE_BYTES}). Before round 6 only the account profiles had a cap. Call at start.
+     */
+    public static void limitDefaultCache() {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+            return; // older WebView: it manages the size itself
+        }
+        Profile profile = ProfileStore.getInstance().getProfile(Profile.DEFAULT_PROFILE_NAME);
+        if (profile != null) {
+            limitCache(profile);
+        }
+    }
+
+    /**
+     * Empties the HTTP cache (the websites' files, <b>not</b> cookies or logins) of every account whose
+     * tab is closed right now. Tabs that are open are cleared through their own WebView by the caller.
+     *
+     * <p>How: {@code WebView.clearCache(true)} removes the cache of the WebView's own profile only
+     * (verified in Chromium's {@code AwContents::ClearCache}: data type "cache", the WebView's browser
+     * context). So a short-lived, never-shown WebView is put into each closed account's profile,
+     * asked to clear, and destroyed. Main thread only.</p>
+     *
+     * @param openProfiles profile names of the tabs that are open (skipped)
+     */
+    public static void clearClosedProfileCaches(Context context, Set<String> openProfiles) {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+            return; // no account profiles: the open duck.ai tab covers the default profile
+        }
+        for (String name : ProfileStore.getInstance().getAllProfileNames()) {
+            if (!name.startsWith(ACCOUNT_PREFIX) || openProfiles.contains(name)) {
+                continue;
+            }
+            WebView temp = new WebView(context);
+            try {
+                WebViewCompat.setProfile(temp, name);
+                temp.clearCache(true);
+            } catch (RuntimeException e) {
+                Log.w(TAG, "Couldn't clear an account's cache", e);
+            } finally {
+                temp.destroy();
             }
         }
     }
