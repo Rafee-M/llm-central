@@ -13,7 +13,7 @@ import org.llmcentral.app.web.Profiles;
 
 /**
  * What the Settings page's "Accounts" section can ask the app to do (PROJECT.md R-ACC-4): list,
- * add, rename, show/hide in the switcher menu, open, sign out and remove accounts. It also stores
+ * add, rename, re-order, show/hide in the switcher menu, open, sign out and remove accounts. It also stores
  * which account the assistant, sharing and the app start open ({@link DefaultAccounts}, R-AST).
  *
  * <p><b>How a web page talks to Java:</b> MainActivity adds this object to the settings WebView with
@@ -97,6 +97,17 @@ public final class AccountsBridge {
         AccountStore store = host.accounts();
         if (!store.rename(id, name)) {
             return json("Please enter a name.");
+        }
+        saveAndRefresh(store);
+        return json(null);
+    }
+
+    /** Moves an account one place up (-1) or down (+1) among its provider's accounts (R-ACC-4). */
+    @JavascriptInterface
+    public String moveAccount(String id, int delta) {
+        AccountStore store = host.accounts();
+        if (!store.move(id, delta)) {
+            return json("It can't move further.");
         }
         saveAndRefresh(store);
         return json(null);

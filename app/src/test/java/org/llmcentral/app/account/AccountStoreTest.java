@@ -137,4 +137,23 @@ public class AccountStoreTest {
         assertTrue(a.startsWith("claude-"));
         assertFalse(a.equals(b));
     }
+
+    @Test
+    public void accountsMoveOnlyWithinTheirProvider() {
+        AccountStore store = AccountStore.fromJson(null);
+        store.add("chatgpt", "Work", "chatgpt-2");
+        store.add("chatgpt", "Home", "chatgpt-3");
+        assertTrue(store.move("chatgpt-3", -1));
+        assertEquals("duck,chatgpt,chatgpt-3,chatgpt-2,claude,deepseek,zai", ids(store.all()));
+        assertTrue(store.move("chatgpt", 1));
+        assertEquals("duck,chatgpt-3,chatgpt,chatgpt-2,claude,deepseek,zai", ids(store.all()));
+        // Never past the provider's first/last account (the group stays together), never by 2+.
+        assertFalse(store.move("chatgpt-3", -1));
+        assertFalse(store.move("chatgpt-2", 1));
+        assertFalse(store.move("claude", -1));
+        assertFalse(store.move("chatgpt", 2));
+        assertFalse(store.move("nope", 1));
+        // The new order is saved.
+        assertEquals(ids(store.all()), ids(AccountStore.fromJson(store.toJson()).all()));
+    }
 }
