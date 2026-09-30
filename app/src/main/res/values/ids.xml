@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Key for data a tab's WebView carries around with it (View.setTag(key, value)): its desktop-site
+         state (web/DesktopMode). Stored on the view itself, so it's freed together with the tab. -->
+    <item name="tag_desktop_mode" type="id" />
+</resources>

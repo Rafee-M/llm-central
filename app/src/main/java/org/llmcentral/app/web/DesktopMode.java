@@ -12,13 +12,12 @@ import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
 import org.json.JSONArray;
+import org.llmcentral.app.R;
 import org.llmcentral.app.provider.ProviderSpec;
 
 import java.util.Collections;
 import java.util.LinkedHashSet;
-import java.util.Map;
 import java.util.Set;
-import java.util.WeakHashMap;
 
 /**
  * "Desktop site" for one account, switched with the monitor button in the top bar, like Chrome's
@@ -58,10 +57,25 @@ public final class DesktopMode {
     /** Page width (CSS pixels) given to sites in desktop mode: wide enough for their computer layout. */
     static final int VIEWPORT_WIDTH = 1024;
 
-    // What each tab currently uses (weak: closed tabs are forgotten automatically).
-    private static final Map<WebView, Boolean> active = new WeakHashMap<>();
-    private static final Map<WebView, ScriptHandler> viewportScripts = new WeakHashMap<>();
-    private static final Map<WebView, UserAgentMetadata> phoneMetadata = new WeakHashMap<>();
+    /**
+     * What a tab currently uses, kept on the tab's WebView itself ({@code View.setTag}), so it goes
+     * away together with the tab (a static list of WebViews could keep closed tabs in memory).
+     */
+    private static final class State {
+        boolean on;
+        ScriptHandler viewportScript;   // to remove the viewport script when switching back
+        UserAgentMetadata phoneMetadata; // to put the phone client hints back
+    }
+
+    private static State state(WebView webView) {
+        Object tag = webView.getTag(R.id.tag_desktop_mode);
+        if (tag instanceof State) {
+            return (State) tag;
+        }
+        State fresh = new State();
+        webView.setTag(R.id.tag_desktop_mode, fresh);
+        return fresh;
+    }
 
     private DesktopMode() {
         // Only static methods.
@@ -135,8 +149,8 @@ public final class DesktopMode {
 
     /** @return true if the tab currently uses the desktop site. */
     public static boolean isActive(WebView webView) {
-        Boolean on = active.get(webView);
-        return on != null && on;
+        Object tag = webView.getTag(R.id.tag_desktop_mode);
+        return tag instanceof State && ((State) tag).on;
     }
 
     /**
@@ -147,12 +161,13 @@ public final class DesktopMode {
         if (isActive(webView) == on) {
             return; // nothing changes (a new tab starts as "phone": nothing to undo)
         }
+        State state = state(webView);
         WebSettings settings = webView.getSettings();
         // null = WebView's own default user agent.
         settings.setUserAgentString(on ? desktopUserAgent(WebSettings.getDefaultUserAgent(context)) : null);
-        applyClientHints(settings, webView, on);
-        applyViewportScript(context, webView, provider, on);
-        active.put(webView, on);
+        applyClientHints(settings, state, on);
+        applyViewportScript(context, webView, state, provider, on);
+        state.on = on;
     }
 
     /** Call from the tab's onPageFinished: makes sure the wide viewport is set (fallback). */
@@ -162,11 +177,11 @@ public final class DesktopMode {
         }
     }
 
-    private static void applyClientHints(WebSettings settings, WebView webView, boolean on) {
+    private static void applyClientHints(WebSettings settings, State state, boolean on) {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) {
             if (on) {
                 UserAgentMetadata phone = WebSettingsCompat.getUserAgentMetadata(settings);
-                phoneMetadata.put(webView, phone); // to put back when switching off
+                state.phoneMetadata = phone; // to put back when switching off
                 WebSettingsCompat.setUserAgentMetadata(settings, new UserAgentMetadata.Builder(phone)
                         .setMobile(false)
                         .setPlatform("Linux")
@@ -174,15 +189,16 @@ public final class DesktopMode {
                         .setModel("")
                         .build());
             } else {
-                UserAgentMetadata phone = phoneMetadata.remove(webView);
-                if (phone != null) {
-                    WebSettingsCompat.setUserAgentMetadata(settings, phone);
+                if (state.phoneMetadata != null) {
+                    WebSettingsCompat.setUserAgentMetadata(settings, state.phoneMetadata);
+                    state.phoneMetadata = null;
                 }
             }
         }
     }
 
-    private static void applyViewportScript(Context context, WebView webView, ProviderSpec provider, boolean on) {
+    private static void applyViewportScript(Context context, WebView webView, State state,
+                                            ProviderSpec provider, boolean on) {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             if (on) {
                 // Only the provider's own https sites get it (the same allow-list idea as DuckBridge).
@@ -191,13 +207,11 @@ public final class DesktopMode {
                     rules.add("https://" + domain);
                     rules.add("https://*." + domain);
                 }
-                viewportScripts.put(webView, WebViewCompat.addDocumentStartJavaScript(webView,
-                        Scripts.get(context, Scripts.DESKTOP_VIEWPORT), rules));
-            } else {
-                ScriptHandler handler = viewportScripts.remove(webView);
-                if (handler != null) {
-                    handler.remove();
-                }
+                state.viewportScript = WebViewCompat.addDocumentStartJavaScript(webView,
+                        Scripts.get(context, Scripts.DESKTOP_VIEWPORT), rules);
+            } else if (state.viewportScript != null) {
+                state.viewportScript.remove();
+                state.viewportScript = null;
             }
         }
     }
