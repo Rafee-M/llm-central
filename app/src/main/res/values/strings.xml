@@ -17,4 +17,6 @@
     <string name="dropdown_arrow" translatable="false">▾</string>
     <string name="manage_accounts">Manage accounts</string>
     <string name="current_account">current</string>
+    <!-- Text-selection menu entry (PROCESS_TEXT); sends the selected text to the share account. -->
+    <string name="ask_ai">Ask AI</string>
 </resources>

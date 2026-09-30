@@ -82,6 +82,7 @@ import org.llmcentral.app.provider.Providers;
 import org.llmcentral.app.ui.ProviderBadge;
 import org.llmcentral.app.ui.SwitcherPopup;
 import org.llmcentral.app.account.AccountsBridge;
+import org.llmcentral.app.account.DefaultAccounts;
 import org.llmcentral.app.theme.AppearanceBridge;
 import org.llmcentral.app.theme.Scheme;
 import org.llmcentral.app.theme.ThemeBridge;
@@ -352,14 +353,18 @@ public class MainActivity extends Activity {
             handleIntent(getIntent(), false);
         }
 
-        // Normal app launch: reopen the account the user was using last time.
+        // Normal app launch: open the account chosen in Settings → Behaviour ("Open at start"),
+        // by default the one the user was using last time (see account/DefaultAccounts). When the
+        // screen is only being rebuilt (e.g. after switching light/dark), stay on the account in use.
         String launchAction = getIntent() != null ? getIntent().getAction() : null;
-        if (Intent.ACTION_MAIN.equals(launchAction) || launchAction == null) {
+        if (DefaultAccounts.purposeOf(launchAction) == DefaultAccounts.Purpose.LAUNCH) {
             String lastId = prefs.getString(PREF_LAST_ACCOUNT,
                     prefs.getString(PREF_LAST_PROVIDER, Providers.DUCK_ID));
-            Account last = accounts.find(lastId);
-            if (last != null && !last.isDuck()) {
-                tabManager.show(last);
+            String choice = restored ? DefaultAccounts.LAUNCH_LAST
+                    : prefs.getString(DefaultAccounts.PREF_LAUNCH, DefaultAccounts.LAUNCH_LAST);
+            Account start = DefaultAccounts.launchAccount(accounts, choice, lastId);
+            if (!start.isDuck()) {
+                tabManager.show(start);
             }
         }
     }
@@ -1681,8 +1686,14 @@ public class MainActivity extends Activity {
             }
             applyTheme();
         }
-        // The account list may have been changed by the app's other screen (the assistant drawer is a
-        // separate activity with its own copy): reload it and refresh tabs + top bar if it differs.
+        refreshAccounts();
+    }
+
+    /**
+     * The account list may have been changed by the app's other screen (the assistant drawer is a
+     * separate activity with its own copy): reload it and refresh tabs + top bar if it differs.
+     */
+    private void refreshAccounts() {
         if (accounts != null && tabManager != null) {
             AccountStore fresh = AccountStore.load(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE));
             if (!fresh.toJson().equals(accounts.toJson())) {
@@ -1767,10 +1778,17 @@ public class MainActivity extends Activity {
             }
         }
 
-        // Links, sharing, "Ask duck.ai" and the assistant gesture are all duck.ai features:
-        // show the duck.ai tab first. A normal launch (MAIN) keeps whatever tab is open.
-        if (action != null && !Intent.ACTION_MAIN.equals(action)) {
-            showDuckTab();
+        // Which account handles this request: the one chosen in Settings → "Assistant & sharing"
+        // (duck.ai unless changed; see account/DefaultAccounts). Links from other apps are duck.ai
+        // addresses, so they always go to duck.ai. A normal launch (MAIN) keeps whatever tab is open.
+        refreshAccounts(); // the other screen (assistant drawer) may have changed the list
+        DefaultAccounts.Purpose purpose = DefaultAccounts.purposeOf(action);
+        final Account target = targetAccount(purpose);
+        if (purpose == DefaultAccounts.Purpose.ASSISTANT || purpose == DefaultAccounts.Purpose.LINK
+                || (purpose == DefaultAccounts.Purpose.SHARE && tabManager.isLoaded(target.id))) {
+            // (A share to an account whose tab isn't loaded yet opens it below, straight at the new
+            // chat page, instead of loading its home page first.)
+            tabManager.show(target);
         }
 
         if (Intent.ACTION_VIEW.equals(action)) {
@@ -1848,23 +1866,14 @@ public class MainActivity extends Activity {
                             } else {
                                 showCustomBanner("Tap 📎 to attach the shared file");
                             }
-                            SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                            boolean continueLastChat = prefs.getBoolean("continue_last_chat", false);
-                            if (continueLastChat) {
-                                pendingContinueLastChat = true;
-                            }
-                            String docSuffix = prefs.getString("shared_doc_suffix", "");
-                            if (docSuffix != null && !docSuffix.trim().isEmpty()) {
-                                loadDuckChatPrompt(docSuffix);
-                            } else {
-                                chatWebView.loadUrl("https://duck.ai/chat");
-                            }
+                            openChatForSharedFiles(target);
                         }
 
                         @Override
                         public void onError(String errorMessage) {
                             progress.dismiss();
                             pendingSharedFileUri = saveUriToTempFile(streamUri, ".pdf");
+                            tabManager.show(target);
                         }
                     });
                     return;
@@ -1880,7 +1889,7 @@ public class MainActivity extends Activity {
                         @Override
                         public void onTextReady(String text) {
                             progress.dismiss();
-                            loadDuckChatPrompt(text);
+                            sendPrompt(target, text);
                         }
 
                         @Override
@@ -1893,13 +1902,7 @@ public class MainActivity extends Activity {
                             } else {
                                 showCustomBanner("Tap 📎 to attach the converted document");
                             }
-                            SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                            String docSuffix = prefs.getString("shared_doc_suffix", "");
-                            if (docSuffix != null && !docSuffix.trim().isEmpty()) {
-                                loadDuckChatPrompt(docSuffix);
-                            } else {
-                                chatWebView.loadUrl("https://duck.ai/chat");
-                            }
+                            openChatForSharedFiles(target);
                         }
 
                         @Override
@@ -1931,22 +1934,18 @@ public class MainActivity extends Activity {
                 } else {
                     showCustomBanner("Tap 📎 to attach the shared file");
                 }
-                SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                boolean continueLastChat = prefs.getBoolean("continue_last_chat", false);
-                if (continueLastChat) {
-                    pendingContinueLastChat = true;
-                }
-                String docSuffix = prefs.getString("shared_doc_suffix", "");
-                if (docSuffix != null && !docSuffix.trim().isEmpty()) {
-                    loadDuckChatPrompt(docSuffix);
-                } else {
-                    chatWebView.loadUrl("https://duck.ai/chat");
-                }
+                openChatForSharedFiles(target);
             } else if (sharedText != null) {
-                loadDuckChatPrompt(sharedText);
-            } else {
+                sendPrompt(target, sharedText);
+            } else if (target.isDuck()) {
                 chatWebView.loadUrl("https://duck.ai/");
+            } else {
+                tabManager.show(target);
             }
+        } else if (Intent.ACTION_ASSIST.equals(action) && !target.isDuck()) {
+            // Another provider is the assistant: its tab is already on screen (shown above). Voice
+            // chat start-up is a duck.ai feature (its page's voice button), so nothing more to do.
+            pendingVoiceChat = false;
         } else if (Intent.ACTION_ASSIST.equals(action)) {
             Log.d(TAG, "Assistance shortcut triggered");
             pendingAutoFocus = false;
@@ -2000,14 +1999,14 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void loadDuckChatPrompt(String promptText) {
+    /**
+     * Opens a new chat with {@code promptText} (plus the user's "text added to prompts", if any) in
+     * the account's tab. duck.ai gets the text through its "handoff" link: it appears in the chat
+     * box, not yet sent.
+     */
+    private void sendPrompt(Account account, String promptText) {
         if (promptText == null || promptText.trim().isEmpty()) return;
-        showDuckTab();
         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-        boolean continueLastChat = prefs.getBoolean("continue_last_chat", false);
-        if (continueLastChat) {
-            pendingContinueLastChat = true;
-        }
         String suffix = prefs.getString("shared_doc_suffix", "");
         if (suffix == null || suffix.trim().isEmpty()) {
             suffix = prefs.getString("ask_duck_suffix", "");
@@ -2016,7 +2015,14 @@ public class MainActivity extends Activity {
         if (suffix != null && !suffix.trim().isEmpty()) {
             fullPrompt = promptText + "\n\n" + suffix;
         }
-
+        if (!account.isDuck()) {
+            // Other providers: open a new chat. (Filling in the text follows in the next step.)
+            tabManager.show(account, Providers.byId(account.providerId).homeUrl);
+            return;
+        }
+        if (prefs.getBoolean("continue_last_chat", false)) {
+            pendingContinueLastChat = true;
+        }
         try {
             org.json.JSONObject handoffObj = new org.json.JSONObject();
             handoffObj.put("aiChatPrompt", fullPrompt);
@@ -2026,10 +2032,45 @@ public class MainActivity extends Activity {
             Uri.Builder builder = Uri.parse("https://duck.ai/chat").buildUpon()
                     .appendQueryParameter("q", fullPrompt)
                     .appendQueryParameter("handoff", handoffJson);
-            chatWebView.loadUrl(builder.build().toString());
+            tabManager.show(account, builder.build().toString());
         } catch (org.json.JSONException e) {
             Log.e(TAG, "Error building handoff JSON", e);
-            chatWebView.loadUrl("https://duck.ai/chat?q=" + Uri.encode(fullPrompt));
+            tabManager.show(account, "https://duck.ai/chat?q=" + Uri.encode(fullPrompt));
+        }
+    }
+
+    /**
+     * Files were shared: open a new chat in the target account, so the user can attach them with the
+     * page's 📎 button (the app hands over the waiting files when the page asks, see
+     * onShowFileChooser). The "text added to shared documents" is filled in, if set.
+     */
+    private void openChatForSharedFiles(Account account) {
+        SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
+        String docSuffix = prefs.getString("shared_doc_suffix", "");
+        if (docSuffix != null && !docSuffix.trim().isEmpty()) {
+            sendPrompt(account, docSuffix);
+            return;
+        }
+        if (account.isDuck()) {
+            if (prefs.getBoolean("continue_last_chat", false)) {
+                pendingContinueLastChat = true;
+            }
+            tabManager.show(account, "https://duck.ai/chat");
+        } else {
+            tabManager.show(account, Providers.byId(account.providerId).homeUrl);
+        }
+    }
+
+    /** The account for an assistant / share / link request (see account/DefaultAccounts). */
+    private Account targetAccount(DefaultAccounts.Purpose purpose) {
+        SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
+        switch (purpose) {
+            case ASSISTANT:
+                return DefaultAccounts.resolve(accounts, prefs.getString(DefaultAccounts.PREF_ASSISTANT, null));
+            case SHARE:
+                return DefaultAccounts.resolve(accounts, prefs.getString(DefaultAccounts.PREF_SHARE, null));
+            default:
+                return accounts.duck();
         }
     }
 
@@ -2525,7 +2566,7 @@ public class MainActivity extends Activity {
                         @Override
                         public void onTextReady(String text) {
                             progress.dismiss();
-                            loadDuckChatPrompt(text);
+                            sendPrompt(tabManager.current(), text);
                         }
 
                         @Override
@@ -2541,7 +2582,7 @@ public class MainActivity extends Activity {
                             SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
                             String docSuffix = prefs.getString("shared_doc_suffix", "");
                             if (docSuffix != null && !docSuffix.trim().isEmpty()) {
-                                loadDuckChatPrompt(docSuffix);
+                                sendPrompt(tabManager.current(), docSuffix);
                             }
                         }
 

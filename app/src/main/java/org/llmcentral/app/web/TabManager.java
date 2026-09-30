@@ -91,6 +91,11 @@ public final class TabManager {
         return liveTabs.get(current.id);
     }
 
+    /** @return true if the account's tab is loaded (showing it won't load a page). */
+    public boolean isLoaded(String accountId) {
+        return liveTabs.containsKey(accountId);
+    }
+
     /** @return the account a WebView belongs to, or null if it isn't one of our tabs. */
     public Account accountOf(WebView webView) {
         for (Map.Entry<String, WebView> e : liveTabs.entrySet()) {
@@ -107,6 +112,18 @@ public final class TabManager {
      * @return the account's WebView (now visible)
      */
     public WebView show(Account account) {
+        return show(account, null);
+    }
+
+    /**
+     * Shows an account's tab and opens a page in it, e.g. a new chat for shared text.
+     *
+     * @param startUrl the page to open, or null to keep the tab's current page. A tab that didn't
+     *                 exist yet opens {@code startUrl} directly (or the provider's home page if null),
+     *                 so it never loads twice.
+     * @return the account's WebView (now visible)
+     */
+    public WebView show(Account account, String startUrl) {
         WebView target = liveTabs.get(account.id);
         boolean isNew = target == null;
         if (isNew) {
@@ -125,8 +142,8 @@ public final class TabManager {
         target.onResume();
         current = account;
         lru.touch(account.id);
-        if (isNew) {
-            target.loadUrl(Providers.byId(account.providerId).homeUrl);
+        if (isNew || startUrl != null) {
+            target.loadUrl(startUrl != null ? startUrl : Providers.byId(account.providerId).homeUrl);
         }
         closeExcessTabs();
         if (listener != null) {
