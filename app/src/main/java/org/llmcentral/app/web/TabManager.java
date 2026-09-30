@@ -35,9 +35,13 @@ import java.util.Map;
  */
 public final class TabManager {
 
-    /** Applies settings, clients and listeners to a new tab's WebView (implemented by MainActivity). */
+    /**
+     * Applies settings, clients and listeners to a new tab's WebView (implemented by MainActivity).
+     * Gets the account (not only its provider) because some choices are per account, e.g. the
+     * desktop site (web/DesktopMode).
+     */
     public interface Configurer {
-        void configure(WebView webView, ProviderSpec provider);
+        void configure(WebView webView, Account account);
     }
 
     /** Told when the visible account changes (MainActivity updates the top bar). */
@@ -290,7 +294,7 @@ public final class TabManager {
     /** Container first (WebView requires it), then the normal set-up. */
     private void prepare(WebView webView, Account account) {
         Profiles.attach(webView, account);
-        configurer.configure(webView, Providers.byId(account.providerId));
+        configurer.configure(webView, account);
         lowerPriorityWhenHidden(webView);
     }
 

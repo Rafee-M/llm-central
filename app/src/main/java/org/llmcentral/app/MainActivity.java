@@ -69,6 +69,7 @@ import java.util.Locale;
 import androidx.webkit.URLUtilCompat;
 
 import org.llmcentral.app.scripts.UserScriptMatcher;
+import org.llmcentral.app.web.DesktopMode;
 import org.llmcentral.app.web.DialogWebViewClient;
 import org.llmcentral.app.web.DuckBridge;
 import org.llmcentral.app.web.NavigationPolicy;
@@ -326,7 +327,7 @@ public class MainActivity extends Activity {
 
         // The WebView from the layout is the duck.ai tab; other accounts get their own WebView (in
         // their own profile) the first time they're opened. Default: 3 tabs stay loaded (R-PERF-1).
-        tabManager = new TabManager(chatWebView, accounts.duck(), this::configureWebView, new TabManager.Listener() {
+        tabManager = new TabManager(chatWebView, accounts.duck(), this::setUpTab, new TabManager.Listener() {
             @Override
             public void onAccountShown(Account account) {
                 onTabShown(account);
@@ -338,6 +339,7 @@ public class MainActivity extends Activity {
                         + " keeps crashing and was closed.", Toast.LENGTH_LONG).show();
             }
         }, prefs.getInt(PREF_MAX_LIVE_TABS, 3));
+        applyDesktopMode(chatWebView, accounts.duck()); // before duck.ai's first page load
         setupTopBar();
         updateTopBar(tabManager.current());
         appliedNight = ThemeManager.isNight(this);
@@ -391,6 +393,48 @@ public class MainActivity extends Activity {
         if (settings != null) {
             settings.setOnClickListener(v -> showSettingsDialog());
         }
+        View desktop = findViewById(R.id.desktopButton);
+        if (desktop != null) {
+            desktop.setOnClickListener(v -> toggleDesktopMode());
+        }
+    }
+
+    /** Full set-up of a tab: settings, clients, bridges, plus the account's desktop-site choice. */
+    private void setUpTab(WebView webView, Account account) {
+        configureWebView(webView, Providers.byId(account.providerId));
+        applyDesktopMode(webView, account);
+    }
+
+    /** Puts the tab into the phone or desktop site, as saved for its account (web/DesktopMode). */
+    private void applyDesktopMode(WebView webView, Account account) {
+        boolean on = DesktopMode.isOn(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), account.id);
+        DesktopMode.apply(this, webView, Providers.byId(account.providerId), on);
+    }
+
+    /** The monitor button: switch the account on screen between the phone and desktop site. */
+    private void toggleDesktopMode() {
+        Account account = tabManager.current();
+        DesktopMode.toggle(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), account.id);
+        syncDesktopMode(account);
+    }
+
+    /**
+     * Makes the tab on screen and the monitor button match the account's saved choice. A tab whose
+     * mode changes is reloaded (a new user agent only counts from the next page load). Called after
+     * the button, when a tab is shown, and on return from the app's other screen, which may have
+     * changed the choice.
+     */
+    private void syncDesktopMode(Account account) {
+        WebView tab = tabManager.currentWebView();
+        boolean on = DesktopMode.isOn(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), account.id);
+        if (tab != null && DesktopMode.isActive(tab) != on) {
+            DesktopMode.apply(this, tab, Providers.byId(account.providerId), on);
+            tab.reload();
+        }
+        android.widget.ImageView button = findViewById(R.id.desktopButton);
+        if (button != null) {
+            NativeTheme.styleDesktopButton(button, on, ThemeManager.scheme(this));
+        }
     }
 
     /** Shows the current account's provider badge and name in the top bar chip. */
@@ -413,6 +457,7 @@ public class MainActivity extends Activity {
     /** Called by TabManager after an account's tab became visible (or was renamed). */
     private void onTabShown(Account account) {
         updateTopBar(account);
+        syncDesktopMode(account);
         if (account.isDuck() && duckOffline) {
             showOfflineChats(chatWebView);
         }
@@ -561,7 +606,9 @@ public class MainActivity extends Activity {
             @SuppressLint("ClickableViewAccessibility")
             @Override
             public boolean onTouch(View v, MotionEvent event) {
-                if (isImageZoomActive) {
+                // duck.ai's image viewer, or the desktop site: pinching zooms the page itself (WebView
+                // handles it) instead of changing the text size.
+                if (isImageZoomActive || DesktopMode.isActive(webView)) {
                     return false;
                 }
                 scaleGestureDetector.onTouchEvent(event);
@@ -1697,6 +1744,9 @@ public class MainActivity extends Activity {
             applyTheme();
         }
         refreshAccounts();
+        if (tabManager != null) {
+            syncDesktopMode(tabManager.current());
+        }
     }
 
     /**
@@ -2196,6 +2246,9 @@ public class MainActivity extends Activity {
 
             chatWebView = WebViewRecovery.replace(view);
             configureWebView(chatWebView, Providers.DUCK);
+            if (accounts != null) {
+                applyDesktopMode(chatWebView, accounts.duck());
+            }
             if (tabManager != null) {
                 tabManager.replaceDuckView(chatWebView); // keeps it hidden if another tab is on screen
             }
@@ -2266,6 +2319,7 @@ public class MainActivity extends Activity {
                 progressBar.setVisibility(View.GONE);
             }
             if (isSafeMode) return;
+            DesktopMode.onPageFinished(MainActivity.this, view); // wide page in desktop mode
             if (!provider.isDuck()) {
                 // Other providers: no duck.ai helper scripts (they target duck.ai's page and need the
                 // bridge). A shared prompt waiting for this tab is typed in; the user's own scripts

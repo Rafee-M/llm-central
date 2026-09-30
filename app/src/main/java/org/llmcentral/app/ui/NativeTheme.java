@@ -1,7 +1,11 @@
 package org.llmcentral.app.ui;
 
+import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.InsetDrawable;
+import android.graphics.drawable.RippleDrawable;
+import android.os.Build;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
@@ -48,6 +52,47 @@ public final class NativeTheme {
         ImageView settings = topBar.findViewById(R.id.settingsButton);
         if (settings != null) {
             settings.setImageTintList(ColorStateList.valueOf(scheme.get(Scheme.ON_SURFACE_VARIANT)));
+        }
+        ImageView desktop = topBar.findViewById(R.id.desktopButton);
+        if (desktop != null) {
+            styleDesktopButton(desktop, desktop.isSelected(), scheme);
+        }
+    }
+
+    /**
+     * The "Desktop site" toggle in the top bar, drawn as a Material 3 toggle icon button:
+     * <ul>
+     *   <li><b>off</b>: outlined monitor in {@code onSurfaceVariant}, no background (like the gear);</li>
+     *   <li><b>on</b>: filled monitor in {@code onSecondaryContainer} on a round
+     *       {@code secondaryContainer} background (the "selected" look of a tonal icon button).</li>
+     * </ul>
+     * Also tells screen readers whether it's on ("state description", Android 11+; older versions
+     * hear it in the button's label). Docs: https://m3.material.io/components/icon-buttons/specs
+     */
+    public static void styleDesktopButton(ImageView button, boolean on, Scheme scheme) {
+        Context context = button.getContext();
+        button.setSelected(on);
+        button.setImageResource(on ? R.drawable.ic_desktop_on : R.drawable.ic_desktop);
+        button.setImageTintList(ColorStateList.valueOf(
+                scheme.get(on ? Scheme.ON_SECONDARY_CONTAINER : Scheme.ON_SURFACE_VARIANT)));
+        // A 40dp circle inside the 48dp button, plus the usual touch ripple on top of it.
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setColor(scheme.get(Scheme.SECONDARY_CONTAINER));
+        int inset = ProviderBadge.dp(context, 4);
+        GradientDrawable mask = new GradientDrawable();
+        mask.setShape(GradientDrawable.OVAL);
+        mask.setColor(0xFFFFFFFF);
+        int ripple = (scheme.get(Scheme.ON_SURFACE) & 0x00FFFFFF) | 0x1F000000; // onSurface at 12%
+        button.setBackground(new RippleDrawable(ColorStateList.valueOf(ripple),
+                on ? new InsetDrawable(circle, inset) : null, new InsetDrawable(mask, inset)));
+        String label = context.getString(R.string.desktop_site);
+        String state = context.getString(on ? R.string.state_on : R.string.state_off);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            button.setContentDescription(label);
+            button.setStateDescription(state);
+        } else {
+            button.setContentDescription(label + ", " + state);
         }
     }
 
