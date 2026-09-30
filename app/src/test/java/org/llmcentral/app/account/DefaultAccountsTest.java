@@ -39,6 +39,14 @@ public class DefaultAccountsTest {
     }
 
     @Test
+    public void eachPurposeUsesItsOwnChoiceAndLinksGoToDuck() {
+        AccountStore store = store();
+        assertEquals("chatgpt-2", DefaultAccounts.target(store, Purpose.ASSISTANT, "chatgpt-2", "claude").id);
+        assertEquals("claude", DefaultAccounts.target(store, Purpose.SHARE, "chatgpt-2", "claude").id);
+        assertEquals("duck", DefaultAccounts.target(store, Purpose.LINK, "chatgpt-2", "claude").id);
+    }
+
+    @Test
     public void launchUsesTheChoiceElseTheLastUsedAccount() {
         AccountStore store = store();
         assertEquals("claude", DefaultAccounts.launchAccount(store, "", "claude").id);          // "last used"

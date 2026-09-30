@@ -13,7 +13,9 @@ import androidx.webkit.WebViewFeature;
 
 import org.json.JSONArray;
 import org.llmcentral.app.R;
+import org.llmcentral.app.account.Account;
 import org.llmcentral.app.provider.ProviderSpec;
+import org.llmcentral.app.provider.Providers;
 
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -168,6 +170,27 @@ public final class DesktopMode {
         applyClientHints(settings, state, on);
         applyViewportScript(context, webView, state, provider, on);
         state.on = on;
+    }
+
+    /** Sets up a new tab as saved for its account (call while configuring the tab, before it loads). */
+    public static void applySaved(Context context, SharedPreferences prefs, WebView webView, Account account) {
+        apply(context, webView, Providers.byId(account.providerId), isOn(prefs, account.id));
+    }
+
+    /**
+     * Makes a tab match its account's saved choice; a tab whose mode changes is reloaded (a new user
+     * agent only counts from the next page load). Used after the button is pressed, when a tab is
+     * shown, and on return from the app's other screen (which may have changed the choice).
+     *
+     * @return the account's choice (for the button)
+     */
+    public static boolean sync(Context context, SharedPreferences prefs, WebView tab, Account account) {
+        boolean on = isOn(prefs, account.id);
+        if (tab != null && isActive(tab) != on) {
+            apply(context, tab, Providers.byId(account.providerId), on);
+            tab.reload();
+        }
+        return on;
     }
 
     /** Call from the tab's onPageFinished: makes sure the wide viewport is set (fallback). */

@@ -340,7 +340,7 @@ public class MainActivity extends Activity {
                         + " keeps crashing and was closed.", Toast.LENGTH_LONG).show();
             }
         }, prefs.getInt(PREF_MAX_LIVE_TABS, 3));
-        applyDesktopMode(chatWebView, accounts.duck()); // before duck.ai's first page load
+        DesktopMode.applySaved(this, prefs, chatWebView, accounts.duck()); // before duck.ai's first page load
         setupTopBar();
         updateTopBar(tabManager.current());
         appliedNight = ThemeManager.isNight(this);
@@ -392,7 +392,7 @@ public class MainActivity extends Activity {
         }
         View settings = findViewById(R.id.settingsButton);
         if (settings != null) {
-            settings.setOnClickListener(v -> showSettingsDialog());
+            settings.setOnClickListener(v -> openSettings(null));
         }
         View desktop = findViewById(R.id.desktopButton);
         if (desktop != null) {
@@ -403,35 +403,19 @@ public class MainActivity extends Activity {
     /** Full set-up of a tab: settings, clients, bridges, plus the account's desktop-site choice. */
     private void setUpTab(WebView webView, Account account) {
         configureWebView(webView, Providers.byId(account.providerId));
-        applyDesktopMode(webView, account);
-    }
-
-    /** Puts the tab into the phone or desktop site, as saved for its account (web/DesktopMode). */
-    private void applyDesktopMode(WebView webView, Account account) {
-        boolean on = DesktopMode.isOn(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), account.id);
-        DesktopMode.apply(this, webView, Providers.byId(account.providerId), on);
+        DesktopMode.applySaved(this, getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), webView, account);
     }
 
     /** The monitor button: switch the account on screen between the phone and desktop site. */
     private void toggleDesktopMode() {
-        Account account = tabManager.current();
-        DesktopMode.toggle(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), account.id);
-        syncDesktopMode(account);
+        DesktopMode.toggle(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), tabManager.current().id);
+        syncDesktopMode(tabManager.current());
     }
 
-    /**
-     * Makes the tab on screen and the monitor button match the account's saved choice. A tab whose
-     * mode changes is reloaded (a new user agent only counts from the next page load). Called after
-     * the button, when a tab is shown, and on return from the app's other screen, which may have
-     * changed the choice.
-     */
+    /** The tab on screen and the monitor button follow the account's desktop-site choice (web/DesktopMode). */
     private void syncDesktopMode(Account account) {
-        WebView tab = tabManager.currentWebView();
-        boolean on = DesktopMode.isOn(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), account.id);
-        if (tab != null && DesktopMode.isActive(tab) != on) {
-            DesktopMode.apply(this, tab, Providers.byId(account.providerId), on);
-            tab.reload();
-        }
+        boolean on = DesktopMode.sync(this, getSharedPreferences("duck_assist_prefs", MODE_PRIVATE),
+                tabManager.currentWebView(), account);
         android.widget.ImageView button = findViewById(R.id.desktopButton);
         if (button != null) {
             NativeTheme.styleDesktopButton(button, on, ThemeManager.scheme(this));
@@ -693,10 +677,6 @@ public class MainActivity extends Activity {
             pendingBlobContentDisposition = contentDisposition;
             pendingBlobCurrentUrl = currentUrl;
         }
-    }
-
-    private void showSettingsDialog() {
-        openSettings(null);
     }
 
     /**
@@ -1791,11 +1771,6 @@ public class MainActivity extends Activity {
     }
 
     @Override
-    protected void onPause() {
-        super.onPause();
-    }
-
-    @Override
     protected void onStop() {
         super.onStop();
         // Save every open account's login cookies to disk now (the app may be closed by Android soon).
@@ -1844,7 +1819,10 @@ public class MainActivity extends Activity {
         // addresses, so they always go to duck.ai. A normal launch (MAIN) keeps whatever tab is open.
         refreshAccounts(); // the other screen (assistant drawer) may have changed the list
         DefaultAccounts.Purpose purpose = DefaultAccounts.purposeOf(action);
-        final Account target = targetAccount(purpose);
+        SharedPreferences choices = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
+        final Account target = DefaultAccounts.target(accounts, purpose,
+                choices.getString(DefaultAccounts.PREF_ASSISTANT, null),
+                choices.getString(DefaultAccounts.PREF_SHARE, null));
         if (purpose == DefaultAccounts.Purpose.ASSISTANT || purpose == DefaultAccounts.Purpose.LINK
                 || (purpose == DefaultAccounts.Purpose.SHARE && tabManager.isLoaded(target.id))) {
             // (A share to an account whose tab isn't loaded yet opens it below, straight at the new
@@ -2096,19 +2074,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** The account for an assistant / share / link request (see account/DefaultAccounts). */
-    private Account targetAccount(DefaultAccounts.Purpose purpose) {
-        SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-        switch (purpose) {
-            case ASSISTANT:
-                return DefaultAccounts.resolve(accounts, prefs.getString(DefaultAccounts.PREF_ASSISTANT, null));
-            case SHARE:
-                return DefaultAccounts.resolve(accounts, prefs.getString(DefaultAccounts.PREF_SHARE, null));
-            default:
-                return accounts.duck();
-        }
-    }
-
     private android.app.Dialog promptDialog = null;
 
     public void showPromptOnLaunchDialog() {
@@ -2248,7 +2213,8 @@ public class MainActivity extends Activity {
             chatWebView = WebViewRecovery.replace(view);
             configureWebView(chatWebView, Providers.DUCK);
             if (accounts != null) {
-                applyDesktopMode(chatWebView, accounts.duck());
+                DesktopMode.applySaved(MainActivity.this,
+                        getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), chatWebView, accounts.duck());
             }
             if (tabManager != null) {
                 tabManager.replaceDuckView(chatWebView); // keeps it hidden if another tab is on screen

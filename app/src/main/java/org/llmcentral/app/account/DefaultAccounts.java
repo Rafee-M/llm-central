@@ -73,6 +73,24 @@ public final class DefaultAccounts {
     }
 
     /**
+     * The account for an assistant / share / link request.
+     *
+     * @param assistantId the saved assistant choice ({@link #PREF_ASSISTANT}, may be null)
+     * @param shareId     the saved share choice ({@link #PREF_SHARE}, may be null)
+     * @return the chosen account (duck.ai if missing); links always go to duck.ai
+     */
+    public static Account target(AccountStore store, Purpose purpose, String assistantId, String shareId) {
+        switch (purpose) {
+            case ASSISTANT:
+                return resolve(store, assistantId);
+            case SHARE:
+                return resolve(store, shareId);
+            default:
+                return store.duck();
+        }
+    }
+
+    /**
      * The account to show when the app is opened from the launcher.
      *
      * @param launchChoice the saved choice: an account id, or {@link #LAUNCH_LAST}
