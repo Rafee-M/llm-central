@@ -357,7 +357,7 @@ public class MainActivity extends Activity {
         if (chip != null) {
             chip.setOnClickListener(v -> SwitcherPopup.show(v, accounts.visible(), tabManager.current(),
                     ThemeManager.scheme(this), account -> tabManager.show(account),
-                    () -> openSettings("accounts")));
+                    this::reloadCurrentTab, () -> openSettings("accounts")));
         }
         View settings = findViewById(R.id.settingsButton);
         if (settings != null) {
@@ -366,6 +366,23 @@ public class MainActivity extends Activity {
         View desktop = findViewById(R.id.desktopButton);
         if (desktop != null) {
             desktop.setOnClickListener(v -> toggleDesktopMode());
+        }
+    }
+
+    /**
+     * The account menu's "Reload page": loads the page on screen again (e.g. when it's stuck). A tab
+     * with no web page yet (blank) opens its provider's home page instead.
+     */
+    private void reloadCurrentTab() {
+        WebView tab = tabManager.currentWebView();
+        if (tab == null) {
+            return;
+        }
+        String url = tab.getUrl();
+        if (url == null || url.isEmpty() || url.startsWith("about:")) {
+            tab.loadUrl(tabManager.currentProvider().homeUrl);
+        } else {
+            tab.reload();
         }
     }
 
