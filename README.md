@@ -6,7 +6,7 @@
 
 **LLM Central** is a lightweight, privacy-focused Android app that puts several AI chat websites in one
 place: duck.ai, ChatGPT, Claude, DeepSeek, Z.ai and more, with several isolated accounts per provider and
-instant switching between them, while keeping the APK tiny (~285 KB).
+instant switching between them, while keeping the APK tiny (~276 KB).
 
 It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju, which is itself a fork of
 [gptAssist](https://github.com/woheller69/gptAssist) by woheller69.
@@ -63,8 +63,11 @@ Needs JDK 17+ and the Android SDK (platform 36). Then:
 
 ```bash
 ./gradlew test assembleDebug        # unit tests + debug APK
-./gradlew assembleRelease           # release APK (unsigned unless signing is configured in local.properties)
+./gradlew assembleRelease           # release APK (unsigned)
 ```
+
+- **Understanding the code:** [`summary.md`](summary.md), a guide to every feature, file and class, with recipes.
+- **Publishing** (signing key, GitHub release, F-Droid, changing the app icon): [`RELEASE.md`](RELEASE.md).
 
 ## License
 
@@ -73,3 +76,5 @@ GPLv3 (see [LICENSE](LICENSE)). If you distribute the app, you must also offer i
 The app uses:
 - Parts from GMaps WV (https://gitlab.com/divested-mobile/maps), licensed under the GPLv3.
 - Code from duckAssist and gptAssist (GPLv3).
+- Provider logos from Lobe Icons (MIT); the logos are trademarks of their owners. See
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
