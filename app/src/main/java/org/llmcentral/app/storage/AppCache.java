@@ -15,9 +15,9 @@ import java.util.Set;
  *       ({@code cache/WebView/…/HTTP Cache}; verified in Chromium's {@code aw_browser_context.cc}).
  *       It is emptied through WebView ({@code clearCache}), never by deleting its files while WebView
  *       may be using them.</li>
- *   <li>The app's own temporary files, directly in the folder: shared files copied in
- *       ({@code shared_file_…}), converted documents ({@code doc_….pdf} and PDF parts), camera photos
- *       and a half-downloaded converter. Until round 6 nothing ever deleted them.</li>
+ *   <li>The app's own temporary files, directly in the folder: camera photos, and files
+ *       older app versions left (shared-file copies {@code shared_file_…}, converted documents and PDF
+ *       parts, a half-downloaded converter). Until round 6 nothing ever deleted them.</li>
  * </ul>
  * <p>So the folder size is the same "Cache" figure Android shows in App info → Storage.</p>
  *

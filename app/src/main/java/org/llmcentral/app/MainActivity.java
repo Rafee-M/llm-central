@@ -30,11 +30,9 @@ import android.content.DialogInterface;
 import androidx.core.content.FileProvider;
 import android.provider.MediaStore;
 import android.webkit.JavascriptInterface;
-import java.io.FileOutputStream;
 import java.io.File;
 import android.Manifest;
 import android.graphics.Color;
-import java.io.InputStream;
 import android.content.pm.PackageManager;
 import android.webkit.PermissionRequest;
 
@@ -176,27 +174,6 @@ public class MainActivity extends Activity {
         return paths;
     }
 
-    private Uri saveUriToTempFile(Uri uri, String extension) {
-        try {
-            InputStream is = getContentResolver().openInputStream(uri);
-            if (is == null) return null;
-            File tempFile = new File(getCacheDir(), "shared_file_" + System.currentTimeMillis() + extension);
-            FileOutputStream fos = new FileOutputStream(tempFile);
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = is.read(buffer)) != -1) {
-                fos.write(buffer, 0, read);
-            }
-            fos.flush();
-            fos.close();
-            is.close();
-            return Uri.fromFile(tempFile);
-        } catch (Exception e) {
-            Log.e(TAG, "Error saving shared file to temp file", e);
-            return null;
-        }
-    }
-
     protected void setActivityTheme() {
         // Framework light/dark theme matching the app's Theme setting (system dialogs follow it).
         setTheme(ThemeManager.activityTheme(this));
@@ -315,7 +292,12 @@ public class MainActivity extends Activity {
         // duck.ai's (default) profile gets the same cache cap as the accounts; old temporary files
         // (shared files, converted documents, camera photos) are deleted in the background.
         Profiles.limitDefaultCache();
-        background.execute(() -> AppCache.deleteTempFiles(this, AppCache.TEMP_MAX_AGE_MS, null));
+        background.execute(() -> {
+            AppCache.deleteTempFiles(this, AppCache.TEMP_MAX_AGE_MS, null);
+            // The offline document converter was removed (shared files are now sent as they are); its
+            // 6.7 MB engine, downloaded by older versions, is no longer needed.
+            new File(getFilesDir(), "anydoc_wasm_bg.wasm").delete();
+        });
 
         // The WebView from the layout is the duck.ai tab; other accounts get their own WebView (in
         // their own profile) the first time they're opened. Default: 3 tabs stay loaded (R-PERF-1).
@@ -1620,83 +1602,11 @@ public class MainActivity extends Activity {
                 pendingSharedFileUris = streamUris;
                 pendingSharedFileUri = streamUris.get(0);
             } else if (streamUri != null) {
-                String ext = DocConverter.getFileExtension(this, streamUri, type);
-                if ("pdf".equalsIgnoreCase(ext) || "application/pdf".equals(type) || (type != null && type.contains("pdf"))) {
-                    String filename = DocConverter.getFileName(this, streamUri);
-                    DocConverter.ProgressDialogController progress = DocConverter.showProgressDialog(this, "Checking " + filename + "...", null);
-                    DocConverter.getInstance(this).processNativePdf(streamUri, new DocConverter.DocumentProcessingCallback() {
-                        @Override
-                        public void onStatusUpdate(String status) {
-                            progress.setMessage(status);
-                        }
-
-                        @Override
-                        public void onTextReady(String text) {}
-
-                        @Override
-                        public void onPdfReady(java.util.List<Uri> pdfUris, String originalName) {
-                            progress.dismiss();
-                            pendingSharedFileUris = pdfUris;
-                            pendingSharedFileUri = (pdfUris != null && !pdfUris.isEmpty()) ? pdfUris.get(0) : null;
-                            if (pdfUris != null && pdfUris.size() > 1) {
-                                showCustomBanner("PDF split into " + pdfUris.size() + " parts (15 pages max each)! Tap 📎 to attach");
-                            } else {
-                                showCustomBanner("Tap 📎 to attach the shared file");
-                            }
-                            openChatForSharedFiles(target);
-                        }
-
-                        @Override
-                        public void onError(String errorMessage) {
-                            progress.dismiss();
-                            pendingSharedFileUri = saveUriToTempFile(streamUri, ".pdf");
-                            tabManager.show(target);
-                        }
-                    });
-                    return;
-                } else if (DocConverter.isSupportedDoc(this, streamUri, type) || DocConverter.isPlainTextDoc(this, streamUri, type)) {
-                    String filename = DocConverter.getFileName(this, streamUri);
-                    DocConverter.ProgressDialogController progress = DocConverter.showProgressDialog(this, "Processing " + filename + "...", null);
-                    DocConverter.getInstance(this).processDocument(streamUri, type, new DocConverter.DocumentProcessingCallback() {
-                        @Override
-                        public void onStatusUpdate(String status) {
-                            progress.setMessage(status);
-                        }
-
-                        @Override
-                        public void onTextReady(String text) {
-                            progress.dismiss();
-                            sendPrompt(target, text);
-                        }
-
-                        @Override
-                        public void onPdfReady(java.util.List<Uri> pdfUris, String originalName) {
-                            progress.dismiss();
-                            pendingSharedFileUris = pdfUris;
-                            pendingSharedFileUri = (pdfUris != null && !pdfUris.isEmpty()) ? pdfUris.get(0) : null;
-                            if (pdfUris != null && pdfUris.size() > 1) {
-                                showCustomBanner("Document split into " + pdfUris.size() + " parts (15 pages max each)! Tap 📎 to attach");
-                            } else {
-                                showCustomBanner("Tap 📎 to attach the converted document");
-                            }
-                            openChatForSharedFiles(target);
-                        }
-
-                        @Override
-                        public void onError(String errorMessage) {
-                            progress.dismiss();
-                            Toast.makeText(MainActivity.this, "Failed: " + errorMessage, Toast.LENGTH_LONG).show();
-                        }
-                    });
-                    return;
-                } else {
-                    if (type != null && type.startsWith("image/")) {
-                        String imgExt = ".jpg";
-                        if (type.contains("png")) imgExt = ".png";
-                        else if (type.contains("webp")) imgExt = ".webp";
-                        pendingSharedFileUri = saveUriToTempFile(streamUri, imgExt);
-                    }
-                }
+                // Any shared file (document, PDF, image…) is offered to the page exactly as it is: the
+                // page's 📎 button receives this address (onShowFileChooser) and WebView reads the file
+                // itself, with its real name and type. No conversion, splitting or renamed copy.
+                pendingSharedFileUris = null; // an older share not attached yet must not win
+                pendingSharedFileUri = streamUri;
             } else if (Intent.ACTION_SEND.equals(action) && "text/plain".equals(type)) {
                 sharedText = intent.getStringExtra(Intent.EXTRA_TEXT);
             } else if (Intent.ACTION_PROCESS_TEXT.equals(action)) {
@@ -2266,94 +2176,7 @@ public class MainActivity extends Activity {
                 }
             }
 
-            if (result != null && result.length > 0 && result[0] != null) {
-                Uri fileUri = result[0];
-                String ext = DocConverter.getFileExtension(this, fileUri, null);
-                if ("pdf".equalsIgnoreCase(ext)) {
-                    DocConverter.ProgressDialogController progress = DocConverter.showProgressDialog(this, "Checking PDF pages...", null);
-                    DocConverter.getInstance(this).processNativePdf(fileUri, new DocConverter.DocumentProcessingCallback() {
-                        @Override
-                        public void onStatusUpdate(String status) {
-                            progress.setMessage(status);
-                        }
-
-                        @Override
-                        public void onTextReady(String text) {}
-
-                        @Override
-                        public void onPdfReady(java.util.List<Uri> pdfUris, String originalName) {
-                            progress.dismiss();
-                            if (pdfUris != null && pdfUris.size() > 1) {
-                                if (mUploadMessage != null) {
-                                    mUploadMessage.onReceiveValue(null);
-                                    mUploadMessage = null;
-                                }
-                                pendingSharedFileUris = pdfUris;
-                                pendingSharedFileUri = pdfUris.get(0);
-                                showCustomBanner("PDF split into " + pdfUris.size() + " parts (15 pages max each)! Tap 📎 to attach");
-                            } else {
-                                if (mUploadMessage != null) {
-                                    mUploadMessage.onReceiveValue(new Uri[]{ fileUri });
-                                    mUploadMessage = null;
-                                }
-                            }
-                        }
-
-                        @Override
-                        public void onError(String errorMessage) {
-                            progress.dismiss();
-                            if (mUploadMessage != null) {
-                                mUploadMessage.onReceiveValue(new Uri[]{ fileUri });
-                                mUploadMessage = null;
-                            }
-                        }
-                    });
-                    return;
-                }
-                if (DocConverter.isSupportedDoc(this, fileUri, null) || DocConverter.isPlainTextDoc(this, fileUri, null)) {
-                    mUploadMessage.onReceiveValue(null);
-                    mUploadMessage = null;
-                    String filename = DocConverter.getFileName(this, fileUri);
-                    DocConverter.ProgressDialogController progress = DocConverter.showProgressDialog(this, "Processing " + filename + "...", null);
-                    DocConverter.getInstance(this).processDocument(fileUri, null, new DocConverter.DocumentProcessingCallback() {
-                        @Override
-                        public void onStatusUpdate(String status) {
-                            progress.setMessage(status);
-                        }
-
-                        @Override
-                        public void onTextReady(String text) {
-                            progress.dismiss();
-                            sendPrompt(tabManager.current(), text);
-                        }
-
-                        @Override
-                        public void onPdfReady(java.util.List<Uri> pdfUris, String originalName) {
-                            progress.dismiss();
-                            pendingSharedFileUris = pdfUris;
-                            pendingSharedFileUri = (pdfUris != null && !pdfUris.isEmpty()) ? pdfUris.get(0) : null;
-                            if (pdfUris != null && pdfUris.size() > 1) {
-                                showCustomBanner("Document split into " + pdfUris.size() + " parts (15 pages max each)! Tap 📎 to attach");
-                            } else {
-                                showCustomBanner("Document converted to PDF! Tap 📎 to attach it");
-                            }
-                            SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                            String docSuffix = prefs.getString("shared_doc_suffix", "");
-                            if (docSuffix != null && !docSuffix.trim().isEmpty()) {
-                                sendPrompt(tabManager.current(), docSuffix);
-                            }
-                        }
-
-                        @Override
-                        public void onError(String errorMessage) {
-                            progress.dismiss();
-                            Toast.makeText(MainActivity.this, "Conversion failed: " + errorMessage, Toast.LENGTH_LONG).show();
-                        }
-                    });
-                    return;
-                }
-            }
-
+            // The chosen files go to the page exactly as they are (no conversion or splitting).
             mUploadMessage.onReceiveValue(result);
             mUploadMessage = null;
         } else if (requestCode == CAMERA_REQUEST_CODE) {

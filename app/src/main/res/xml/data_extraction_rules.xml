@@ -7,7 +7,8 @@
                                 A session copied to another place is a security risk, and logging in again
                                 on a new phone is expected behaviour.
       * duck_chats_cache.json / duck_chats.db = offline chat history (private conversations).
-      * anydoc_wasm_bg.wasm   = 6.7 MB document converter; re-downloaded (and verified) when needed.
+      * anydoc_wasm_bg.wasm   = 6.7 MB document converter of older versions (the app deletes it at
+                                start; excluded in case a backup runs before that).
     Docs: https://developer.android.com/identity/data/autobackup#include-exclude-android-12
 -->
 <data-extraction-rules>

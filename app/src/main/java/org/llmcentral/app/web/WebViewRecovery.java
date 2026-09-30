@@ -18,7 +18,7 @@ import android.webkit.WebView;
  * Docs: https://developer.android.com/develop/ui/views/layout/webapps/managing-webview#termination-handle</p>
  *
  * <p>These methods only deal with the {@link WebView} objects. What to load afterwards is decided by
- * the code that owns the WebView (MainActivity, the dialogs, DocConverter).</p>
+ * the code that owns the WebView (MainActivity, the dialogs).</p>
  */
 public final class WebViewRecovery {
 
