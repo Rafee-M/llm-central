@@ -2,7 +2,8 @@
 <!--
     Native top bar shown above every provider's page (PROJECT.md R-SW-1):
       left  = provider switcher chip: [badge] Name ▾  → opens the provider list (ui/SwitcherPopup)
-      right = settings button (gear)                 → opens the app's settings
+      right = desktop-site toggle (monitor)          → phone/computer layout for this account
+              settings button (gear)                 → opens the app's settings
     Included by activity_main.xml and activity_chat.xml with <include layout="@layout/top_bar"/>,
     so both screens share exactly the same bar. MainActivity.setupTopBar() connects the buttons and
     ui/NativeTheme colours it with the current theme (the colours below are only start-up defaults).
@@ -13,7 +14,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/topBar"
     android:layout_width="match_parent"
-    android:layout_height="56dp"
+    android:layout_height="48dp"
     android:background="@color/top_bar_background"
     android:gravity="center_vertical"
     android:orientation="horizontal"
@@ -21,7 +22,8 @@
     android:paddingEnd="4dp"
     tools:ignore="Overdraw">
 
-    <!-- The chip: 40dp tall inside the 56dp bar, comfortably tappable. -->
+    <!-- The chip: 40dp tall inside the 48dp bar (round 5: the bar was 56dp; 8dp more room for the
+         page). The buttons keep Android's minimum touch size of 48 x 48dp. -->
     <LinearLayout
         android:id="@+id/providerChip"
         android:layout_width="wrap_content"
@@ -73,6 +75,16 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:layout_weight="1" />
+
+    <!-- "Desktop site" toggle for the account on screen (web/DesktopMode). Outlined monitor = off,
+         filled monitor on a tinted circle = on (Material 3 toggle icon button, ui/NativeTheme). -->
+    <ImageButton
+        android:id="@+id/desktopButton"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/desktop_site"
+        android:src="@drawable/ic_desktop" />
 
     <ImageButton
         android:id="@+id/settingsButton"

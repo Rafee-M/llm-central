@@ -72,7 +72,9 @@
                 <data android:mimeType="image/*" />
                 <data android:mimeType="application/pdf" />
             </intent-filter>
-            <intent-filter android:label="Ask duck.ai">
+            <!-- The name in the text-selection menu ("Ask AI"): the text goes to the account chosen in
+                 Settings → "Share & Ask AI account" (duck.ai by default), not always to duck.ai. -->
+            <intent-filter android:label="@string/ask_ai">
                 <action android:name="android.intent.action.PROCESS_TEXT" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />

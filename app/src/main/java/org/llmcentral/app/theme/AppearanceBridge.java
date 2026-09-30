@@ -9,7 +9,7 @@ import org.json.JSONObject;
 
 /**
  * What the Settings page's "Appearance" section can ask the app to do (PROJECT.md §4.3–4.4):
- * read and change the Theme mode, the Color palette and the Material You switch.
+ * read and change the Theme mode, the Color palette, the Material You switch and "Hide status bar".
  *
  * <p>Added to the settings WebView as {@code AndroidAppearance} (see AccountsBridge for how
  * JavaScript bridges work). Every setter validates its input in {@link ThemeManager}, applies the
@@ -49,6 +49,7 @@ public final class AppearanceBridge {
             root.put("materialYou", ThemeManager.isMaterialYou(context));
             root.put("materialYouAvailable", ThemeManager.isMaterialYouAvailable());
             root.put("palette", ThemeManager.paletteId(context));
+            root.put("hideStatusBar", ThemeManager.isStatusBarHidden(context));
             root.put("css", ThemeManager.scheme(context).toCss());
             Scheme dynamic = ThemeManager.materialYouPreview(context);
             root.put("dynamic", dynamic == null ? JSONObject.NULL : swatch(dynamic));
@@ -83,6 +84,13 @@ public final class AppearanceBridge {
     @JavascriptInterface
     public String setMaterialYou(boolean on) {
         ThemeManager.setMaterialYou(context, on);
+        return changed();
+    }
+
+    /** Appearance → "Hide status bar" (frameless full-screen app). */
+    @JavascriptInterface
+    public String setHideStatusBar(boolean hide) {
+        ThemeManager.setStatusBarHidden(context, hide);
         return changed();
     }
 

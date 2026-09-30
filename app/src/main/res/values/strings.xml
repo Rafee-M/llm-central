@@ -17,4 +17,12 @@
     <string name="dropdown_arrow" translatable="false">▾</string>
     <string name="manage_accounts">Manage accounts</string>
     <string name="current_account">current</string>
+    <!-- Text-selection menu entry (PROCESS_TEXT); sends the selected text to the share account. -->
+    <string name="ask_ai">Ask AI</string>
+    <!-- Close button of a sign-in pop-up window (web/PopupWindows). -->
+    <string name="close_window">Close window</string>
+    <!-- Top bar toggle (web/DesktopMode) and what screen readers say about its state. -->
+    <string name="desktop_site">Desktop site</string>
+    <string name="state_on">On</string>
+    <string name="state_off">Off</string>
 </resources>

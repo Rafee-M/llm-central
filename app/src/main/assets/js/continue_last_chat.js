@@ -1,9 +1,11 @@
 // continue_last_chat.js — injected into the chat page by the app (loaded via web/Scripts.java).
 //
 // "Continue last chat" setting: opens duck.ai's sidebar and clicks the most recent conversation,
-// then reports back (Android.onContinueLastChatSuccess). Gives up after 10 attempts / 12 seconds.
+// then reports back ("continued:" message). Gives up after 10 attempts / 12 seconds.
 //
 // Moved unchanged from a Java string in MainActivity (Phase 0.4); only line breaks were added.
+// Round 5: talks to the app through window.AppBridge.postMessage("type:payload") (see web/DuckBridge.java)
+// instead of the old window.Android object.
 
 (function() {
   console.log('Continue Last Chat Trigger Started');
@@ -13,9 +15,7 @@
     attempts++;
     if (attempts > 10) {
       console.log('Stopping after 10 attempts');
-      if (typeof Android !== 'undefined' && Android.onContinueLastChatSuccess) {
-        Android.onContinueLastChatSuccess();
-      }
+      if (window.AppBridge) AppBridge.postMessage('continued:');
       return true;
     }
     var targetPath = document.querySelector('path[d^="M8.25 3.5C7.56 3.5"], path[d*="M8.25 3.5"]');
@@ -37,9 +37,7 @@
                 parent4.click();
               }
             }
-            if (typeof Android !== 'undefined' && Android.onContinueLastChatSuccess) {
-              Android.onContinueLastChatSuccess();
-            }
+            if (window.AppBridge) AppBridge.postMessage('continued:');
             return true;
           }
         }
@@ -48,9 +46,7 @@
       if (container) {
         console.log('Clicking fallback container');
         container.click();
-        if (typeof Android !== 'undefined' && Android.onContinueLastChatSuccess) {
-          Android.onContinueLastChatSuccess();
-        }
+        if (window.AppBridge) AppBridge.postMessage('continued:');
         return true;
       }
     }
@@ -80,9 +76,7 @@
     setTimeout(function() { 
       observer.disconnect(); 
       clearInterval(fallbackInterval); 
-      if (typeof Android !== 'undefined' && Android.onContinueLastChatSuccess) {
-        Android.onContinueLastChatSuccess();
-      }
+      if (window.AppBridge) AppBridge.postMessage('continued:');
     }, 12000);
   }
 })();

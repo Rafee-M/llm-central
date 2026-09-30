@@ -32,7 +32,8 @@ import java.util.UUID;
  *   <li>At least one account stays visible in the switcher menu (R-ACC-6).</li>
  *   <li>Names are cleaned: no control characters, no extra spaces, at most {@value #MAX_NAME_LENGTH}
  *       characters, never empty.</li>
- *   <li>Accounts of the same provider stay next to each other (the menu groups them).</li>
+ *   <li>Accounts of the same provider stay next to each other (the menu groups them); inside a
+ *       provider the user can change their order ({@link #move}).</li>
  * </ul>
  *
  * <p><b>Threads:</b> the settings page calls into Java on a background thread while the screen uses
@@ -238,6 +239,27 @@ public final class AccountStore {
         Account removed = accounts.remove(index);
         repairLocked(); // e.g. it was the last visible account → duck.ai becomes visible
         return removed;
+    }
+
+    /**
+     * Moves an account one place up ({@code -1}) or down ({@code +1}) in the list, which is also the
+     * order of the switcher menu (R-ACC-4). It only swaps with a neighbour of the <b>same provider</b>,
+     * so a provider's accounts always stay together.
+     *
+     * @return false if there's no such account, or it's already first/last of its provider
+     */
+    public synchronized boolean move(String id, int delta) {
+        int index = indexOfLocked(id);
+        if (index < 0 || (delta != -1 && delta != 1)) {
+            return false;
+        }
+        int other = index + delta;
+        if (other < 0 || other >= accounts.size()
+                || !accounts.get(other).providerId.equals(accounts.get(index).providerId)) {
+            return false;
+        }
+        Collections.swap(accounts, index, other);
+        return true;
     }
 
     // ---------------------------------------------------------------- helpers

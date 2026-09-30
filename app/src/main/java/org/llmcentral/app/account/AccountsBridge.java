@@ -13,7 +13,8 @@ import org.llmcentral.app.web.Profiles;
 
 /**
  * What the Settings page's "Accounts" section can ask the app to do (PROJECT.md R-ACC-4): list,
- * add, rename, show/hide in the switcher menu, open, sign out and remove accounts.
+ * add, rename, re-order, show/hide in the switcher menu, open, sign out and remove accounts. It also stores
+ * which account the assistant, sharing and the app start open ({@link DefaultAccounts}, R-AST).
  *
  * <p><b>How a web page talks to Java:</b> MainActivity adds this object to the settings WebView with
  * {@code addJavascriptInterface(bridge, "AndroidAccounts")}. The page's JavaScript can then call
@@ -62,8 +63,10 @@ public final class AccountsBridge {
     }
 
     /**
-     * @return {@code {"multiAccount":true, "current":"chatgpt", "providers":[{"id","name","badge",
-     *         "color","canAdd","accounts":[{"id","name","visible"}]}]}}
+     * @return {@code {"multiAccount":true, "current":"chatgpt",
+     *         "defaults":{"assistant":"duck","share":"duck","launch":""},
+     *         "providers":[{"id","name","badge","color","canAdd","accounts":[{"id","name","visible"}]}]}}
+     *         Default accounts that no longer exist are reported as duck.ai ("launch": as "").
      */
     @JavascriptInterface
     public String getAccountsJson() {
@@ -99,6 +102,17 @@ public final class AccountsBridge {
         return json(null);
     }
 
+    /** Moves an account one place up (-1) or down (+1) among its provider's accounts (R-ACC-4). */
+    @JavascriptInterface
+    public String moveAccount(String id, int delta) {
+        AccountStore store = host.accounts();
+        if (!store.move(id, delta)) {
+            return json("It can't move further.");
+        }
+        saveAndRefresh(store);
+        return json(null);
+    }
+
     /** Shows or hides an account in the switcher menu; the last visible one can't be hidden (R-ACC-6). */
     @JavascriptInterface
     public String setAccountVisible(String id, boolean visible) {
@@ -107,6 +121,24 @@ public final class AccountsBridge {
             return json("At least one account must stay in the menu.");
         }
         saveAndRefresh(store);
+        return json(null);
+    }
+
+    /**
+     * Saves which account opens for the assistant gesture, for Share / "Ask AI", or at app start.
+     *
+     * @param purpose "assistant", "share" or "launch"
+     * @param id      an existing account id; for "launch" also "" = the account used last time
+     */
+    @JavascriptInterface
+    public String setDefaultAccount(String purpose, String id) {
+        String key = prefKeyFor(purpose);
+        String valid = key == null ? null
+                : DefaultAccounts.validChoice(host.accounts(), id, DefaultAccounts.PREF_LAUNCH.equals(key));
+        if (valid == null) {
+            return json("That account can't be chosen.");
+        }
+        host.prefs().edit().putString(key, valid).apply();
         return json(null);
     }
 
@@ -153,6 +185,19 @@ public final class AccountsBridge {
         return json(null);
     }
 
+    private static String prefKeyFor(String purpose) {
+        if ("assistant".equals(purpose)) {
+            return DefaultAccounts.PREF_ASSISTANT;
+        }
+        if ("share".equals(purpose)) {
+            return DefaultAccounts.PREF_SHARE;
+        }
+        if ("launch".equals(purpose)) {
+            return DefaultAccounts.PREF_LAUNCH;
+        }
+        return null;
+    }
+
     private void saveAndRefresh(AccountStore store) {
         store.save(host.prefs());
         host.runOnUiThread(host::onAccountsChanged);
@@ -163,6 +208,12 @@ public final class AccountsBridge {
         return !provider.isDuck() && (Profiles.isSupported() || store.ofProvider(provider.id).isEmpty());
     }
 
+    /** The saved launch choice, or "" (last used) if it names an account that was removed. */
+    private static String launchChoice(AccountStore store, String saved) {
+        String valid = DefaultAccounts.validChoice(store, saved, true);
+        return valid != null ? valid : DefaultAccounts.LAUNCH_LAST;
+    }
+
     private String json(String error) {
         AccountStore store = host.accounts();
         try {
@@ -170,6 +221,13 @@ public final class AccountsBridge {
             root.put("multiAccount", Profiles.isSupported());
             Account current = host.currentAccount();
             root.put("current", current != null ? current.id : Providers.DUCK_ID);
+            SharedPreferences prefs = host.prefs();
+            root.put("defaults", new JSONObject()
+                    .put("assistant", DefaultAccounts.resolve(store,
+                            prefs.getString(DefaultAccounts.PREF_ASSISTANT, null)).id)
+                    .put("share", DefaultAccounts.resolve(store,
+                            prefs.getString(DefaultAccounts.PREF_SHARE, null)).id)
+                    .put("launch", launchChoice(store, prefs.getString(DefaultAccounts.PREF_LAUNCH, ""))));
             JSONArray providers = new JSONArray();
             for (ProviderSpec provider : Providers.ALL) {
                 JSONArray list = new JSONArray();

@@ -69,24 +69,30 @@ import java.util.Locale;
 import androidx.webkit.URLUtilCompat;
 
 import org.llmcentral.app.scripts.UserScriptMatcher;
+import org.llmcentral.app.web.DesktopMode;
 import org.llmcentral.app.web.DialogWebViewClient;
+import org.llmcentral.app.web.DuckBridge;
 import org.llmcentral.app.web.NavigationPolicy;
 import org.llmcentral.app.web.Scripts;
 import org.llmcentral.app.web.TabLru;
 import org.llmcentral.app.web.TabManager;
 import org.llmcentral.app.account.Account;
 import org.llmcentral.app.account.AccountStore;
+import org.llmcentral.app.provider.PromptPrefill;
 import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
 import org.llmcentral.app.ui.ProviderBadge;
 import org.llmcentral.app.ui.SwitcherPopup;
 import org.llmcentral.app.account.AccountsBridge;
+import org.llmcentral.app.account.DefaultAccounts;
 import org.llmcentral.app.theme.AppearanceBridge;
 import org.llmcentral.app.theme.Scheme;
 import org.llmcentral.app.theme.ThemeBridge;
 import org.llmcentral.app.theme.ThemeManager;
 import org.llmcentral.app.ui.NativeTheme;
+import org.llmcentral.app.web.PopupWindows;
 import org.llmcentral.app.web.Profiles;
+import org.llmcentral.app.web.PromptFiller;
 import org.llmcentral.app.web.WebViewRecovery;
 
 import java.io.UnsupportedEncodingException;
@@ -112,6 +118,8 @@ public class MainActivity extends Activity {
     private static boolean isSafeMode = false;
     // One WebView per account ("tab"); chatWebView above is always the duck.ai tab. See web/TabManager.
     private TabManager tabManager;
+    // Types shared prompts into ChatGPT/Claude/DeepSeek/Z.ai's message box (web/PromptFiller).
+    private PromptFiller promptFiller;
     // The user's accounts (names, which ones show in the menu). See account/AccountStore.
     private AccountStore accounts;
     // Account shown last time, reopened on a normal launch. Round 3 saved a provider id under
@@ -170,6 +178,8 @@ public class MainActivity extends Activity {
     private static final int DOWNLOAD_PERMISSION_REQUEST_CODE = 456;
     private String lastFetchedChatsJson = "{}";
     private android.app.Dialog chatsViewerDialog = null;
+    // true while duck.ai failed to load and the saved-chats window stands in for it (showOfflineChats).
+    private boolean duckOffline = false;
     private android.app.Dialog scriptsManagerDialog = null;
     private boolean isRequestingViewer = false;
 
@@ -234,6 +244,7 @@ public class MainActivity extends Activity {
         Scheme scheme = ThemeManager.scheme(this);
         if (!isDrawerLayout()) {
             ThemeManager.styleWindow(this, scheme); // the drawer's window must stay see-through
+            ThemeManager.applyStatusBar(this);      // Appearance → "Hide status bar"
         }
         NativeTheme.styleTopBar(findViewById(R.id.topBar), scheme);
         NativeTheme.styleProgressBar(progressBar, scheme);
@@ -307,6 +318,7 @@ public class MainActivity extends Activity {
         });
         currentZoomLevel = (float) prefs.getInt("text_zoom", 100);
 
+        promptFiller = new PromptFiller(this);
         configureWebView(chatWebView, Providers.DUCK);
 
         accounts = AccountStore.load(prefs);
@@ -316,7 +328,7 @@ public class MainActivity extends Activity {
 
         // The WebView from the layout is the duck.ai tab; other accounts get their own WebView (in
         // their own profile) the first time they're opened. Default: 3 tabs stay loaded (R-PERF-1).
-        tabManager = new TabManager(chatWebView, accounts.duck(), this::configureWebView, new TabManager.Listener() {
+        tabManager = new TabManager(chatWebView, accounts.duck(), this::setUpTab, new TabManager.Listener() {
             @Override
             public void onAccountShown(Account account) {
                 onTabShown(account);
@@ -328,6 +340,7 @@ public class MainActivity extends Activity {
                         + " keeps crashing and was closed.", Toast.LENGTH_LONG).show();
             }
         }, prefs.getInt(PREF_MAX_LIVE_TABS, 3));
+        DesktopMode.applySaved(this, prefs, chatWebView, accounts.duck()); // before duck.ai's first page load
         setupTopBar();
         updateTopBar(tabManager.current());
         appliedNight = ThemeManager.isNight(this);
@@ -349,14 +362,18 @@ public class MainActivity extends Activity {
             handleIntent(getIntent(), false);
         }
 
-        // Normal app launch: reopen the account the user was using last time.
+        // Normal app launch: open the account chosen in Settings → Behaviour ("Open at start"),
+        // by default the one the user was using last time (see account/DefaultAccounts). When the
+        // screen is only being rebuilt (e.g. after switching light/dark), stay on the account in use.
         String launchAction = getIntent() != null ? getIntent().getAction() : null;
-        if (Intent.ACTION_MAIN.equals(launchAction) || launchAction == null) {
+        if (DefaultAccounts.purposeOf(launchAction) == DefaultAccounts.Purpose.LAUNCH) {
             String lastId = prefs.getString(PREF_LAST_ACCOUNT,
                     prefs.getString(PREF_LAST_PROVIDER, Providers.DUCK_ID));
-            Account last = accounts.find(lastId);
-            if (last != null && !last.isDuck()) {
-                tabManager.show(last);
+            String choice = restored ? DefaultAccounts.LAUNCH_LAST
+                    : prefs.getString(DefaultAccounts.PREF_LAUNCH, DefaultAccounts.LAUNCH_LAST);
+            Account start = DefaultAccounts.launchAccount(accounts, choice, lastId);
+            if (!start.isDuck()) {
+                tabManager.show(start);
             }
         }
     }
@@ -375,7 +392,33 @@ public class MainActivity extends Activity {
         }
         View settings = findViewById(R.id.settingsButton);
         if (settings != null) {
-            settings.setOnClickListener(v -> showSettingsDialog());
+            settings.setOnClickListener(v -> openSettings(null));
+        }
+        View desktop = findViewById(R.id.desktopButton);
+        if (desktop != null) {
+            desktop.setOnClickListener(v -> toggleDesktopMode());
+        }
+    }
+
+    /** Full set-up of a tab: settings, clients, bridges, plus the account's desktop-site choice. */
+    private void setUpTab(WebView webView, Account account) {
+        configureWebView(webView, Providers.byId(account.providerId));
+        DesktopMode.applySaved(this, getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), webView, account);
+    }
+
+    /** The monitor button: switch the account on screen between the phone and desktop site. */
+    private void toggleDesktopMode() {
+        DesktopMode.toggle(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), tabManager.current().id);
+        syncDesktopMode(tabManager.current());
+    }
+
+    /** The tab on screen and the monitor button follow the account's desktop-site choice (web/DesktopMode). */
+    private void syncDesktopMode(Account account) {
+        boolean on = DesktopMode.sync(this, getSharedPreferences("duck_assist_prefs", MODE_PRIVATE),
+                tabManager.currentWebView(), account);
+        android.widget.ImageView button = findViewById(R.id.desktopButton);
+        if (button != null) {
+            NativeTheme.styleDesktopButton(button, on, ThemeManager.scheme(this));
         }
     }
 
@@ -399,6 +442,10 @@ public class MainActivity extends Activity {
     /** Called by TabManager after an account's tab became visible (or was renamed). */
     private void onTabShown(Account account) {
         updateTopBar(account);
+        syncDesktopMode(account);
+        if (account.isDuck() && duckOffline) {
+            showOfflineChats(chatWebView);
+        }
         // A half-finished loading bar from the previous tab must not stay on screen.
         if (progressBar != null) {
             progressBar.setVisibility(View.GONE);
@@ -474,6 +521,10 @@ public class MainActivity extends Activity {
 
         webView.setWebViewClient(new MyWebViewClient(provider));
         webView.setWebChromeClient(new MyWebChromeClient(provider));
+        if (!provider.isDuck()) {
+            // Sign-in pop-up windows open in the same account's container (web/PopupWindows).
+            PopupWindows.enable(webSettings);
+        }
 
         webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
             // Downloads may need the account's login cookies; remember whose they are.
@@ -485,46 +536,14 @@ public class MainActivity extends Activity {
                             + provider.displayName + " yet.", Toast.LENGTH_SHORT).show();
                     return;
                 }
-                // Values that come from the web page (URL, file name, type) are turned into safe JS string
-                // literals with JSONObject.quote(), which escapes quotes, backslashes and line breaks.
-                // Pasting them in raw (as before) would let a crafted file name inject its own JavaScript.
-                String jsUrl = org.json.JSONObject.quote(url);
-                String jsCD = org.json.JSONObject.quote(contentDisposition != null ? contentDisposition : "");
-                String jsMime = org.json.JSONObject.quote(mimetype != null ? mimetype : "");
-                chatWebView.evaluateJavascript(
-                        "(function() {" +
-                                "  var url = " + jsUrl + ";" +
-                                "  var blob = window.blobMap ? window.blobMap.get(url) : null;" +
-                                "  console.log('Download request for: ' + url + ' (Map found: ' + (window.blobMap !== undefined) + ')');"
-                                +
-                                "  if (blob) {" +
-                                "    var reader = new FileReader();" +
-                                "    reader.onloadend = function() {" +
-                                "      Android.processBlob(reader.result, blob.type, " + jsCD
-                                + ", window.location.href);" +
-                                "    };" +
-                                "    reader.readAsDataURL(blob);" +
-                                "  } else {" +
-                                "    console.warn('Blob not found in map, trying XHR fallback...');" +
-                                "    var xhr = new XMLHttpRequest();" +
-                                "    xhr.open('GET', url, true);" +
-                                "    xhr.responseType = 'blob';" +
-                                "    xhr.onload = function() {" +
-                                "      if (this.status == 200) {" +
-                                "        var reader = new FileReader();" +
-                                "        reader.readAsDataURL(this.response);" +
-                                "        reader.onloadend = function() {" +
-                                "          Android.processBlob(reader.result, " + jsMime + ", " + jsCD
-                                + ", window.location.href);" +
-                                "        };" +
-                                "      }" +
-                                "    };" +
-                                "    xhr.onerror = function() { console.error('Blob fetch failed: CSP or not found'); };"
-                                +
-                                "    xhr.send();" +
-                                "  }" +
-                                "})();",
-                        null);
+                // The script (assets/js/blob_fetch.js) is one function; the three values from the web
+                // page are passed in as safe JS string literals made by JSONObject.quote(), which
+                // escapes quotes, backslashes and line breaks, so a crafted file name can't inject
+                // its own JavaScript (PROJECT.md P8).
+                String args = "(" + org.json.JSONObject.quote(url) + ","
+                        + org.json.JSONObject.quote(contentDisposition != null ? contentDisposition : "") + ","
+                        + org.json.JSONObject.quote(mimetype != null ? mimetype : "") + ")";
+                chatWebView.evaluateJavascript(js(Scripts.BLOB_FETCH) + args, null);
                 return;
             } else if (url.startsWith("data:")) {
                 processBlob(url, mimetype, contentDisposition, url);
@@ -543,7 +562,10 @@ public class MainActivity extends Activity {
         });
 
         if (provider.isDuck()) {
-            webView.addJavascriptInterface(this, "Android");
+            // duck.ai's helper scripts talk to the app through a message bridge that only duck.ai's
+            // own main page can use (web/DuckBridge, PROJECT.md P1). Before round 5 this was
+            // addJavascriptInterface(this, "Android"), which every frame of the page could call.
+            DuckBridge.attach(webView, duckBridgeHost);
         }
 
         ScaleGestureDetector scaleGestureDetector = new ScaleGestureDetector(this, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -569,7 +591,9 @@ public class MainActivity extends Activity {
             @SuppressLint("ClickableViewAccessibility")
             @Override
             public boolean onTouch(View v, MotionEvent event) {
-                if (isImageZoomActive) {
+                // duck.ai's image viewer, or the desktop site: pinching zooms the page itself (WebView
+                // handles it) instead of changing the text size.
+                if (isImageZoomActive || DesktopMode.isActive(webView)) {
                     return false;
                 }
                 scaleGestureDetector.onTouchEvent(event);
@@ -578,52 +602,39 @@ public class MainActivity extends Activity {
         });
     }
 
-    @JavascriptInterface
-    public void showToast(final String message) {
-        runOnUiThread(() -> {
-            if (message != null && !message.isEmpty()) {
-                Toast.makeText(MainActivity.this, message, Toast.LENGTH_SHORT).show();
-            }
-        });
-    }
+    /**
+     * What duck.ai's page may ask the app to do, through the message bridge (web/DuckBridge checks
+     * every message first: it must come from duck.ai's own main page and have an allowed type).
+     * These run on the main thread.
+     */
+    private final DuckBridge.Host duckBridgeHost = new DuckBridge.Host() {
+        @Override
+        public void copyToClipboard(String text) {
+            MainActivity.this.copyToClipboard(text);
+        }
 
-    @JavascriptInterface
-    public void showSoftKeyboard() {
-        runOnUiThread(() -> {
+        @Override
+        public void onChatsFetched(String json) {
+            MainActivity.this.onChatsFetched(json);
+        }
+
+        @Override
+        public void processBlob(String dataUrl, String mimetype, String contentDisposition, String pageUrl) {
+            MainActivity.this.processBlob(dataUrl, mimetype, contentDisposition, pageUrl);
+        }
+
+        @Override
+        public void showSoftKeyboard() {
             chatWebView.requestFocus();
-            android.view.inputmethod.InputMethodManager imm = 
+            android.view.inputmethod.InputMethodManager imm =
                 (android.view.inputmethod.InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
             if (imm != null) {
                 imm.showSoftInput(chatWebView, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
             }
-        });
-    }
+        }
 
-    @JavascriptInterface
-    public void requestWebViewFocus() {
-        runOnUiThread(() -> {
-            chatWebView.requestFocus();
-            chatWebView.requestFocusFromTouch();
-        });
-    }
-
-    @JavascriptInterface
-    public void triggerShortcut() {
-        runOnUiThread(() -> {
-            Toast.makeText(MainActivity.this, "Triggering Ctrl+Shift+O...", Toast.LENGTH_SHORT).show();
-            if (chatWebView != null) {
-                chatWebView.evaluateJavascript(js(Scripts.AUTO_FOCUS), null);
-                long now = android.os.SystemClock.uptimeMillis();
-                int meta = KeyEvent.META_CTRL_ON | KeyEvent.META_SHIFT_ON;
-                chatWebView.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_O, 0, meta));
-                chatWebView.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_O, 0, meta));
-            }
-        });
-    }
-
-    @JavascriptInterface
-    public void triggerShortcutNative() {
-        runOnUiThread(() -> {
+        @Override
+        public void triggerNewChatShortcut() {
             if (chatWebView != null) {
                 chatWebView.requestFocus();
                 long now = android.os.SystemClock.uptimeMillis();
@@ -631,51 +642,20 @@ public class MainActivity extends Activity {
                 chatWebView.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_O, 0, meta));
                 chatWebView.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_O, 0, meta));
             }
-        });
-    }
-
-    @JavascriptInterface
-    public void setImageZoomActive(boolean active) {
-        runOnUiThread(() -> {
-            isImageZoomActive = active;
-        });
-    }
-
-    @JavascriptInterface
-    public String getChatsJson() {
-        if (lastFetchedChatsJson == null || lastFetchedChatsJson.equals("{}") || lastFetchedChatsJson.isEmpty()) {
-            lastFetchedChatsJson = ChatDatabaseHelper.getInstance(MainActivity.this).getCachedChatsJson();
-            if (lastFetchedChatsJson == null || lastFetchedChatsJson.equals("{}") || lastFetchedChatsJson.isEmpty()) {
-                SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                lastFetchedChatsJson = prefs.getString("cached_chats_json", "{}");
-            }
         }
-        return lastFetchedChatsJson;
-    }
 
-    @JavascriptInterface
-    public void dismissViewer() {
-        runOnUiThread(() -> {
-            if (chatsViewerDialog != null && chatsViewerDialog.isShowing()) {
-                chatsViewerDialog.dismiss();
-            } else {
-                chatWebView.loadUrl("https://duck.ai/");
-            }
-        });
-    }
+        @Override
+        public void setImageZoomActive(boolean active) {
+            isImageZoomActive = active;
+        }
 
-    @JavascriptInterface
-    public void onContinueLastChatSuccess() {
-        runOnUiThread(() -> pendingContinueLastChat = false);
-    }
+        @Override
+        public void onContinueLastChatSuccess() {
+            pendingContinueLastChat = false;
+        }
+    };
 
-    @JavascriptInterface
-    public void setSwipeEnabled(final boolean enabled) {
-        // No-op
-    }
-
-    @JavascriptInterface
-    public void copyToClipboard(final String text) {
+    private void copyToClipboard(final String text) {
         runOnUiThread(() -> {
             ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             ClipData clip = ClipData.newPlainText("Copied Text", text);
@@ -686,8 +666,8 @@ public class MainActivity extends Activity {
         });
     }
 
-    @JavascriptInterface
-    public void processBlob(String base64Data, String mimetype, String contentDisposition, String currentUrl) {
+    /** Saves a file the page handed over as a data: URL (asks for storage permission first if needed). */
+    private void processBlob(String base64Data, String mimetype, String contentDisposition, String currentUrl) {
         if (checkDownloadPermissions()) {
             promptAndSaveBlob(base64Data, mimetype, contentDisposition, currentUrl);
         } else {
@@ -697,11 +677,6 @@ public class MainActivity extends Activity {
             pendingBlobContentDisposition = contentDisposition;
             pendingBlobCurrentUrl = currentUrl;
         }
-    }
-
-    @JavascriptInterface
-    public void showSettingsDialog() {
-        openSettings(null);
     }
 
     /**
@@ -959,8 +934,8 @@ public class MainActivity extends Activity {
         });
     }
 
-    @JavascriptInterface
-    public void onChatsFetched(String jsonStr) {
+    /** Receives duck.ai's chat dump (from the message bridge), merges it with the saved copy and stores it. */
+    private void onChatsFetched(String jsonStr) {
         java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
             if (jsonStr == null || jsonStr.isEmpty() || jsonStr.equals("{}")) {
                 if (isRequestingViewer) {
@@ -1119,6 +1094,30 @@ public class MainActivity extends Activity {
         });
     }
 
+    /**
+     * duck.ai couldn't load (offline) or keeps crashing: show the chats saved on the phone instead.
+     *
+     * <p>Until round 5 the viewer page was loaded <i>inside</i> the duck.ai tab and used the tab's
+     * {@code Android} bridge. The new bridge (web/DuckBridge) only works for https://duck.ai pages,
+     * never for a local {@code file:} page, so the viewer now opens in its own window, which has its
+     * own small local-only bridge. Closing it tries duck.ai again (as the old in-tab close did).</p>
+     * If the duck.ai tab isn't on screen, the window waits until the user switches to it.
+     */
+    private void showOfflineChats(WebView duckView) {
+        duckOffline = true;
+        if (isVisibleTab(duckView) && (chatsViewerDialog == null || !chatsViewerDialog.isShowing())) {
+            showChatsViewerDialog();
+        }
+    }
+
+    /** After the offline fallback was closed by the user: load duck.ai again. */
+    private void retryDuckIfOffline() {
+        if (duckOffline && chatWebView != null) {
+            duckOffline = false;
+            chatWebView.loadUrl("https://duck.ai/");
+        }
+    }
+
     private void showChatsViewerDialog() {
         runOnUiThread(() -> {
             if (chatsViewerDialog != null && chatsViewerDialog.isShowing()) {
@@ -1150,6 +1149,7 @@ public class MainActivity extends Activity {
                         if (chatsViewerDialog != null) {
                             chatsViewerDialog.dismiss();
                         }
+                        retryDuckIfOffline();
                     });
                 }
 
@@ -1174,6 +1174,8 @@ public class MainActivity extends Activity {
             // Theme colours for the page (read-only, local page only; see theme/ThemeBridge).
             webView.addJavascriptInterface(new ThemeBridge(this), "AndroidTheme");
             webView.loadUrl("file:///android_asset/chats_viewer.html");
+            // Back closes it ("cancel"); after an offline fallback that also retries duck.ai.
+            chatsViewerDialog.setOnCancelListener(d -> retryDuckIfOffline());
             chatsViewerDialog.setContentView(webView);
             chatsViewerDialog.show();
             
@@ -1722,8 +1724,17 @@ public class MainActivity extends Activity {
             }
             applyTheme();
         }
-        // The account list may have been changed by the app's other screen (the assistant drawer is a
-        // separate activity with its own copy): reload it and refresh tabs + top bar if it differs.
+        refreshAccounts();
+        if (tabManager != null) {
+            syncDesktopMode(tabManager.current());
+        }
+    }
+
+    /**
+     * The account list may have been changed by the app's other screen (the assistant drawer is a
+     * separate activity with its own copy): reload it and refresh tabs + top bar if it differs.
+     */
+    private void refreshAccounts() {
         if (accounts != null && tabManager != null) {
             AccountStore fresh = AccountStore.load(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE));
             if (!fresh.toJson().equals(accounts.toJson())) {
@@ -1757,11 +1768,6 @@ public class MainActivity extends Activity {
         if (tabManager != null && (level >= TRIM_MEMORY_BACKGROUND || level == TRIM_MEMORY_RUNNING_CRITICAL)) {
             tabManager.closeHiddenTabs();
         }
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
     }
 
     @Override
@@ -1808,10 +1814,20 @@ public class MainActivity extends Activity {
             }
         }
 
-        // Links, sharing, "Ask duck.ai" and the assistant gesture are all duck.ai features:
-        // show the duck.ai tab first. A normal launch (MAIN) keeps whatever tab is open.
-        if (action != null && !Intent.ACTION_MAIN.equals(action)) {
-            showDuckTab();
+        // Which account handles this request: the one chosen in Settings → "Assistant & sharing"
+        // (duck.ai unless changed; see account/DefaultAccounts). Links from other apps are duck.ai
+        // addresses, so they always go to duck.ai. A normal launch (MAIN) keeps whatever tab is open.
+        refreshAccounts(); // the other screen (assistant drawer) may have changed the list
+        DefaultAccounts.Purpose purpose = DefaultAccounts.purposeOf(action);
+        SharedPreferences choices = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
+        final Account target = DefaultAccounts.target(accounts, purpose,
+                choices.getString(DefaultAccounts.PREF_ASSISTANT, null),
+                choices.getString(DefaultAccounts.PREF_SHARE, null));
+        if (purpose == DefaultAccounts.Purpose.ASSISTANT || purpose == DefaultAccounts.Purpose.LINK
+                || (purpose == DefaultAccounts.Purpose.SHARE && tabManager.isLoaded(target.id))) {
+            // (A share to an account whose tab isn't loaded yet opens it below, straight at the new
+            // chat page, instead of loading its home page first.)
+            tabManager.show(target);
         }
 
         if (Intent.ACTION_VIEW.equals(action)) {
@@ -1824,20 +1840,7 @@ public class MainActivity extends Activity {
                     if (continueLastChat) {
                         pendingContinueLastChat = true;
                     }
-                    try {
-                        org.json.JSONObject handoffObj = new org.json.JSONObject();
-                        handoffObj.put("aiChatPrompt", query);
-                        handoffObj.put("aiChatAutoPrompt", false);
-                        String handoffJson = handoffObj.toString();
-                        
-                        Uri.Builder builder = Uri.parse("https://duck.ai/chat").buildUpon()
-                                .appendQueryParameter("q", query)
-                                .appendQueryParameter("handoff", handoffJson);
-                        chatWebView.loadUrl(builder.build().toString());
-                    } catch (org.json.JSONException e) {
-                        Log.e(TAG, "Error building handoff JSON", e);
-                        chatWebView.loadUrl("https://duck.ai/chat?q=" + Uri.encode(query));
-                    }
+                    chatWebView.loadUrl(PromptPrefill.duckUrl(query, false));
                 } else {
                     // Other apps can open this screen with any address (the activity is "exported").
                     // Only load chat-site addresses in-app; everything else (javascript:, file:, other
@@ -1889,23 +1892,14 @@ public class MainActivity extends Activity {
                             } else {
                                 showCustomBanner("Tap 📎 to attach the shared file");
                             }
-                            SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                            boolean continueLastChat = prefs.getBoolean("continue_last_chat", false);
-                            if (continueLastChat) {
-                                pendingContinueLastChat = true;
-                            }
-                            String docSuffix = prefs.getString("shared_doc_suffix", "");
-                            if (docSuffix != null && !docSuffix.trim().isEmpty()) {
-                                loadDuckChatPrompt(docSuffix);
-                            } else {
-                                chatWebView.loadUrl("https://duck.ai/chat");
-                            }
+                            openChatForSharedFiles(target);
                         }
 
                         @Override
                         public void onError(String errorMessage) {
                             progress.dismiss();
                             pendingSharedFileUri = saveUriToTempFile(streamUri, ".pdf");
+                            tabManager.show(target);
                         }
                     });
                     return;
@@ -1921,7 +1915,7 @@ public class MainActivity extends Activity {
                         @Override
                         public void onTextReady(String text) {
                             progress.dismiss();
-                            loadDuckChatPrompt(text);
+                            sendPrompt(target, text);
                         }
 
                         @Override
@@ -1934,13 +1928,7 @@ public class MainActivity extends Activity {
                             } else {
                                 showCustomBanner("Tap 📎 to attach the converted document");
                             }
-                            SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                            String docSuffix = prefs.getString("shared_doc_suffix", "");
-                            if (docSuffix != null && !docSuffix.trim().isEmpty()) {
-                                loadDuckChatPrompt(docSuffix);
-                            } else {
-                                chatWebView.loadUrl("https://duck.ai/chat");
-                            }
+                            openChatForSharedFiles(target);
                         }
 
                         @Override
@@ -1972,22 +1960,18 @@ public class MainActivity extends Activity {
                 } else {
                     showCustomBanner("Tap 📎 to attach the shared file");
                 }
-                SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                boolean continueLastChat = prefs.getBoolean("continue_last_chat", false);
-                if (continueLastChat) {
-                    pendingContinueLastChat = true;
-                }
-                String docSuffix = prefs.getString("shared_doc_suffix", "");
-                if (docSuffix != null && !docSuffix.trim().isEmpty()) {
-                    loadDuckChatPrompt(docSuffix);
-                } else {
-                    chatWebView.loadUrl("https://duck.ai/chat");
-                }
+                openChatForSharedFiles(target);
             } else if (sharedText != null) {
-                loadDuckChatPrompt(sharedText);
-            } else {
+                sendPrompt(target, sharedText);
+            } else if (target.isDuck()) {
                 chatWebView.loadUrl("https://duck.ai/");
+            } else {
+                tabManager.show(target);
             }
+        } else if (Intent.ACTION_ASSIST.equals(action) && !target.isDuck()) {
+            // Another provider is the assistant: its tab is already on screen (shown above). Voice
+            // chat start-up is a duck.ai feature (its page's voice button), so nothing more to do.
+            pendingVoiceChat = false;
         } else if (Intent.ACTION_ASSIST.equals(action)) {
             Log.d(TAG, "Assistance shortcut triggered");
             pendingAutoFocus = false;
@@ -2041,14 +2025,13 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void loadDuckChatPrompt(String promptText) {
+    /**
+     * Opens a new chat with {@code promptText} (plus the user's "text added to prompts", if any) in
+     * the account's tab. The text appears in the chat box, not yet sent (see provider/PromptPrefill).
+     */
+    private void sendPrompt(Account account, String promptText) {
         if (promptText == null || promptText.trim().isEmpty()) return;
-        showDuckTab();
         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-        boolean continueLastChat = prefs.getBoolean("continue_last_chat", false);
-        if (continueLastChat) {
-            pendingContinueLastChat = true;
-        }
         String suffix = prefs.getString("shared_doc_suffix", "");
         if (suffix == null || suffix.trim().isEmpty()) {
             suffix = prefs.getString("ask_duck_suffix", "");
@@ -2057,20 +2040,37 @@ public class MainActivity extends Activity {
         if (suffix != null && !suffix.trim().isEmpty()) {
             fullPrompt = promptText + "\n\n" + suffix;
         }
+        ProviderSpec provider = Providers.byId(account.providerId);
+        if (account.isDuck() && prefs.getBoolean("continue_last_chat", false)) {
+            pendingContinueLastChat = true;
+        }
+        // duck.ai: its handoff link; Claude: its "?q=" link; others: their home page (PromptPrefill).
+        WebView tab = tabManager.show(account, PromptPrefill.startUrl(provider, fullPrompt));
+        if (!account.isDuck()) {
+            // Types the text into the site's message box once the page is ready (web/PromptFiller).
+            promptFiller.request(tab, provider, fullPrompt);
+        }
+    }
 
-        try {
-            org.json.JSONObject handoffObj = new org.json.JSONObject();
-            handoffObj.put("aiChatPrompt", fullPrompt);
-            handoffObj.put("aiChatAutoPrompt", false);
-            String handoffJson = handoffObj.toString();
-
-            Uri.Builder builder = Uri.parse("https://duck.ai/chat").buildUpon()
-                    .appendQueryParameter("q", fullPrompt)
-                    .appendQueryParameter("handoff", handoffJson);
-            chatWebView.loadUrl(builder.build().toString());
-        } catch (org.json.JSONException e) {
-            Log.e(TAG, "Error building handoff JSON", e);
-            chatWebView.loadUrl("https://duck.ai/chat?q=" + Uri.encode(fullPrompt));
+    /**
+     * Files were shared: open a new chat in the target account, so the user can attach them with the
+     * page's 📎 button (the app hands over the waiting files when the page asks, see
+     * onShowFileChooser). The "text added to shared documents" is filled in, if set.
+     */
+    private void openChatForSharedFiles(Account account) {
+        SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
+        String docSuffix = prefs.getString("shared_doc_suffix", "");
+        if (docSuffix != null && !docSuffix.trim().isEmpty()) {
+            sendPrompt(account, docSuffix);
+            return;
+        }
+        if (account.isDuck()) {
+            if (prefs.getBoolean("continue_last_chat", false)) {
+                pendingContinueLastChat = true;
+            }
+            tabManager.show(account, "https://duck.ai/chat");
+        } else {
+            tabManager.show(account, Providers.byId(account.providerId).homeUrl);
         }
     }
 
@@ -2113,20 +2113,7 @@ public class MainActivity extends Activity {
                             promptText = promptText + "\n\n" + suffix;
                         }
                         
-                        try {
-                            org.json.JSONObject handoffObj = new org.json.JSONObject();
-                            handoffObj.put("aiChatPrompt", promptText);
-                            handoffObj.put("aiChatAutoPrompt", true);
-                            String handoffJson = handoffObj.toString();
-                            
-                            Uri.Builder builder = Uri.parse("https://duck.ai/chat").buildUpon()
-                                    .appendQueryParameter("q", promptText)
-                                    .appendQueryParameter("handoff", handoffJson);
-                            chatWebView.loadUrl(builder.build().toString());
-                        } catch (org.json.JSONException e) {
-                            Log.e(TAG, "Error building handoff JSON", e);
-                            chatWebView.loadUrl("https://duck.ai/chat?q=" + Uri.encode(promptText));
-                        }
+                        chatWebView.loadUrl(PromptPrefill.duckUrl(promptText, true));
                     });
                 }
 
@@ -2225,6 +2212,10 @@ public class MainActivity extends Activity {
 
             chatWebView = WebViewRecovery.replace(view);
             configureWebView(chatWebView, Providers.DUCK);
+            if (accounts != null) {
+                DesktopMode.applySaved(MainActivity.this,
+                        getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), chatWebView, accounts.duck());
+            }
             if (tabManager != null) {
                 tabManager.replaceDuckView(chatWebView); // keeps it hidden if another tab is on screen
             }
@@ -2239,7 +2230,8 @@ public class MainActivity extends Activity {
             if (rendererRecoveryTimes.size() >= MAX_RECOVERIES_PER_MINUTE) {
                 Toast.makeText(MainActivity.this,
                         "The chat page keeps crashing. Showing saved chats instead.", Toast.LENGTH_LONG).show();
-                chatWebView.loadUrl("file:///android_asset/chats_viewer.html");
+                chatWebView.loadUrl("about:blank");
+                showOfflineChats(chatWebView);
             } else {
                 if (crashed) {
                     Toast.makeText(MainActivity.this,
@@ -2294,9 +2286,12 @@ public class MainActivity extends Activity {
                 progressBar.setVisibility(View.GONE);
             }
             if (isSafeMode) return;
+            DesktopMode.onPageFinished(MainActivity.this, view); // wide page in desktop mode
             if (!provider.isDuck()) {
                 // Other providers: no duck.ai helper scripts (they target duck.ai's page and need the
-                // bridge). The user's own scripts still run where their "match" setting allows.
+                // bridge). A shared prompt waiting for this tab is typed in; the user's own scripts
+                // still run where their "match" setting allows.
+                promptFiller.onPageFinished(view, url);
                 injectUserScripts(view, url);
                 return;
             }
@@ -2329,15 +2324,10 @@ public class MainActivity extends Activity {
         @Override
         public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                if (request.isForMainFrame()) {
-                    String url = request.getUrl().toString();
-                    if (url.contains("duck.ai") || url.contains("duckduckgo.com")) {
-                        Log.d(TAG, "Connection failed for main frame, replacing with local chats: " + error.getDescription());
-                        runOnUiThread(() -> {
-                            view.loadUrl("file:///android_asset/chats_viewer.html");
-                        });
-                        return; // Prevent calling super, which displays the default "Webpage not available" error page
-                    }
+                if (request.isForMainFrame() && provider.isDuck()) {
+                    Log.d(TAG, "Connection failed for duck.ai, showing saved chats: " + error.getDescription());
+                    runOnUiThread(() -> showOfflineChats(view));
+                    return; // the saved chats are shown instead
                 }
             }
             super.onReceivedError(view, request, error);
@@ -2345,12 +2335,10 @@ public class MainActivity extends Activity {
 
         @Override
         public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-            if (failingUrl.contains("duck.ai") || failingUrl.contains("duckduckgo.com")) {
-                Log.d(TAG, "Connection failed (legacy), replacing with local chats: " + description);
-                runOnUiThread(() -> {
-                    view.loadUrl("file:///android_asset/chats_viewer.html");
-                });
-                return; // Prevent calling super
+            if (provider.isDuck()) {
+                Log.d(TAG, "Connection failed (legacy), showing saved chats: " + description);
+                runOnUiThread(() -> showOfflineChats(view));
+                return;
             }
             super.onReceivedError(view, errorCode, description, failingUrl);
         }
@@ -2383,6 +2371,17 @@ public class MainActivity extends Activity {
                     safeEvaluateJavascript(view, js(Scripts.AUTO_FOCUS));
                 }
             }
+        }
+
+        /** A provider page opens a new window (usually a sign-in pop-up), see web/PopupWindows. */
+        @Override
+        public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture,
+                                      android.os.Message resultMsg) {
+            Account account = tabManager != null ? tabManager.accountOf(view) : null;
+            if (provider.isDuck() || account == null) {
+                return false;
+            }
+            return PopupWindows.open(view, provider, account, isUserGesture, resultMsg);
         }
 
         @Override
@@ -2572,7 +2571,7 @@ public class MainActivity extends Activity {
                         @Override
                         public void onTextReady(String text) {
                             progress.dismiss();
-                            loadDuckChatPrompt(text);
+                            sendPrompt(tabManager.current(), text);
                         }
 
                         @Override
@@ -2588,7 +2587,7 @@ public class MainActivity extends Activity {
                             SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
                             String docSuffix = prefs.getString("shared_doc_suffix", "");
                             if (docSuffix != null && !docSuffix.trim().isEmpty()) {
-                                loadDuckChatPrompt(docSuffix);
+                                sendPrompt(tabManager.current(), docSuffix);
                             }
                         }
 

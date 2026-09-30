@@ -90,6 +90,9 @@
         .title { font-size: 16px; color: var(--md-on-surface); overflow-wrap: anywhere; }
         .sub { font-size: 14px; color: var(--md-on-surface-variant); margin-top: 2px; }
         .row.dim .title { color: var(--md-on-surface-variant); }
+        /* A setting that doesn't apply right now (e.g. duck.ai-only while another account is chosen). */
+        .row.off .title, .row.off .sub:not(.note) { opacity: .38; }
+        .sub.note { color: var(--md-primary); }
         .row.block { flex-direction: column; align-items: stretch; gap: 8px; }
 
         /* Touch feedback ("state layer"): a see-through layer in the text colour. */
@@ -197,6 +200,7 @@
         }
         .sheet .item svg { color: var(--md-on-surface-variant); }
         .sheet .item.danger svg { color: var(--md-error); }
+        .sheet .item[disabled] { opacity: .38; pointer-events: none; }
         .sheet hr { border: 0; height: 1px; background: var(--md-outline-variant); margin: 8px 24px; }
 
         /* Radio list (Theme popup) */
@@ -206,6 +210,14 @@
             display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         .radio-row[aria-checked="true"] .radio { border-color: var(--md-primary); }
         .radio-row[aria-checked="true"] .radio::after { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--md-primary); }
+
+        /* Account picker (Assistant / Share & Ask AI / Open at start): radio + badge + name. */
+        .radio-row .badge { width: 32px; height: 32px; font-size: 13px; }
+        .radio-row .text { flex: 1; min-width: 0; padding: 8px 0; }
+        .radio-row .icon-slot { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center;
+            color: var(--md-on-surface-variant); flex-shrink: 0; }
+        .picker { margin: 0 -8px; max-height: 60vh; overflow-y: auto; }
+        .picker .group-label { font-size: 12px; font-weight: 500; color: var(--md-on-surface-variant); margin: 12px 8px 4px; }
 
         /* Colour tiles (Color popup): a circle split into the palette's three main colours. */
         .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 12px 8px; }
@@ -266,25 +278,37 @@
                         <div class="sub">When started from the assistant gesture</div></div>
                     <label class="switch"><input type="checkbox" role="switch" id="use_drawer_assistant" aria-labelledby="l_uda"><span class="track"><span class="thumb"></span></span></label>
                 </div>
+                <!-- Which account the assistant gesture / Share + "Ask AI" open (PROJECT.md R-AST-1, R-AST-4). -->
+                <button type="button" class="row clickable account-choice" data-purpose="assistant" onclick="openAccountPicker('assistant')">
+                    <span class="badge" aria-hidden="true"></span>
+                    <div class="text"><div class="title">Assistant account</div><div class="sub value">duck.ai</div></div>
+                </button>
+                <button type="button" class="row clickable account-choice" data-purpose="share" onclick="openAccountPicker('share')">
+                    <span class="badge" aria-hidden="true"></span>
+                    <div class="text"><div class="title">Share &amp; “Ask AI” account</div><div class="sub value">duck.ai</div></div>
+                </button>
                 <div class="row">
                     <div class="text"><div class="title" id="l_uds">Shared items open in a drawer</div>
                         <div class="sub">Text and documents shared to the app</div></div>
                     <label class="switch"><input type="checkbox" role="switch" id="use_drawer_shared" aria-labelledby="l_uds"><span class="track"><span class="thumb"></span></span></label>
                 </div>
-                <div class="row">
+                <!-- duck.ai-only extras: greyed out with a note when another account is chosen above. -->
+                <div class="row" id="row_voice">
                     <div class="text"><div class="title" id="l_tva">Start voice chat automatically</div>
-                        <div class="sub">When the assistant opens (duck.ai)</div></div>
+                        <div class="sub">When the assistant opens (duck.ai)</div>
+                        <div class="sub note" hidden>Only works when duck.ai is the assistant account</div></div>
                     <label class="switch"><input type="checkbox" role="switch" id="trigger_voice_assistant" aria-labelledby="l_tva"><span class="track"><span class="thumb"></span></span></label>
                 </div>
-                <div class="row">
+                <div class="row" id="row_continue">
                     <div class="text"><div class="title" id="l_clc">Continue the last chat</div>
-                        <div class="sub">When sharing text, links or files (duck.ai)</div></div>
+                        <div class="sub">When sharing text, links or files (duck.ai)</div>
+                        <div class="sub note" hidden>Only works when duck.ai is the share account</div></div>
                     <label class="switch"><input type="checkbox" role="switch" id="continue_last_chat" aria-labelledby="l_clc"><span class="track"><span class="thumb"></span></span></label>
                 </div>
             </div>
             <div class="group">
                 <div class="row block">
-                    <label class="field-label" for="ask_duck_suffix">Text added to “Ask duck.ai” prompts</label>
+                    <label class="field-label" for="ask_duck_suffix">Text added to “Ask AI” prompts</label>
                     <textarea id="ask_duck_suffix" placeholder="Optional, e.g. Explain like I'm 5"></textarea>
                 </div>
                 <div class="row block">
@@ -298,6 +322,11 @@
         <section id="behaviour" aria-labelledby="behaviourLabel">
             <h2 class="section-label" id="behaviourLabel">Behaviour</h2>
             <div class="group">
+                <!-- Account shown when the app is opened from the launcher (default: the last one used). -->
+                <button type="button" class="row clickable account-choice" data-purpose="launch" onclick="openAccountPicker('launch')">
+                    <span class="icon-slot" aria-hidden="true"></span>
+                    <div class="text"><div class="title">Open at start</div><div class="sub value">Last used account</div></div>
+                </button>
                 <!-- How many account tabs stay loaded for instant switching (PROJECT.md R-PERF-1). -->
                 <div class="row block">
                     <div class="text"><div class="title" id="l_mlt">Accounts kept loaded</div>
@@ -328,7 +357,7 @@
                 <button type="button" class="row clickable" onclick="openChatsViewer()">
                     <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12z"/></svg>
                     <div class="text"><div class="title">Saved chats</div>
-                        <div class="sub">duck.ai chats saved on this phone, readable offline</div></div>
+                        <div class="sub">duck.ai chats saved on this phone, readable offline (duck.ai only)</div></div>
                 </button>
                 <button type="button" class="row clickable" onclick="openScriptsManager()">
                     <svg viewBox="0 0 24 24"><path d="M9.4 16.6 4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0 4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg>
@@ -357,6 +386,13 @@
                         <div class="sub" id="materialYouSub">Use colours from your wallpaper</div></div>
                     <label class="switch"><input type="checkbox" role="switch" id="material_you" aria-labelledby="l_my"><span class="track"><span class="thumb"></span></span></label>
                 </div>
+                <!-- Frameless: hides the status bar (clock, notifications) for more room (theme/ThemeManager). -->
+                <div class="row">
+                    <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                    <div class="text"><div class="title" id="l_hsb">Hide status bar</div>
+                        <div class="sub">More room for chats. Swipe down from the top edge to see it for a moment.</div></div>
+                    <label class="switch"><input type="checkbox" role="switch" id="hide_status_bar" aria-labelledby="l_hsb"><span class="track"><span class="thumb"></span></span></label>
+                </div>
             </div>
         </section>
     </main>
@@ -376,7 +412,10 @@
             edit: 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z',
             logout: 'M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5-5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z',
             remove: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
+            up: 'M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z',
+            down: 'M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z',
             check: 'M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z',
+            history: 'M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z',
             eye: 'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z'
         };
         const MODE_NAMES = { system: 'System default', light: 'Light', dark: 'Dark', oled: 'Black (OLED)' };
@@ -464,7 +503,10 @@
         let accountsData = { providers: [] };
 
         function loadAccounts() {
-            if (!ACC) return;
+            if (!ACC) {
+                for (const row of document.querySelectorAll('.account-choice')) row.hidden = true;
+                return;
+            }
             renderAccounts(parse(ACC.getAccountsJson()));
         }
         // Applies an answer from AndroidAccounts: shows its error (if any) and redraws.
@@ -508,6 +550,82 @@
                 for (const a of p.accounts) group.append(accountRow(p, a, false));
                 root.append(group);
             }
+            renderDefaults();
+        }
+
+        // ------------------------------------------------------------ Default accounts (assistant, share, start)
+        const PICKER_TITLES = { assistant: 'Assistant account', share: 'Share & “Ask AI” account', launch: 'Open at start' };
+        const PICKER_HINTS = {
+            assistant: 'Opens when you use the assistant gesture.',
+            share: 'Gets text and files you share to the app, and text you select → “Ask AI”.',
+            launch: 'Shown when you open the app from its icon.'
+        };
+        function chosenId(purpose) {
+            const d = accountsData.defaults || {};
+            return d[purpose] !== undefined ? d[purpose] : (purpose === 'launch' ? '' : 'duck');
+        }
+        function describe(found) {
+            if (!found) return 'duck.ai';
+            const { account: a, provider: p } = found;
+            return a.name === p.name ? a.name : a.name + ' · ' + p.name;
+        }
+        function renderDefaults() {
+            for (const row of document.querySelectorAll('.account-choice')) {
+                const purpose = row.dataset.purpose;
+                const id = chosenId(purpose);
+                const found = id ? findAccount(id) : null;
+                const value = row.querySelector('.value');
+                const badge = row.querySelector('.badge');
+                const slot = row.querySelector('.icon-slot');
+                if (purpose === 'launch' && !found) {
+                    value.textContent = 'Last used account';
+                    if (slot) slot.replaceChildren(icon('history'));
+                } else {
+                    value.textContent = describe(found);
+                    if (slot) slot.replaceChildren(found
+                        ? el('span', { class: 'badge small', style: { background: found.provider.color } }, found.provider.badge)
+                        : icon('history'));
+                }
+                if (badge && found) {
+                    badge.textContent = found.provider.badge;
+                    badge.style.background = found.provider.color;
+                }
+                row.setAttribute('aria-label', PICKER_TITLES[purpose] + ': ' + value.textContent);
+            }
+            // duck.ai-only extras only apply when duck.ai is the chosen account.
+            setDuckOnly('row_voice', 'trigger_voice_assistant', chosenId('assistant') === 'duck');
+            setDuckOnly('row_continue', 'continue_last_chat', chosenId('share') === 'duck');
+        }
+        function setDuckOnly(rowId, inputId, applies) {
+            const row = document.getElementById(rowId);
+            row.classList.toggle('off', !applies);
+            row.querySelector('.note').hidden = applies;
+            document.getElementById(inputId).disabled = !applies; // the saved on/off stays as it was
+        }
+        function openAccountPicker(purpose) {
+            if (!ACC || !ACC.setDefaultAccount) return;
+            const current = chosenId(purpose);
+            const choose = (id) => {
+                if (applyAccounts(ACC.setDefaultAccount(purpose, id))) closeOverlay();
+            };
+            const option = (id, lead, title, sub) => el('button', {
+                    type: 'button', class: 'radio-row clickable', role: 'radio',
+                    'aria-checked': String(current === id), onclick: () => choose(id) },
+                el('span', { class: 'radio' }), lead,
+                el('div', { class: 'text' }, el('div', { class: 'title' }, title), sub ? el('div', { class: 'sub' }, sub) : null));
+            const list = el('div', { class: 'picker', role: 'radiogroup', 'aria-label': PICKER_TITLES[purpose] });
+            if (purpose === 'launch') {
+                list.append(option('', el('span', { class: 'icon-slot' }, icon('history')), 'Last used account', 'The account you had open'));
+            }
+            for (const p of accountsData.providers) {
+                for (const a of p.accounts) {
+                    list.append(option(a.id,
+                        el('span', { class: 'badge', style: { background: p.color }, 'aria-hidden': 'true' }, p.badge),
+                        a.name, a.name === p.name ? (p.id === 'duck' ? 'Voice chat and saved chats work here' : null) : p.name));
+                }
+            }
+            dialog(PICKER_TITLES[purpose], el('div', {}, el('p', {}, PICKER_HINTS[purpose]), list),
+                [{ label: 'Cancel', onclick: closeOverlay }]);
         }
 
         // One account: tap = open it, ⋮ = more actions. withBadge: show the provider badge (duck.ai row).
@@ -576,6 +694,19 @@
             });
             const item = (iconName, label, onclick, danger) =>
                 el('button', { type: 'button', class: 'item clickable' + (danger ? ' danger' : ''), onclick }, icon(iconName), el('span', {}, label));
+            // Move up / down among this provider's accounts (the switcher menu uses the same order).
+            // The sheet stays open, so an account can be moved several places in a row.
+            const moveUp = item('up', 'Move up', () => move(-1));
+            const moveDown = item('down', 'Move down', () => move(1));
+            const updateMoves = () => {
+                const list = (findAccount(id) || found).provider.accounts;
+                const index = list.findIndex(x => x.id === id);
+                moveUp.disabled = index <= 0;
+                moveDown.disabled = index < 0 || index >= list.length - 1;
+            };
+            const move = (delta) => { applyAccounts(ACC.moveAccount(id, delta)); updateMoves(); };
+            updateMoves();
+            const canReorder = p.accounts.length > 1;
             const sheet = el('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': a.name },
                 el('div', { class: 'handle' }),
                 el('div', { class: 'sheet-head' },
@@ -585,6 +716,8 @@
                 item('edit', 'Rename', () => { closeOverlay(); openRenameDialog(id); }),
                 el('label', { class: 'item' }, icon('eye'), el('span', { style: { flex: '1' } }, 'Show in the switcher menu'),
                     el('span', { class: 'switch' }, visibleInput, el('span', { class: 'track' }, el('span', { class: 'thumb' })))),
+                canReorder ? moveUp : null,
+                canReorder ? moveDown : null,
                 isDuck ? null : el('hr', {}),
                 isDuck || accountsData.multiAccount === false ? null : item('logout', 'Sign out', () => { closeOverlay(); confirmSignOut(a, p); }),
                 isDuck ? null : item('remove', 'Remove account', () => { closeOverlay(); confirmRemove(a, p); }, true));
@@ -639,6 +772,7 @@
             my.disabled = !appearance.materialYouAvailable;
             document.getElementById('materialYouSub').textContent = appearance.materialYouAvailable
                 ? 'Use colours from your wallpaper' : 'Needs Android 12 or newer';
+            document.getElementById('hide_status_bar').checked = !!appearance.hideStatusBar;
         }
         function loadAppearance() {
             if (!AP) return;
@@ -767,6 +901,9 @@
             }
             document.getElementById('material_you').addEventListener('change', (e) => {
                 if (AP) renderAppearance(parse(AP.setMaterialYou(e.target.checked)));
+            });
+            document.getElementById('hide_status_bar').addEventListener('change', (e) => {
+                if (AP && AP.setHideStatusBar) renderAppearance(parse(AP.setHideStatusBar(e.target.checked)));
             });
             // The app bar gets a tinted background once the page scrolls under it (Material 3).
             window.addEventListener('scroll', () => {

@@ -9,6 +9,7 @@ import android.graphics.drawable.ColorDrawable;
 import android.os.Build;
 import android.view.View;
 import android.view.Window;
+import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 
@@ -48,6 +49,8 @@ public final class ThemeManager {
     static final String PREF_MODE = "theme_mode";
     static final String PREF_PALETTE = "theme_palette";
     static final String PREF_MATERIAL_YOU = "material_you";
+    /** Appearance → "Hide status bar" (frameless): more room for the page. Off by default. */
+    static final String PREF_HIDE_STATUS_BAR = "hide_status_bar";
     private static final String PREFS = "duck_assist_prefs";
 
     private ThemeManager() {
@@ -94,6 +97,15 @@ public final class ThemeManager {
                 return;
             }
         }
+    }
+
+    /** @return true if the status bar (clock, notifications) is hidden in the full-screen app. */
+    public static boolean isStatusBarHidden(Context context) {
+        return prefs(context).getBoolean(PREF_HIDE_STATUS_BAR, false);
+    }
+
+    public static void setStatusBarHidden(Context context, boolean hidden) {
+        prefs(context).edit().putBoolean(PREF_HIDE_STATUS_BAR, hidden).apply();
     }
 
     public static void setMaterialYou(Context context, boolean on) {
@@ -172,6 +184,53 @@ public final class ThemeManager {
             return android.R.style.Theme_DeviceDefault_DayNight; // follows the (overridden) night mode
         }
         return isNight(context) ? android.R.style.Theme_DeviceDefault : android.R.style.Theme_DeviceDefault_Light;
+    }
+
+    /**
+     * Hides or shows the status bar (the strip with the clock and notification icons) of a
+     * full-screen activity, as chosen in Appearance → "Hide status bar". While it's hidden, a swipe
+     * down from the top edge shows it for a moment (Android's "transient" bars).
+     *
+     * <ul>
+     *   <li><b>Android 11+:</b> {@link WindowInsetsController#hide} with the status-bar type. The
+     *       window may also use the area around a camera cut-out; the layout's
+     *       {@code fitsSystemWindows} still keeps the top bar clear of the cut-out (its padding counts
+     *       the cut-out too, verified in the Android source, {@code InsetsState}), and that strip
+     *       shows the window's background, which has the top bar's colour. So it looks seamless.
+     *       Android 15 already allows the cut-out area for apps targeting it.</li>
+     *   <li><b>Android 7–10:</b> the older {@code FLAG_FULLSCREEN} window flag. On phones with a notch
+     *       (Android 9–10) the notch area then stays black: Android's default, left as it is.</li>
+     * </ul>
+     * Docs: https://developer.android.com/develop/ui/views/layout/immersive
+     */
+    @SuppressWarnings("deprecation") // FLAG_FULLSCREEN: still the way below Android 11
+    public static void applyStatusBar(Activity activity) {
+        boolean hide = isStatusBarHidden(activity);
+        Window window = activity.getWindow();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                WindowManager.LayoutParams attrs = window.getAttributes();
+                int mode = hide ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                        : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT;
+                if (attrs.layoutInDisplayCutoutMode != mode) {
+                    attrs.layoutInDisplayCutoutMode = mode;
+                    window.setAttributes(attrs);
+                }
+            }
+            WindowInsetsController controller = window.getInsetsController();
+            if (controller != null) {
+                if (hide) {
+                    controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                    controller.hide(WindowInsets.Type.statusBars());
+                } else {
+                    controller.show(WindowInsets.Type.statusBars());
+                }
+            }
+        } else if (hide) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        }
     }
 
     /**

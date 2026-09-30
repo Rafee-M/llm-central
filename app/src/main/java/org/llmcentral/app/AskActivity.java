@@ -2,14 +2,10 @@ package org.llmcentral.app;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Toast;
-
-import org.json.JSONException;
-import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -126,7 +122,7 @@ public class AskActivity extends Activity {
                             if (progressDialog != null) {
                                 progressDialog.dismiss();
                             }
-                            launchDuckChatWithText(text);
+                            launchChatWithText(text);
                             finish();
                         }
 
@@ -181,52 +177,25 @@ public class AskActivity extends Activity {
         }
 
         if (sharedText != null) {
-            launchDuckChatWithText(sharedText);
+            launchChatWithText(sharedText);
         }
         finish();
     }
 
-    private void launchDuckChatWithText(String promptText) {
+    /**
+     * Hands the text to the chat screen as ordinary shared text. The chat screen decides which
+     * account gets it (Settings → "Share & Ask AI account", see account/DefaultAccounts) and adds the
+     * user's "text added to prompts". Until round 5 this built a duck.ai address here, so shared text
+     * could only ever go to duck.ai.
+     */
+    private void launchChatWithText(String promptText) {
         if (promptText == null || promptText.trim().isEmpty()) return;
-
-        SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-        String suffix = prefs.getString("shared_doc_suffix", "");
-        if (suffix == null || suffix.trim().isEmpty()) {
-            suffix = prefs.getString("ask_duck_suffix", "");
-        }
-
-        String fullPrompt = promptText;
-        if (suffix != null && !suffix.trim().isEmpty()) {
-            fullPrompt = promptText + "\n\n" + suffix;
-        }
-
-        try {
-            JSONObject handoffObj = new JSONObject();
-            handoffObj.put("aiChatPrompt", fullPrompt);
-            handoffObj.put("aiChatAutoPrompt", false);
-            String handoffJson = handoffObj.toString();
-
-            Uri duckUri = Uri.parse("https://duck.ai/chat").buildUpon()
-                    .appendQueryParameter("q", fullPrompt)
-                    .appendQueryParameter("handoff", handoffJson)
-                    .build();
-
-            Intent chatIntent = new Intent(this, ChatActivity.class);
-            chatIntent.setAction(Intent.ACTION_VIEW);
-            chatIntent.setData(duckUri);
-            chatIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(chatIntent);
-        } catch (JSONException e) {
-            Log.e(TAG, "Error building handoff JSON", e);
-            Uri duckUri = Uri.parse("https://duck.ai/chat").buildUpon()
-                    .appendQueryParameter("q", fullPrompt)
-                    .build();
-            Intent chatIntent = new Intent(this, ChatActivity.class);
-            chatIntent.setAction(Intent.ACTION_VIEW);
-            chatIntent.setData(duckUri);
-            chatIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(chatIntent);
-        }
+        Intent chatIntent = new Intent(this, ChatActivity.class);
+        chatIntent.setAction(Intent.ACTION_SEND);
+        chatIntent.setType("text/plain");
+        chatIntent.putExtra(Intent.EXTRA_TEXT, promptText);
+        chatIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(chatIntent);
     }
 
     @Override

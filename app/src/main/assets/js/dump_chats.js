@@ -2,7 +2,7 @@
 //
 // Offline history for duck.ai: duck.ai stores chats in the browser storage on the phone
 // (IndexedDB + localStorage). This script reads all of it, converts images/files to text (base64 data
-// URLs) and sends everything to the app (Android.onChatsFetched), which saves it for offline viewing.
+// URLs) and sends everything to the app ("chats:" message through window.AppBridge), which saves it for offline viewing.
 //
 // Moved unchanged from a Java string in MainActivity (Phase 0.4); only line breaks were added.
 
@@ -180,8 +180,8 @@
           }
         }
       } catch(e) {}
-      if (typeof Android !== 'undefined' && Android.onChatsFetched) {
-        Android.onChatsFetched(JSON.stringify({
+      if (window.AppBridge) {
+        AppBridge.postMessage('chats:' + JSON.stringify({
           indexedDB: result,
           localStorage: localData,
           blobMap: blobData,
@@ -189,8 +189,8 @@
         }));
       }
     }).catch(err => {
-      if (typeof Android !== 'undefined' && Android.onChatsFetched) {
-        Android.onChatsFetched(JSON.stringify({error: err.toString()}));
+      if (window.AppBridge) {
+        AppBridge.postMessage('chats:' + JSON.stringify({error: err.toString()}));
       }
     });
   }
