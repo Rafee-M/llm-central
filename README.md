@@ -6,7 +6,7 @@
 
 **LLM Central** is a lightweight, privacy-focused Android app that puts several AI chat websites in one
 place: duck.ai, ChatGPT, Claude, DeepSeek, Z.ai and more, with several isolated accounts per provider and
-instant switching between them, while keeping the APK tiny (~280 KB).
+instant switching between them, while keeping the APK tiny (~285 KB).
 
 It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju, which is itself a fork of
 [gptAssist](https://github.com/woheller69/gptAssist) by woheller69.
@@ -28,6 +28,9 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 - 🔑 **Sign-in pop-ups** (e.g. "Continue with Microsoft/Apple/GitHub") open in the right account.
 - 🖥️ **Desktop site** toggle in the top bar, remembered per account.
 - ⛶ **Hide status bar** (Settings → Appearance) for more room.
+- 📥 **Downloads on every provider**, including files the chat creates itself (e.g. a CSV), saved to
+  `Downloads/<Provider>/`.
+- 🔄 **Reload page** from the account menu, and 🧹 **Clear cache** (Settings → Data & tools; logins stay).
 - ⚙️ **Settings button on every provider** in the top bar; a minimal Material 3 settings screen.
 - 🔒 **Safer by design**: only duck.ai's own page can talk to the app, through a checked message bridge; the
   other chat sites get no bridge at all.
@@ -48,7 +51,7 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 
 ## Planned (see PROJECT.md)
 
-Per-account offline history, `blob:` downloads on every provider, per-account cache settings.
+Per-account offline history, per-account cache sizes, app lock.
 
 ## Signing in to providers
 
