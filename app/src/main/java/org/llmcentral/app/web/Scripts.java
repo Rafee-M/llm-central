@@ -46,6 +46,8 @@ public final class Scripts {
     public static final String DUMP_CHATS = "dump_chats.js";
     /** A function expression: the app appends "(url, contentDisposition, mimetype)". */
     public static final String BLOB_FETCH = "blob_fetch.js";
+    /** A function expression: the app appends "(prompt)". Run by PromptFiller on other providers. */
+    public static final String PREFILL_PROMPT = "prefill_prompt.js";
     /** Not injected automatically: the example shown in the user-script manager (off by default). */
     public static final String USER_SCRIPT_SAMPLE = "user_script_sample.js";
 
@@ -53,7 +55,7 @@ public final class Scripts {
     public static final String[] ALL = {
             BLOB_DOWNLOAD_PATCH, IMAGE_ZOOM_MONITOR, AUTO_FOCUS, CLIPBOARD_PATCH, SWIPE_SCROLL,
             RTL_RESOLVER, RTL_CLEANUP, VOICE_CHAT, CONTINUE_LAST_CHAT, DUMP_CHATS, BLOB_FETCH,
-            USER_SCRIPT_SAMPLE
+            PREFILL_PROMPT, USER_SCRIPT_SAMPLE
     };
 
     /** Folder inside assets/ that holds the scripts. */

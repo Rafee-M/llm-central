@@ -35,7 +35,9 @@ public final class Providers {
     public static final ProviderSpec CLAUDE = new ProviderSpec(
             "claude", "Claude", "https://claude.ai/",
             new String[]{"claude.ai", "claude.com"},
-            "C", 0xFFD97757);
+            // "q" pre-fills the chat box without sending (documented for Claude's desktop links;
+            // on the website [unverified], see PromptPrefill).
+            "C", 0xFFD97757, "https://claude.ai/new?q=" + PromptPrefill.PLACEHOLDER);
 
     public static final ProviderSpec DEEPSEEK = new ProviderSpec(
             "deepseek", "DeepSeek", "https://chat.deepseek.com/",

@@ -33,15 +33,27 @@ public final class ProviderSpec {
     public final String badgeText;
     /** Badge background colour as 0xAARRGGBB (the provider's brand-like colour). */
     public final int badgeColor;
+    /**
+     * Address that opens a new chat with a prompt typed in, with {@code {q}} where the (encoded)
+     * prompt goes, or {@code null} if the provider has none we can rely on (see
+     * {@link PromptPrefill}). Example: {@code https://claude.ai/new?q={q}}.
+     */
+    public final String promptUrl;
 
     public ProviderSpec(String id, String displayName, String homeUrl, String[] inAppDomains,
                         String badgeText, int badgeColor) {
+        this(id, displayName, homeUrl, inAppDomains, badgeText, badgeColor, null);
+    }
+
+    public ProviderSpec(String id, String displayName, String homeUrl, String[] inAppDomains,
+                        String badgeText, int badgeColor, String promptUrl) {
         this.id = id;
         this.displayName = displayName;
         this.homeUrl = homeUrl;
         this.inAppDomains = inAppDomains.clone(); // private copy, so nobody can change it later
         this.badgeText = badgeText;
         this.badgeColor = badgeColor;
+        this.promptUrl = promptUrl;
     }
 
     /**

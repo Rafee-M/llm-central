@@ -77,6 +77,7 @@ import org.llmcentral.app.web.TabLru;
 import org.llmcentral.app.web.TabManager;
 import org.llmcentral.app.account.Account;
 import org.llmcentral.app.account.AccountStore;
+import org.llmcentral.app.provider.PromptPrefill;
 import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
 import org.llmcentral.app.ui.ProviderBadge;
@@ -89,6 +90,7 @@ import org.llmcentral.app.theme.ThemeBridge;
 import org.llmcentral.app.theme.ThemeManager;
 import org.llmcentral.app.ui.NativeTheme;
 import org.llmcentral.app.web.Profiles;
+import org.llmcentral.app.web.PromptFiller;
 import org.llmcentral.app.web.WebViewRecovery;
 
 import java.io.UnsupportedEncodingException;
@@ -114,6 +116,8 @@ public class MainActivity extends Activity {
     private static boolean isSafeMode = false;
     // One WebView per account ("tab"); chatWebView above is always the duck.ai tab. See web/TabManager.
     private TabManager tabManager;
+    // Types shared prompts into ChatGPT/Claude/DeepSeek/Z.ai's message box (web/PromptFiller).
+    private PromptFiller promptFiller;
     // The user's accounts (names, which ones show in the menu). See account/AccountStore.
     private AccountStore accounts;
     // Account shown last time, reopened on a normal launch. Round 3 saved a provider id under
@@ -311,6 +315,7 @@ public class MainActivity extends Activity {
         });
         currentZoomLevel = (float) prefs.getInt("text_zoom", 100);
 
+        promptFiller = new PromptFiller(this);
         configureWebView(chatWebView, Providers.DUCK);
 
         accounts = AccountStore.load(prefs);
@@ -1801,20 +1806,7 @@ public class MainActivity extends Activity {
                     if (continueLastChat) {
                         pendingContinueLastChat = true;
                     }
-                    try {
-                        org.json.JSONObject handoffObj = new org.json.JSONObject();
-                        handoffObj.put("aiChatPrompt", query);
-                        handoffObj.put("aiChatAutoPrompt", false);
-                        String handoffJson = handoffObj.toString();
-                        
-                        Uri.Builder builder = Uri.parse("https://duck.ai/chat").buildUpon()
-                                .appendQueryParameter("q", query)
-                                .appendQueryParameter("handoff", handoffJson);
-                        chatWebView.loadUrl(builder.build().toString());
-                    } catch (org.json.JSONException e) {
-                        Log.e(TAG, "Error building handoff JSON", e);
-                        chatWebView.loadUrl("https://duck.ai/chat?q=" + Uri.encode(query));
-                    }
+                    chatWebView.loadUrl(PromptPrefill.duckUrl(query, false));
                 } else {
                     // Other apps can open this screen with any address (the activity is "exported").
                     // Only load chat-site addresses in-app; everything else (javascript:, file:, other
@@ -2001,8 +1993,7 @@ public class MainActivity extends Activity {
 
     /**
      * Opens a new chat with {@code promptText} (plus the user's "text added to prompts", if any) in
-     * the account's tab. duck.ai gets the text through its "handoff" link: it appears in the chat
-     * box, not yet sent.
+     * the account's tab. The text appears in the chat box, not yet sent (see provider/PromptPrefill).
      */
     private void sendPrompt(Account account, String promptText) {
         if (promptText == null || promptText.trim().isEmpty()) return;
@@ -2015,27 +2006,15 @@ public class MainActivity extends Activity {
         if (suffix != null && !suffix.trim().isEmpty()) {
             fullPrompt = promptText + "\n\n" + suffix;
         }
-        if (!account.isDuck()) {
-            // Other providers: open a new chat. (Filling in the text follows in the next step.)
-            tabManager.show(account, Providers.byId(account.providerId).homeUrl);
-            return;
-        }
-        if (prefs.getBoolean("continue_last_chat", false)) {
+        ProviderSpec provider = Providers.byId(account.providerId);
+        if (account.isDuck() && prefs.getBoolean("continue_last_chat", false)) {
             pendingContinueLastChat = true;
         }
-        try {
-            org.json.JSONObject handoffObj = new org.json.JSONObject();
-            handoffObj.put("aiChatPrompt", fullPrompt);
-            handoffObj.put("aiChatAutoPrompt", false);
-            String handoffJson = handoffObj.toString();
-
-            Uri.Builder builder = Uri.parse("https://duck.ai/chat").buildUpon()
-                    .appendQueryParameter("q", fullPrompt)
-                    .appendQueryParameter("handoff", handoffJson);
-            tabManager.show(account, builder.build().toString());
-        } catch (org.json.JSONException e) {
-            Log.e(TAG, "Error building handoff JSON", e);
-            tabManager.show(account, "https://duck.ai/chat?q=" + Uri.encode(fullPrompt));
+        // duck.ai: its handoff link; Claude: its "?q=" link; others: their home page (PromptPrefill).
+        WebView tab = tabManager.show(account, PromptPrefill.startUrl(provider, fullPrompt));
+        if (!account.isDuck()) {
+            // Types the text into the site's message box once the page is ready (web/PromptFiller).
+            promptFiller.request(tab, provider, fullPrompt);
         }
     }
 
@@ -2113,20 +2092,7 @@ public class MainActivity extends Activity {
                             promptText = promptText + "\n\n" + suffix;
                         }
                         
-                        try {
-                            org.json.JSONObject handoffObj = new org.json.JSONObject();
-                            handoffObj.put("aiChatPrompt", promptText);
-                            handoffObj.put("aiChatAutoPrompt", true);
-                            String handoffJson = handoffObj.toString();
-                            
-                            Uri.Builder builder = Uri.parse("https://duck.ai/chat").buildUpon()
-                                    .appendQueryParameter("q", promptText)
-                                    .appendQueryParameter("handoff", handoffJson);
-                            chatWebView.loadUrl(builder.build().toString());
-                        } catch (org.json.JSONException e) {
-                            Log.e(TAG, "Error building handoff JSON", e);
-                            chatWebView.loadUrl("https://duck.ai/chat?q=" + Uri.encode(promptText));
-                        }
+                        chatWebView.loadUrl(PromptPrefill.duckUrl(promptText, true));
                     });
                 }
 
@@ -2297,7 +2263,9 @@ public class MainActivity extends Activity {
             if (isSafeMode) return;
             if (!provider.isDuck()) {
                 // Other providers: no duck.ai helper scripts (they target duck.ai's page and need the
-                // bridge). The user's own scripts still run where their "match" setting allows.
+                // bridge). A shared prompt waiting for this tab is typed in; the user's own scripts
+                // still run where their "match" setting allows.
+                promptFiller.onPageFinished(view, url);
                 injectUserScripts(view, url);
                 return;
             }
