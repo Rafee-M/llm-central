@@ -19,4 +19,6 @@
     <string name="current_account">current</string>
     <!-- Text-selection menu entry (PROCESS_TEXT); sends the selected text to the share account. -->
     <string name="ask_ai">Ask AI</string>
+    <!-- Close button of a sign-in pop-up window (web/PopupWindows). -->
+    <string name="close_window">Close window</string>
 </resources>

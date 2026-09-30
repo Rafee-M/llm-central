@@ -89,6 +89,7 @@ import org.llmcentral.app.theme.Scheme;
 import org.llmcentral.app.theme.ThemeBridge;
 import org.llmcentral.app.theme.ThemeManager;
 import org.llmcentral.app.ui.NativeTheme;
+import org.llmcentral.app.web.PopupWindows;
 import org.llmcentral.app.web.Profiles;
 import org.llmcentral.app.web.PromptFiller;
 import org.llmcentral.app.web.WebViewRecovery;
@@ -490,6 +491,10 @@ public class MainActivity extends Activity {
 
         webView.setWebViewClient(new MyWebViewClient(provider));
         webView.setWebChromeClient(new MyWebChromeClient(provider));
+        if (!provider.isDuck()) {
+            // Sign-in pop-up windows open in the same account's container (web/PopupWindows).
+            PopupWindows.enable(webSettings);
+        }
 
         webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
             // Downloads may need the account's login cookies; remember whose they are.
@@ -2345,6 +2350,17 @@ public class MainActivity extends Activity {
                     safeEvaluateJavascript(view, js(Scripts.AUTO_FOCUS));
                 }
             }
+        }
+
+        /** A provider page opens a new window (usually a sign-in pop-up), see web/PopupWindows. */
+        @Override
+        public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture,
+                                      android.os.Message resultMsg) {
+            Account account = tabManager != null ? tabManager.accountOf(view) : null;
+            if (provider.isDuck() || account == null) {
+                return false;
+            }
+            return PopupWindows.open(view, provider, account, isUserGesture, resultMsg);
         }
 
         @Override
