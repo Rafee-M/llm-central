@@ -224,7 +224,7 @@ public final class DesktopMode {
                                             ProviderSpec provider, boolean on) {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             if (on) {
-                // Only the provider's own https sites get it (the same allow-list idea as DuckBridge).
+                // Only the provider's own https sites get it (the same allow-list idea as AppBridge).
                 Set<String> rules = new LinkedHashSet<>();
                 for (String domain : provider.inAppDomains()) {
                     rules.add("https://" + domain);

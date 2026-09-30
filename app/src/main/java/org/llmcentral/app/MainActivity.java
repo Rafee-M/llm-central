@@ -2,7 +2,6 @@ package org.llmcentral.app;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.app.DownloadManager;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -11,67 +10,48 @@ import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
-import android.webkit.URLUtil;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
-import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
-import android.webkit.WebStorage;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
 import android.widget.Toast;
-import android.widget.EditText;
 import android.widget.TextView;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import androidx.core.content.FileProvider;
-import android.content.ContentValues;
 import android.provider.MediaStore;
-import android.util.Base64;
 import android.webkit.JavascriptInterface;
-import java.io.OutputStream;
-import java.io.FileOutputStream;
 import java.io.File;
 import android.Manifest;
-import android.graphics.pdf.PdfRenderer;
-import android.graphics.Canvas;
 import android.graphics.Color;
-import android.os.ParcelFileDescriptor;
-import java.io.InputStream;
 import android.content.pm.PackageManager;
 import android.webkit.PermissionRequest;
 
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
-import android.app.Notification;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
-import android.app.PendingIntent;
 import android.content.SharedPreferences;
-import android.media.MediaScannerConnection;
 import android.os.StrictMode;
-import android.os.Handler;
 import android.os.Looper;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.Locale;
 
-import androidx.webkit.URLUtilCompat;
 
 import org.llmcentral.app.scripts.UserScriptMatcher;
+import org.llmcentral.app.downloads.Downloader;
+import org.llmcentral.app.storage.AppCache;
+import org.llmcentral.app.storage.StorageBridge;
+import org.llmcentral.app.storage.UploadCopies;
 import org.llmcentral.app.web.DesktopMode;
 import org.llmcentral.app.web.DialogWebViewClient;
-import org.llmcentral.app.web.DuckBridge;
+import org.llmcentral.app.web.AppBridge;
 import org.llmcentral.app.web.NavigationPolicy;
 import org.llmcentral.app.web.Scripts;
 import org.llmcentral.app.web.TabLru;
@@ -95,8 +75,6 @@ import org.llmcentral.app.web.Profiles;
 import org.llmcentral.app.web.PromptFiller;
 import org.llmcentral.app.web.WebViewRecovery;
 
-import java.io.UnsupportedEncodingException;
-import java.net.URLEncoder;
 
 public class MainActivity extends Activity {
 
@@ -126,8 +104,6 @@ public class MainActivity extends Activity {
     // "last_provider"; first accounts use their provider's id, so that old value still works.
     private static final String PREF_LAST_ACCOUNT = "last_account";
     private static final String PREF_LAST_PROVIDER = "last_provider";
-    // Cookie jar of the tab that started the current file download (each account has its own).
-    private CookieManager downloadCookieManager;
     // Light or dark when this screen was built. If the theme setting flips it, the screen is rebuilt
     // (recreate()) so websites and system dialogs switch too. See theme/ThemeManager.
     private boolean appliedNight;
@@ -163,19 +139,17 @@ public class MainActivity extends Activity {
         }
     }
 
-    private String pendingDownloadUrl;
-    private String pendingDownloadUserAgent;
-    private String pendingDownloadContentDisposition;
-    private String pendingDownloadMimetype;
-    private long pendingDownloadContentLength;
-
-    private boolean isPendingBlob = false;
-    private String pendingBlobData;
-    private String pendingBlobMimetype;
-    private String pendingBlobContentDisposition;
-    private String pendingBlobCurrentUrl;
-
-    private static final int DOWNLOAD_PERMISSION_REQUEST_CODE = 456;
+    // One background thread for the app's slower work (saving files, offline chats, cache clean-up),
+    // so the screen never waits for it. "static" = one thread for the whole app, shared by both
+    // screens and kept while the app runs, so work handed over just before a screen closes (e.g. the
+    // offline chat save) still finishes. Until round 6 every offline-chat save and start created a
+    // new thread pool that was never shut down: one leaked thread each time.
+    private static final java.util.concurrent.ExecutorService background =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+    // Set when duck.ai was on screen since its chats were last saved for offline use (onStop).
+    private boolean duckUsedSinceDump = false;
+    // Saves files from the websites into Downloads (downloads/Downloader).
+    private Downloader downloader;
     private String lastFetchedChatsJson = "{}";
     private android.app.Dialog chatsViewerDialog = null;
     // true while duck.ai failed to load and the saved-chats window stands in for it (showOfflineChats).
@@ -183,32 +157,22 @@ public class MainActivity extends Activity {
     private android.app.Dialog scriptsManagerDialog = null;
     private boolean isRequestingViewer = false;
 
-    private void clearCacheData() {
-        if (chatWebView != null) {
-            chatWebView.clearCache(true);
+    /** Paths of shared files still waiting for the page's 📎 button (not to be deleted as "cache"). */
+    private java.util.Set<String> sharedFilesInUse() {
+        java.util.Set<String> paths = new java.util.HashSet<>();
+        java.util.List<Uri> uris = new java.util.ArrayList<>();
+        if (pendingSharedFileUris != null) {
+            uris.addAll(pendingSharedFileUris);
         }
-        Log.d(TAG, "Cache cleared.");
-    }
-
-    private Uri saveUriToTempFile(Uri uri, String extension) {
-        try {
-            InputStream is = getContentResolver().openInputStream(uri);
-            if (is == null) return null;
-            File tempFile = new File(getCacheDir(), "shared_file_" + System.currentTimeMillis() + extension);
-            FileOutputStream fos = new FileOutputStream(tempFile);
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = is.read(buffer)) != -1) {
-                fos.write(buffer, 0, read);
+        if (pendingSharedFileUri != null) {
+            uris.add(pendingSharedFileUri);
+        }
+        for (Uri uri : uris) {
+            if ("file".equals(uri.getScheme()) && uri.getPath() != null) {
+                paths.add(new File(uri.getPath()).getAbsolutePath());
             }
-            fos.flush();
-            fos.close();
-            is.close();
-            return Uri.fromFile(tempFile);
-        } catch (Exception e) {
-            Log.e(TAG, "Error saving shared file to temp file", e);
-            return null;
         }
+        return paths;
     }
 
     protected void setActivityTheme() {
@@ -296,7 +260,7 @@ public class MainActivity extends Activity {
         chatWebView = findViewById(R.id.chatWebView);
 
         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-        java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
+        background.execute(() -> {
             try {
                 String cached = ChatDatabaseHelper.getInstance(MainActivity.this).getCachedChatsJson();
                 if (cached != null && !cached.equals("{}") && !cached.isEmpty()) {
@@ -319,12 +283,22 @@ public class MainActivity extends Activity {
         currentZoomLevel = (float) prefs.getInt("text_zoom", 100);
 
         promptFiller = new PromptFiller(this);
+        downloader = new Downloader(this, background);
         configureWebView(chatWebView, Providers.DUCK);
 
         accounts = AccountStore.load(prefs);
         // Before any account WebView exists: delete the data folders of removed accounts
         // (see web/Profiles for why this waits for a fresh start).
         Profiles.cleanUp(accounts.all());
+        // duck.ai's (default) profile gets the same cache cap as the accounts; old temporary files
+        // (camera photos, and copies older versions left) are deleted in the background.
+        Profiles.limitDefaultCache();
+        background.execute(() -> {
+            AppCache.deleteTempFiles(this, AppCache.TEMP_MAX_AGE_MS, null);
+            // The offline document converter was removed (shared files are now sent as they are); its
+            // 6.7 MB engine, downloaded by older versions, is no longer needed.
+            new File(getFilesDir(), "anydoc_wasm_bg.wasm").delete();
+        });
 
         // The WebView from the layout is the duck.ai tab; other accounts get their own WebView (in
         // their own profile) the first time they're opened. Default: 3 tabs stay loaded (R-PERF-1).
@@ -388,7 +362,7 @@ public class MainActivity extends Activity {
         if (chip != null) {
             chip.setOnClickListener(v -> SwitcherPopup.show(v, accounts.visible(), tabManager.current(),
                     ThemeManager.scheme(this), account -> tabManager.show(account),
-                    () -> openSettings("accounts")));
+                    this::reloadCurrentTab, () -> openSettings("accounts")));
         }
         View settings = findViewById(R.id.settingsButton);
         if (settings != null) {
@@ -397,6 +371,33 @@ public class MainActivity extends Activity {
         View desktop = findViewById(R.id.desktopButton);
         if (desktop != null) {
             desktop.setOnClickListener(v -> toggleDesktopMode());
+        }
+    }
+
+    /**
+     * The account menu's "Reload page": loads the page on screen again (e.g. when it's stuck). A tab
+     * with no web page yet (blank) opens its provider's home page instead.
+     */
+    private void reloadCurrentTab() {
+        WebView tab = tabManager.currentWebView();
+        if (tab == null) {
+            return;
+        }
+        String url = tab.getUrl();
+        if (url == null || url.isEmpty() || url.startsWith("about:")) {
+            tab.loadUrl(tabManager.currentProvider().homeUrl);
+        } else {
+            tab.reload();
+        }
+    }
+
+    /** Turns evaluateJavascript's answer (a JSON value like "\"report.csv\"" or "null") into text. */
+    private static String jsString(String jsonValue) {
+        try {
+            Object value = new org.json.JSONTokener(jsonValue).nextValue();
+            return value instanceof String ? (String) value : null;
+        } catch (Exception e) {
+            return null;
         }
     }
 
@@ -442,6 +443,9 @@ public class MainActivity extends Activity {
     /** Called by TabManager after an account's tab became visible (or was renamed). */
     private void onTabShown(Account account) {
         updateTopBar(account);
+        if (account.isDuck()) {
+            duckUsedSinceDump = true;
+        }
         syncDesktopMode(account);
         if (account.isDuck() && duckOffline) {
             showOfflineChats(chatWebView);
@@ -527,13 +531,12 @@ public class MainActivity extends Activity {
         }
 
         webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
-            // Downloads may need the account's login cookies; remember whose they are.
-            downloadCookieManager = cookieManager;
             if (url.startsWith("blob:")) {
-                if (!provider.isDuck()) {
-                    // blob: downloads need the helper script + bridge, which only duck.ai's tab has.
-                    Toast.makeText(MainActivity.this, "This kind of download isn't supported for "
-                            + provider.displayName + " yet.", Toast.LENGTH_SHORT).show();
+                // A file the page made itself: only the page can read it, so a small script
+                // (blob_fetch.js) reads it and hands it over through the tab's bridge (web/AppBridge;
+                // duck.ai: the full bridge, other providers: the downloads-only one).
+                if (!AppBridge.isSupported()) {
+                    Toast.makeText(MainActivity.this, R.string.download_needs_newer_webview, Toast.LENGTH_LONG).show();
                     return;
                 }
                 // The script (assets/js/blob_fetch.js) is one function; the three values from the web
@@ -543,29 +546,33 @@ public class MainActivity extends Activity {
                 String args = "(" + org.json.JSONObject.quote(url) + ","
                         + org.json.JSONObject.quote(contentDisposition != null ? contentDisposition : "") + ","
                         + org.json.JSONObject.quote(mimetype != null ? mimetype : "") + ")";
-                chatWebView.evaluateJavascript(js(Scripts.BLOB_FETCH) + args, null);
+                webView.evaluateJavascript(js(Scripts.BLOB_FETCH) + args, null); // in the tab it came from
                 return;
             } else if (url.startsWith("data:")) {
-                processBlob(url, mimetype, contentDisposition, url);
+                if (provider.isDuck()) {
+                    downloader.saveDataUrl(provider, url, mimetype, contentDisposition, url, null);
+                } else {
+                    // WebView doesn't pass on the name the page gave the file (<a download="…">), but
+                    // blob_capture.js noted it when the page clicked the link: ask the page for it
+                    // (evaluateJavascript hands the script's answer back), then save.
+                    webView.evaluateJavascript(js(Scripts.DOWNLOAD_NAME), name ->
+                            downloader.saveDataUrl(provider, url, mimetype, contentDisposition, url, jsString(name)));
+                }
                 return;
             }
-            if (checkDownloadPermissions()) {
-                promptAndStartStandardDownload(url, userAgent, contentDisposition, mimetype, contentLength);
-            } else {
-                pendingDownloadUrl = url;
-                pendingDownloadUserAgent = userAgent;
-                pendingDownloadContentDisposition = contentDisposition;
-                pendingDownloadMimetype = mimetype;
-                pendingDownloadContentLength = contentLength;
-                isPendingBlob = false;
-            }
+            // A normal link: Android's download manager fetches it with this tab's login cookies.
+            downloader.download(provider, cookieManager, url, userAgent, contentDisposition, mimetype);
         });
 
         if (provider.isDuck()) {
             // duck.ai's helper scripts talk to the app through a message bridge that only duck.ai's
-            // own main page can use (web/DuckBridge, PROJECT.md P1). Before round 5 this was
+            // own main page can use (web/AppBridge, PROJECT.md P1). Before round 5 this was
             // addJavascriptInterface(this, "Android"), which every frame of the page could call.
-            DuckBridge.attach(webView, duckBridgeHost);
+            AppBridge.attachDuck(webView, bridgeHost(provider));
+        } else {
+            // Other providers: a downloads-only bridge (one message type, their own chat site only),
+            // so files the page makes can be saved.
+            AppBridge.attachDownloads(webView, provider, bridgeHost(provider));
         }
 
         ScaleGestureDetector scaleGestureDetector = new ScaleGestureDetector(this, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -603,57 +610,60 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * What duck.ai's page may ask the app to do, through the message bridge (web/DuckBridge checks
-     * every message first: it must come from duck.ai's own main page and have an allowed type).
-     * These run on the main thread.
+     * What a page may ask the app to do, through its message bridge (web/AppBridge checks every
+     * message first: it must come from the provider's own main page and have a type its scope
+     * allows; other providers' bridges only ever pass on "blob"). These run on the main thread.
      */
-    private final DuckBridge.Host duckBridgeHost = new DuckBridge.Host() {
-        @Override
-        public void copyToClipboard(String text) {
-            MainActivity.this.copyToClipboard(text);
-        }
-
-        @Override
-        public void onChatsFetched(String json) {
-            MainActivity.this.onChatsFetched(json);
-        }
-
-        @Override
-        public void processBlob(String dataUrl, String mimetype, String contentDisposition, String pageUrl) {
-            MainActivity.this.processBlob(dataUrl, mimetype, contentDisposition, pageUrl);
-        }
-
-        @Override
-        public void showSoftKeyboard() {
-            chatWebView.requestFocus();
-            android.view.inputmethod.InputMethodManager imm =
-                (android.view.inputmethod.InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-            if (imm != null) {
-                imm.showSoftInput(chatWebView, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+    private AppBridge.Host bridgeHost(ProviderSpec provider) {
+        return new AppBridge.Host() {
+            @Override
+            public void copyToClipboard(String text) {
+                MainActivity.this.copyToClipboard(text);
             }
-        }
 
-        @Override
-        public void triggerNewChatShortcut() {
-            if (chatWebView != null) {
+            @Override
+            public void onChatsFetched(String json) {
+                MainActivity.this.onChatsFetched(json);
+            }
+
+            @Override
+            public void processBlob(String dataUrl, String mimetype, String contentDisposition, String pageUrl,
+                                    String fileName) {
+                downloader.saveDataUrl(provider, dataUrl, mimetype, contentDisposition, pageUrl, fileName);
+            }
+
+            @Override
+            public void showSoftKeyboard() {
                 chatWebView.requestFocus();
-                long now = android.os.SystemClock.uptimeMillis();
-                int meta = KeyEvent.META_CTRL_ON | KeyEvent.META_SHIFT_ON;
-                chatWebView.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_O, 0, meta));
-                chatWebView.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_O, 0, meta));
+                android.view.inputmethod.InputMethodManager imm =
+                    (android.view.inputmethod.InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (imm != null) {
+                    imm.showSoftInput(chatWebView, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+                }
             }
-        }
 
-        @Override
-        public void setImageZoomActive(boolean active) {
-            isImageZoomActive = active;
-        }
+            @Override
+            public void triggerNewChatShortcut() {
+                if (chatWebView != null) {
+                    chatWebView.requestFocus();
+                    long now = android.os.SystemClock.uptimeMillis();
+                    int meta = KeyEvent.META_CTRL_ON | KeyEvent.META_SHIFT_ON;
+                    chatWebView.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_O, 0, meta));
+                    chatWebView.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_O, 0, meta));
+                }
+            }
 
-        @Override
-        public void onContinueLastChatSuccess() {
-            pendingContinueLastChat = false;
-        }
-    };
+            @Override
+            public void setImageZoomActive(boolean active) {
+                isImageZoomActive = active;
+            }
+
+            @Override
+            public void onContinueLastChatSuccess() {
+                pendingContinueLastChat = false;
+            }
+        };
+    }
 
     private void copyToClipboard(final String text) {
         runOnUiThread(() -> {
@@ -664,19 +674,6 @@ public class MainActivity extends Activity {
                 Toast.makeText(MainActivity.this, R.string.url_copied, Toast.LENGTH_SHORT).show();
             }
         });
-    }
-
-    /** Saves a file the page handed over as a data: URL (asks for storage permission first if needed). */
-    private void processBlob(String base64Data, String mimetype, String contentDisposition, String currentUrl) {
-        if (checkDownloadPermissions()) {
-            promptAndSaveBlob(base64Data, mimetype, contentDisposition, currentUrl);
-        } else {
-            isPendingBlob = true;
-            pendingBlobData = base64Data;
-            pendingBlobMimetype = mimetype;
-            pendingBlobContentDisposition = contentDisposition;
-            pendingBlobCurrentUrl = currentUrl;
-        }
     }
 
     /**
@@ -848,6 +845,31 @@ public class MainActivity extends Activity {
 
             // Theme colours for the page (read-only, local page only; see theme/ThemeBridge).
             webView.addJavascriptInterface(new ThemeBridge(this), "AndroidTheme");
+            // Data & tools → "Clear cache" (see storage/StorageBridge).
+            webView.addJavascriptInterface(new StorageBridge(this, background, new StorageBridge.Host() {
+                @Override
+                public void runOnUiThread(Runnable action) {
+                    MainActivity.this.runOnUiThread(action);
+                }
+
+                @Override
+                public void clearWebViewCaches() {
+                    for (WebView tab : tabManager.liveWebViews()) {
+                        tab.clearCache(true); // this tab's own account (profile) only
+                    }
+                    Profiles.clearClosedProfileCaches(MainActivity.this, tabManager.liveProfileNames());
+                }
+
+                @Override
+                public java.util.Set<String> filesInUse() {
+                    return sharedFilesInUse();
+                }
+
+                @Override
+                public void sendToPage(String script) {
+                    webView.evaluateJavascript(script, null);
+                }
+            }), "AndroidStorage");
             // Accounts and Appearance sections (see account/AccountsBridge, theme/AppearanceBridge).
             webView.addJavascriptInterface(new AccountsBridge(new AccountsBridge.Host() {
                 @Override
@@ -936,7 +958,7 @@ public class MainActivity extends Activity {
 
     /** Receives duck.ai's chat dump (from the message bridge), merges it with the saved copy and stores it. */
     private void onChatsFetched(String jsonStr) {
-        java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
+        background.execute(() -> {
             if (jsonStr == null || jsonStr.isEmpty() || jsonStr.equals("{}")) {
                 if (isRequestingViewer) {
                     isRequestingViewer = false;
@@ -1098,7 +1120,7 @@ public class MainActivity extends Activity {
      * duck.ai couldn't load (offline) or keeps crashing: show the chats saved on the phone instead.
      *
      * <p>Until round 5 the viewer page was loaded <i>inside</i> the duck.ai tab and used the tab's
-     * {@code Android} bridge. The new bridge (web/DuckBridge) only works for https://duck.ai pages,
+     * {@code Android} bridge. The new bridge (web/AppBridge) only works for https://duck.ai pages,
      * never for a local {@code file:} page, so the viewer now opens in its own window, which has its
      * own small local-only bridge. Closing it tries duck.ai again (as the old in-tab close did).</p>
      * If the duck.ai tab isn't on screen, the window waits until the user switches to it.
@@ -1167,7 +1189,9 @@ public class MainActivity extends Activity {
 
                 @JavascriptInterface
                 public void processBlob(String base64Data, String mimetype, String contentDisposition, String currentUrl) {
-                    MainActivity.this.processBlob(base64Data, mimetype, contentDisposition, currentUrl);
+                    // Saving a chat from the offline viewer (duck.ai chats: duck.ai's file names).
+                    runOnUiThread(() -> downloader.saveDataUrl(Providers.DUCK, base64Data, mimetype,
+                            contentDisposition, currentUrl, null));
                 }
             }, "AndroidChatsViewer");
             
@@ -1334,294 +1358,11 @@ public class MainActivity extends Activity {
                "})();";
     }
 
-    private String formatMarkdownFilename(String filename, String mimetype) {
-        String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
-
-        if (filename == null || filename.isEmpty()) {
-            return "Duck_AI_Chat_" + timestamp + ".md";
-        }
-
-        // Change .txt, .text, or .bin extensions to .md
-        if (filename.toLowerCase().endsWith(".txt")) {
-            filename = filename.substring(0, filename.length() - 4) + ".md";
-        } else if (filename.toLowerCase().endsWith(".text")) {
-            filename = filename.substring(0, filename.length() - 5) + ".md";
-        } else if (filename.toLowerCase().endsWith(".bin")) {
-            filename = filename.substring(0, filename.length() - 4) + ".md";
-        }
-
-        // If no extension exists, append .md
-        if (!filename.contains(".")) {
-            filename += ".md";
-        }
-
-        int dotIndex = filename.lastIndexOf('.');
-        String baseName = (dotIndex > 0) ? filename.substring(0, dotIndex).trim() : filename;
-        String ext = (dotIndex > 0) ? filename.substring(dotIndex) : "";
-
-        // Ensure timestamp is present on markdown exports and generic names
-        if (baseName.equalsIgnoreCase("download") || baseName.equalsIgnoreCase("chat") || baseName.equalsIgnoreCase("export") || baseName.equalsIgnoreCase("duckduckgo_chat") || baseName.equalsIgnoreCase("duck_ai_chat")) {
-            filename = "Duck_AI_Chat_" + timestamp + ext;
-        } else if (ext.equalsIgnoreCase(".md") && !baseName.matches(".*_\\d{8}_\\d{6}$")) {
-            filename = baseName + "_" + timestamp + ext;
-        }
-
-        return filename;
-    }
-
-    private void promptAndSaveBlob(String base64Data, String mimetype, String contentDisposition, String currentUrl) {
-        runOnUiThread(() -> {
-            String filename = URLUtilCompat.getFilenameFromContentDisposition(contentDisposition);
-            if (filename == null || filename.isEmpty()) {
-                filename = URLUtilCompat.guessFileName(currentUrl, contentDisposition, mimetype);
-            }
-            filename = formatMarkdownFilename(filename, mimetype);
-            final String defaultFilename = filename;
-            final String finalMimetype = defaultFilename.endsWith(".md") ? "text/markdown" : mimetype;
-
-            AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
-            builder.setTitle("Save File");
-
-            final EditText input = new EditText(MainActivity.this);
-            input.setSingleLine(true);
-            input.setText(defaultFilename);
-            int dotIndex = defaultFilename.lastIndexOf('.');
-            if (dotIndex > 0) {
-                input.setSelection(0, dotIndex);
-            } else {
-                input.selectAll();
-            }
-
-            android.widget.FrameLayout container = new android.widget.FrameLayout(MainActivity.this);
-            android.widget.FrameLayout.LayoutParams params = new android.widget.FrameLayout.LayoutParams(
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-            params.leftMargin = (int) (20 * getResources().getDisplayMetrics().density);
-            params.rightMargin = (int) (20 * getResources().getDisplayMetrics().density);
-            params.topMargin = (int) (8 * getResources().getDisplayMetrics().density);
-            params.bottomMargin = (int) (8 * getResources().getDisplayMetrics().density);
-            input.setLayoutParams(params);
-            container.addView(input);
-            builder.setView(container);
-
-            builder.setPositiveButton("Save", (dialog, which) -> {
-                String chosenName = input.getText().toString().trim();
-                if (chosenName.isEmpty()) {
-                    chosenName = defaultFilename;
-                }
-                if (defaultFilename.endsWith(".md") && !chosenName.toLowerCase().endsWith(".md")) {
-                    chosenName += ".md";
-                }
-                executeSaveBlobToFile(base64Data, finalMimetype, chosenName);
-            });
-            builder.setNegativeButton(android.R.string.cancel, (dialog, which) -> dialog.cancel());
-            builder.show();
-        });
-    }
-
-    private void executeSaveBlobToFile(String base64Data, String mimetype, String filename) {
-        if (base64Data.contains(",")) {
-            base64Data = base64Data.split(",")[1];
-        }
-
-        if (filename.endsWith(".md")) {
-            mimetype = "text/markdown";
-        }
-
-        final String finalFilename = filename;
-        final String finalMimetype = mimetype;
-        try {
-            Uri fileUri = null;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                ContentValues values = new ContentValues();
-                values.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
-                values.put(MediaStore.MediaColumns.MIME_TYPE, mimetype);
-                values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + File.separator + "duck.ai");
-
-                Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
-                if (uri != null) {
-                    try (OutputStream outputStream = getContentResolver().openOutputStream(uri)) {
-                        byte[] data = Base64.decode(base64Data, Base64.DEFAULT);
-                        outputStream.write(data);
-                        fileUri = uri;
-                    }
-                }
-            } else {
-                File path = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "duck.ai");
-                if (!path.exists()) {
-                    path.mkdirs();
-                }
-                File file = new File(path, filename);
-                try (FileOutputStream os = new FileOutputStream(file)) {
-                    byte[] data = Base64.decode(base64Data, Base64.DEFAULT);
-                    os.write(data);
-                    fileUri = Uri.fromFile(file);
-                }
-                MediaScannerConnection.scanFile(this, new String[]{file.getAbsolutePath()}, new String[]{mimetype}, null);
-            }
-
-            if (fileUri != null) {
-                final Uri finalUri = fileUri;
-                runOnUiThread(() -> {
-                    Toast.makeText(MainActivity.this, getString(R.string.download) + " " + finalFilename, Toast.LENGTH_SHORT).show();
-                    showDownloadNotification(finalFilename, finalMimetype, finalUri);
-                });
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Blob download failed", e);
-        }
-    }
-
-    private void promptAndStartStandardDownload(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
-        runOnUiThread(() -> {
-            String filename = URLUtilCompat.getFilenameFromContentDisposition(contentDisposition);
-            if (filename == null || filename.isEmpty()) {
-                filename = URLUtilCompat.guessFileName(url, contentDisposition, mimetype);
-            }
-            filename = formatMarkdownFilename(filename, mimetype);
-            final String defaultFilename = filename;
-            final String finalMimetype = defaultFilename.endsWith(".md") ? "text/markdown" : mimetype;
-
-            AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
-            builder.setTitle("Download File");
-
-            final EditText input = new EditText(MainActivity.this);
-            input.setSingleLine(true);
-            input.setText(defaultFilename);
-            int dotIndex = defaultFilename.lastIndexOf('.');
-            if (dotIndex > 0) {
-                input.setSelection(0, dotIndex);
-            } else {
-                input.selectAll();
-            }
-
-            android.widget.FrameLayout container = new android.widget.FrameLayout(MainActivity.this);
-            android.widget.FrameLayout.LayoutParams params = new android.widget.FrameLayout.LayoutParams(
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-            params.leftMargin = (int) (20 * getResources().getDisplayMetrics().density);
-            params.rightMargin = (int) (20 * getResources().getDisplayMetrics().density);
-            params.topMargin = (int) (8 * getResources().getDisplayMetrics().density);
-            params.bottomMargin = (int) (8 * getResources().getDisplayMetrics().density);
-            input.setLayoutParams(params);
-            container.addView(input);
-            builder.setView(container);
-
-            builder.setPositiveButton("Download", (dialog, which) -> {
-                String chosenName = input.getText().toString().trim();
-                if (chosenName.isEmpty()) {
-                    chosenName = defaultFilename;
-                }
-                if (defaultFilename.endsWith(".md") && !chosenName.toLowerCase().endsWith(".md")) {
-                    chosenName += ".md";
-                }
-                executeStandardDownload(url, userAgent, finalMimetype, chosenName);
-            });
-            builder.setNegativeButton(android.R.string.cancel, (dialog, which) -> dialog.cancel());
-            builder.show();
-        });
-    }
-
-    private void executeStandardDownload(String url, String userAgent, String mimetype, String filename) {
-        Uri source = Uri.parse(url);
-        DownloadManager.Request request = new DownloadManager.Request(source);
-        // Send the login cookies of the account that started the download (its own cookie jar).
-        CookieManager cookies = downloadCookieManager != null ? downloadCookieManager : CookieManager.getInstance();
-        String cookieHeader = cookies.getCookie(url);
-        if (cookieHeader != null) {
-            request.addRequestHeader("Cookie", cookieHeader);
-        }
-        request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-
-        if (filename.endsWith(".md")) {
-            mimetype = "text/markdown";
-            request.setMimeType(mimetype);
-        }
-
-        request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "duck.ai" + File.separator + filename);
-        Toast.makeText(this, getString(R.string.download) + " " + filename, Toast.LENGTH_SHORT).show();
-        DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-        if (dm != null)
-            dm.enqueue(request);
-    }
-
-    private boolean checkDownloadPermissions() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, DOWNLOAD_PERMISSION_REQUEST_CODE);
-                return false;
-            }
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, DOWNLOAD_PERMISSION_REQUEST_CODE);
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private void showDownloadNotification(String filename, String mimeType, Uri uri) {
-        NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        String channelId = "duck_downloads";
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(channelId, "Downloads", NotificationManager.IMPORTANCE_DEFAULT);
-            notificationManager.createNotificationChannel(channel);
-        }
-
-        Intent intent = new Intent(Intent.ACTION_VIEW);
-        intent.setDataAndType(uri, mimeType != null ? mimeType : "*/*");
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-
-        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            flags |= PendingIntent.FLAG_IMMUTABLE;
-        }
-        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, intent, flags);
-
-        Notification.Builder builder;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            builder = new Notification.Builder(this, channelId);
-        } else {
-            builder = new Notification.Builder(this);
-        }
-
-        builder.setSmallIcon(android.R.drawable.stat_sys_download_done)
-                .setContentTitle(filename)
-                .setContentText("Download completed")
-                .setContentIntent(pendingIntent)
-                .setAutoCancel(true);
-
-        if (notificationManager != null) {
-            notificationManager.notify((int) System.currentTimeMillis(), builder.build());
-        }
-    }
-
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == DOWNLOAD_PERMISSION_REQUEST_CODE) {
-            boolean writeGranted = true;
-            for (int i = 0; i < permissions.length; i++) {
-                if (Manifest.permission.WRITE_EXTERNAL_STORAGE.equals(permissions[i])) {
-                    writeGranted = grantResults[i] == PackageManager.PERMISSION_GRANTED;
-                }
-            }
-            if (writeGranted) {
-                if (isPendingBlob) {
-                    if (pendingBlobData != null) {
-                        promptAndSaveBlob(pendingBlobData, pendingBlobMimetype, pendingBlobContentDisposition, pendingBlobCurrentUrl);
-                    }
-                } else {
-                    if (pendingDownloadUrl != null) {
-                        promptAndStartStandardDownload(pendingDownloadUrl, pendingDownloadUserAgent, pendingDownloadContentDisposition, pendingDownloadMimetype, pendingDownloadContentLength);
-                    }
-                }
-            } else {
-                Toast.makeText(this, "Permission denied. Cannot download file.", Toast.LENGTH_SHORT).show();
-            }
-            clearPendingDownload();
+        if (requestCode == Downloader.PERMISSION_REQUEST_CODE) {
+            downloader.onPermissionResult(permissions, grantResults);
         } else if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 openCamera();
@@ -1633,19 +1374,6 @@ public class MainActivity extends Activity {
                 }
             }
         }
-    }
-
-    private void clearPendingDownload() {
-        pendingDownloadUrl = null;
-        pendingDownloadUserAgent = null;
-        pendingDownloadContentDisposition = null;
-        pendingDownloadMimetype = null;
-        pendingDownloadContentLength = 0;
-        isPendingBlob = false;
-        pendingBlobData = null;
-        pendingBlobMimetype = null;
-        pendingBlobContentDisposition = null;
-        pendingBlobCurrentUrl = null;
     }
 
     private void showCustomBanner(String message) {
@@ -1727,6 +1455,9 @@ public class MainActivity extends Activity {
         refreshAccounts();
         if (tabManager != null) {
             syncDesktopMode(tabManager.current());
+            if (tabManager.current().isDuck()) {
+                duckUsedSinceDump = true;
+            }
         }
     }
 
@@ -1777,11 +1508,14 @@ public class MainActivity extends Activity {
         if (tabManager != null) {
             tabManager.flushCookies();
         }
-        runOnUiThread(() -> {
-            if (chatWebView != null && chatWebView.getUrl() != null && chatWebView.getUrl().startsWith("https://duck")) {
-                chatWebView.evaluateJavascript(js(Scripts.DUMP_CHATS), null);
-            }
-        });
+        // Save duck.ai's chats for offline reading, but only if duck.ai was used since the last save:
+        // the dump reads every chat and image, too much work to repeat when only other accounts were
+        // used (round 6).
+        if (duckUsedSinceDump && chatWebView != null && chatWebView.getUrl() != null
+                && chatWebView.getUrl().startsWith("https://duck")) {
+            duckUsedSinceDump = false;
+            chatWebView.evaluateJavascript(js(Scripts.DUMP_CHATS), null);
+        }
     }
 
     @Override
@@ -1869,83 +1603,11 @@ public class MainActivity extends Activity {
                 pendingSharedFileUris = streamUris;
                 pendingSharedFileUri = streamUris.get(0);
             } else if (streamUri != null) {
-                String ext = DocConverter.getFileExtension(this, streamUri, type);
-                if ("pdf".equalsIgnoreCase(ext) || "application/pdf".equals(type) || (type != null && type.contains("pdf"))) {
-                    String filename = DocConverter.getFileName(this, streamUri);
-                    DocConverter.ProgressDialogController progress = DocConverter.showProgressDialog(this, "Checking " + filename + "...", null);
-                    DocConverter.getInstance(this).processNativePdf(streamUri, new DocConverter.DocumentProcessingCallback() {
-                        @Override
-                        public void onStatusUpdate(String status) {
-                            progress.setMessage(status);
-                        }
-
-                        @Override
-                        public void onTextReady(String text) {}
-
-                        @Override
-                        public void onPdfReady(java.util.List<Uri> pdfUris, String originalName) {
-                            progress.dismiss();
-                            pendingSharedFileUris = pdfUris;
-                            pendingSharedFileUri = (pdfUris != null && !pdfUris.isEmpty()) ? pdfUris.get(0) : null;
-                            if (pdfUris != null && pdfUris.size() > 1) {
-                                showCustomBanner("PDF split into " + pdfUris.size() + " parts (15 pages max each)! Tap 📎 to attach");
-                            } else {
-                                showCustomBanner("Tap 📎 to attach the shared file");
-                            }
-                            openChatForSharedFiles(target);
-                        }
-
-                        @Override
-                        public void onError(String errorMessage) {
-                            progress.dismiss();
-                            pendingSharedFileUri = saveUriToTempFile(streamUri, ".pdf");
-                            tabManager.show(target);
-                        }
-                    });
-                    return;
-                } else if (DocConverter.isSupportedDoc(this, streamUri, type) || DocConverter.isPlainTextDoc(this, streamUri, type)) {
-                    String filename = DocConverter.getFileName(this, streamUri);
-                    DocConverter.ProgressDialogController progress = DocConverter.showProgressDialog(this, "Processing " + filename + "...", null);
-                    DocConverter.getInstance(this).processDocument(streamUri, type, new DocConverter.DocumentProcessingCallback() {
-                        @Override
-                        public void onStatusUpdate(String status) {
-                            progress.setMessage(status);
-                        }
-
-                        @Override
-                        public void onTextReady(String text) {
-                            progress.dismiss();
-                            sendPrompt(target, text);
-                        }
-
-                        @Override
-                        public void onPdfReady(java.util.List<Uri> pdfUris, String originalName) {
-                            progress.dismiss();
-                            pendingSharedFileUris = pdfUris;
-                            pendingSharedFileUri = (pdfUris != null && !pdfUris.isEmpty()) ? pdfUris.get(0) : null;
-                            if (pdfUris != null && pdfUris.size() > 1) {
-                                showCustomBanner("Document split into " + pdfUris.size() + " parts (15 pages max each)! Tap 📎 to attach");
-                            } else {
-                                showCustomBanner("Tap 📎 to attach the converted document");
-                            }
-                            openChatForSharedFiles(target);
-                        }
-
-                        @Override
-                        public void onError(String errorMessage) {
-                            progress.dismiss();
-                            Toast.makeText(MainActivity.this, "Failed: " + errorMessage, Toast.LENGTH_LONG).show();
-                        }
-                    });
-                    return;
-                } else {
-                    if (type != null && type.startsWith("image/")) {
-                        String imgExt = ".jpg";
-                        if (type.contains("png")) imgExt = ".png";
-                        else if (type.contains("webp")) imgExt = ".webp";
-                        pendingSharedFileUri = saveUriToTempFile(streamUri, imgExt);
-                    }
-                }
+                // Any shared file (document, PDF, image…) is offered to the page exactly as it is: the
+                // page's 📎 button receives this address (onShowFileChooser) and WebView reads the file
+                // itself, with its real name and type. No conversion, splitting or renamed copy.
+                pendingSharedFileUris = null; // an older share not attached yet must not win
+                pendingSharedFileUri = streamUri;
             } else if (Intent.ACTION_SEND.equals(action) && "text/plain".equals(type)) {
                 sharedText = intent.getStringExtra(Intent.EXTRA_TEXT);
             } else if (Intent.ACTION_PROCESS_TEXT.equals(action)) {
@@ -2289,8 +1951,10 @@ public class MainActivity extends Activity {
             DesktopMode.onPageFinished(MainActivity.this, view); // wide page in desktop mode
             if (!provider.isDuck()) {
                 // Other providers: no duck.ai helper scripts (they target duck.ai's page and need the
-                // bridge). A shared prompt waiting for this tab is typed in; the user's own scripts
-                // still run where their "match" setting allows.
+                // bridge). Files the page makes become downloadable (blob_capture.js); a shared prompt
+                // waiting for this tab is typed in; the user's own scripts still run where their
+                // "match" setting allows.
+                safeEvaluateJavascript(view, js(Scripts.BLOB_CAPTURE));
                 promptFiller.onPageFinished(view, url);
                 injectUserScripts(view, url);
                 return;
@@ -2416,15 +2080,19 @@ public class MainActivity extends Activity {
 
         public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> filePathCallback,
                 WebChromeClient.FileChooserParams fileChooserParams) {
+            // Files shared to the app are handed over now, as copies in the app's own storage (same
+            // name, same bytes; see storage/UploadCopies for why a copy).
             if (pendingSharedFileUris != null && !pendingSharedFileUris.isEmpty()) {
-                filePathCallback.onReceiveValue(pendingSharedFileUris.toArray(new Uri[0]));
+                Uri[] files = pendingSharedFileUris.toArray(new Uri[0]);
                 pendingSharedFileUris = null;
                 pendingSharedFileUri = null;
+                UploadCopies.prepare(MainActivity.this, files, filePathCallback::onReceiveValue);
                 return true;
             }
             if (pendingSharedFileUri != null) {
-                filePathCallback.onReceiveValue(new Uri[] { pendingSharedFileUri });
+                Uri[] files = { pendingSharedFileUri };
                 pendingSharedFileUri = null;
+                UploadCopies.prepare(MainActivity.this, files, filePathCallback::onReceiveValue);
                 return true;
             }
             if (mUploadMessage != null) {
@@ -2513,96 +2181,15 @@ public class MainActivity extends Activity {
                 }
             }
 
-            if (result != null && result.length > 0 && result[0] != null) {
-                Uri fileUri = result[0];
-                String ext = DocConverter.getFileExtension(this, fileUri, null);
-                if ("pdf".equalsIgnoreCase(ext)) {
-                    DocConverter.ProgressDialogController progress = DocConverter.showProgressDialog(this, "Checking PDF pages...", null);
-                    DocConverter.getInstance(this).processNativePdf(fileUri, new DocConverter.DocumentProcessingCallback() {
-                        @Override
-                        public void onStatusUpdate(String status) {
-                            progress.setMessage(status);
-                        }
-
-                        @Override
-                        public void onTextReady(String text) {}
-
-                        @Override
-                        public void onPdfReady(java.util.List<Uri> pdfUris, String originalName) {
-                            progress.dismiss();
-                            if (pdfUris != null && pdfUris.size() > 1) {
-                                if (mUploadMessage != null) {
-                                    mUploadMessage.onReceiveValue(null);
-                                    mUploadMessage = null;
-                                }
-                                pendingSharedFileUris = pdfUris;
-                                pendingSharedFileUri = pdfUris.get(0);
-                                showCustomBanner("PDF split into " + pdfUris.size() + " parts (15 pages max each)! Tap 📎 to attach");
-                            } else {
-                                if (mUploadMessage != null) {
-                                    mUploadMessage.onReceiveValue(new Uri[]{ fileUri });
-                                    mUploadMessage = null;
-                                }
-                            }
-                        }
-
-                        @Override
-                        public void onError(String errorMessage) {
-                            progress.dismiss();
-                            if (mUploadMessage != null) {
-                                mUploadMessage.onReceiveValue(new Uri[]{ fileUri });
-                                mUploadMessage = null;
-                            }
-                        }
-                    });
-                    return;
-                }
-                if (DocConverter.isSupportedDoc(this, fileUri, null) || DocConverter.isPlainTextDoc(this, fileUri, null)) {
-                    mUploadMessage.onReceiveValue(null);
-                    mUploadMessage = null;
-                    String filename = DocConverter.getFileName(this, fileUri);
-                    DocConverter.ProgressDialogController progress = DocConverter.showProgressDialog(this, "Processing " + filename + "...", null);
-                    DocConverter.getInstance(this).processDocument(fileUri, null, new DocConverter.DocumentProcessingCallback() {
-                        @Override
-                        public void onStatusUpdate(String status) {
-                            progress.setMessage(status);
-                        }
-
-                        @Override
-                        public void onTextReady(String text) {
-                            progress.dismiss();
-                            sendPrompt(tabManager.current(), text);
-                        }
-
-                        @Override
-                        public void onPdfReady(java.util.List<Uri> pdfUris, String originalName) {
-                            progress.dismiss();
-                            pendingSharedFileUris = pdfUris;
-                            pendingSharedFileUri = (pdfUris != null && !pdfUris.isEmpty()) ? pdfUris.get(0) : null;
-                            if (pdfUris != null && pdfUris.size() > 1) {
-                                showCustomBanner("Document split into " + pdfUris.size() + " parts (15 pages max each)! Tap 📎 to attach");
-                            } else {
-                                showCustomBanner("Document converted to PDF! Tap 📎 to attach it");
-                            }
-                            SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                            String docSuffix = prefs.getString("shared_doc_suffix", "");
-                            if (docSuffix != null && !docSuffix.trim().isEmpty()) {
-                                sendPrompt(tabManager.current(), docSuffix);
-                            }
-                        }
-
-                        @Override
-                        public void onError(String errorMessage) {
-                            progress.dismiss();
-                            Toast.makeText(MainActivity.this, "Conversion failed: " + errorMessage, Toast.LENGTH_LONG).show();
-                        }
-                    });
-                    return;
-                }
-            }
-
-            mUploadMessage.onReceiveValue(result);
+            // The chosen files go to the page as copies in the app's own storage: same name, same
+            // bytes, no conversion (see storage/UploadCopies for why a copy).
+            ValueCallback<Uri[]> callback = mUploadMessage;
             mUploadMessage = null;
+            if (result != null && result.length > 0) {
+                UploadCopies.prepare(this, result, callback::onReceiveValue);
+            } else {
+                callback.onReceiveValue(result);
+            }
         } else if (requestCode == CAMERA_REQUEST_CODE) {
             if (null == mUploadMessage)
                 return;
@@ -2633,7 +2220,6 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        //clearCacheData();
         if (tabManager != null) {
             tabManager.destroyAccountTabs();
         }

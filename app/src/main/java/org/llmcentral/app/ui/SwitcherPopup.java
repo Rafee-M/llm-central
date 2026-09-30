@@ -24,7 +24,8 @@ import java.util.List;
  * The drop-down list that opens when the chip in the top bar is tapped (PROJECT.md R-SW-2).
  * One row per <b>visible account</b>: provider badge + the name the user gave it (and the provider's
  * name underneath when it differs, e.g. "Work / ChatGPT"). The current account is highlighted.
- * The last row, "Manage accounts", opens the Accounts part of the settings.
+ * Below a divider: "Reload page" (round 6: reloads the account on screen, e.g. when a page is stuck;
+ * the app has no pull-to-refresh) and "Manage accounts" (opens the Accounts part of the settings).
  *
  * <p>Built with plain Android views ({@link PopupWindow} + {@link LinearLayout}), without any UI
  * library, to keep the app small (decision D1). The rounded Material 3-style look comes from
@@ -47,10 +48,11 @@ public final class SwitcherPopup {
      *
      * @param accounts accounts to list, in order (the visible ones)
      * @param current  the account on screen (highlighted)
+     * @param onReload runs when "Reload page" is tapped
      * @param onManage runs when "Manage accounts" is tapped
      */
     public static void show(View anchor, List<Account> accounts, Account current, Scheme scheme,
-                            OnPick onPick, Runnable onManage) {
+                            OnPick onPick, Runnable onReload, Runnable onManage) {
         Context context = anchor.getContext();
         LinearLayout list = new LinearLayout(context);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -77,14 +79,18 @@ public final class SwitcherPopup {
             }));
         }
 
-        // Thin divider, then "Manage accounts".
+        // Thin divider, then "Reload page" and "Manage accounts".
         View divider = new View(context);
         divider.setBackgroundColor(scheme.get(Scheme.OUTLINE_VARIANT));
         LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, ProviderBadge.dp(context, 1)));
         dividerParams.setMargins(pad, pad, pad, pad);
         list.addView(divider, dividerParams);
-        list.addView(createManageRow(context, scheme, v -> {
+        list.addView(createActionRow(context, scheme, R.drawable.ic_refresh, R.string.reload_page, v -> {
+            popup.dismiss();
+            onReload.run();
+        }));
+        list.addView(createActionRow(context, scheme, R.drawable.ic_settings, R.string.manage_accounts, v -> {
             popup.dismiss();
             onManage.run();
         }));
@@ -132,17 +138,19 @@ public final class SwitcherPopup {
         return row;
     }
 
-    private static View createManageRow(Context context, Scheme scheme, View.OnClickListener onClick) {
+    /** An action row below the accounts: icon + label ("Reload page", "Manage accounts"). */
+    private static View createActionRow(Context context, Scheme scheme, int iconRes, int labelRes,
+                                        View.OnClickListener onClick) {
         LinearLayout row = baseRow(context, onClick);
-        // The same gear icon as the settings button, centred in a badge-sized box so the text lines up.
+        // The icon is centred in a badge-sized box so the text lines up with the account names.
         ImageView icon = new ImageView(context);
-        icon.setImageResource(R.drawable.ic_settings);
+        icon.setImageResource(iconRes);
         icon.setImageTintList(android.content.res.ColorStateList.valueOf(scheme.get(Scheme.ON_SURFACE_VARIANT)));
         icon.setScaleType(ImageView.ScaleType.CENTER);
         icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         int size = ProviderBadge.dp(context, 32);
         row.addView(icon, new LinearLayout.LayoutParams(size, size));
-        TextView label = text(context, context.getString(R.string.manage_accounts), 16, scheme.get(Scheme.ON_SURFACE));
+        TextView label = text(context, context.getString(labelRes), 16, scheme.get(Scheme.ON_SURFACE));
         LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         params.setMarginStart(ProviderBadge.dp(context, 14));

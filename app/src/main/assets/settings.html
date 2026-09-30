@@ -15,6 +15,7 @@
           AndroidSettings   – general settings (MainActivity, unchanged from duckAssist)
           AndroidAccounts   – the Accounts section (account/AccountsBridge.java)
           AndroidAppearance – Theme / Color / Material You (theme/AppearanceBridge.java)
+          AndroidStorage    – Data & tools → Clear cache (storage/StorageBridge.java)
         User-provided text (account names) is always inserted with textContent, never as HTML.
     -->
     <style>
@@ -358,6 +359,12 @@
                     <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12z"/></svg>
                     <div class="text"><div class="title">Saved chats</div>
                         <div class="sub">duck.ai chats saved on this phone, readable offline (duck.ai only)</div></div>
+                </button>
+                <!-- Website files and temporary files; logins stay (storage/StorageBridge, round 6). -->
+                <button type="button" class="row clickable" id="clearCacheRow" onclick="confirmClearCache()">
+                    <svg viewBox="0 0 24 24"><path d="M15 16h4v2h-4zm0-8h7v2h-7zm0 4h6v2h-6zM3 18c0 1.1.9 2 2 2h6c1.1 0 2-.9 2-2V8H3v10zM14 5h-3l-1-1H6L5 5H2v2h12z"/></svg>
+                    <div class="text"><div class="title">Clear cache</div>
+                        <div class="sub" id="cacheSize">Website files and temporary files</div></div>
                 </button>
                 <button type="button" class="row clickable" onclick="openScriptsManager()">
                     <svg viewBox="0 0 24 24"><path d="M9.4 16.6 4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0 4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg>
@@ -876,11 +883,45 @@
             if (S && S.dismissSettings) S.dismissSettings();
         }
         function openChatsViewer() { if (S && S.openChatsViewer) S.openChatsViewer(); }
+
+        // ------------------------------------------------------------ Clear cache (AndroidStorage)
+        const STORE = window.AndroidStorage;
+        let cacheBytes = -1;
+        let clearing = false;
+        function formatBytes(n) {
+            if (n < 1024 * 1024) return Math.max(0, Math.round(n / 1024)) + ' KB';
+            return (n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 1 : 0) + ' MB';
+        }
+        // Called by the app (StorageBridge) with the size of the cache folders, after measuring.
+        window.onCacheSize = function (bytes) {
+            cacheBytes = bytes;
+            document.getElementById('cacheSize').textContent = 'Now ' + formatBytes(bytes) + ' · logins and chats stay';
+            if (clearing) {
+                clearing = false;
+                snack('Cache cleared. Now ' + formatBytes(bytes) + '.');
+            }
+        };
+        function confirmClearCache() {
+            if (!STORE) return;
+            dialog('Clear the cache?',
+                el('p', {}, 'Deletes the websites’ stored files (scripts, fonts, images) for every account'
+                    + (cacheBytes >= 0 ? ', about ' + formatBytes(cacheBytes) + ' in all,' : '')
+                    + ' and the app’s temporary files. Your logins, accounts, settings and saved chats stay. '
+                    + 'Pages load a little slower the first time afterwards.'),
+                [{ label: 'Cancel', onclick: closeOverlay },
+                 { label: 'Clear', onclick: () => {
+                     closeOverlay();
+                     clearing = true;
+                     document.getElementById('cacheSize').textContent = 'Clearing…';
+                     STORE.clearCache();
+                 } }]);
+        }
         function openScriptsManager() { if (S && S.openScriptsManager) S.openScriptsManager(); }
 
         document.addEventListener('DOMContentLoaded', () => {
             loadSettings();
             loadAccounts();
+            if (STORE) STORE.measureCache(); else document.getElementById('clearCacheRow').hidden = true;
             loadAppearance();
             syncMutualExclusivity();
 

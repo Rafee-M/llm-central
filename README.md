@@ -6,7 +6,7 @@
 
 **LLM Central** is a lightweight, privacy-focused Android app that puts several AI chat websites in one
 place: duck.ai, ChatGPT, Claude, DeepSeek, Z.ai and more, with several isolated accounts per provider and
-instant switching between them, while keeping the APK tiny (~280 KB).
+instant switching between them, while keeping the APK tiny (~285 KB).
 
 It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju, which is itself a fork of
 [gptAssist](https://github.com/woheller69/gptAssist) by woheller69.
@@ -28,6 +28,9 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 - 🔑 **Sign-in pop-ups** (e.g. "Continue with Microsoft/Apple/GitHub") open in the right account.
 - 🖥️ **Desktop site** toggle in the top bar, remembered per account.
 - ⛶ **Hide status bar** (Settings → Appearance) for more room.
+- 📥 **Downloads on every provider**, including files the chat creates itself (e.g. a CSV), saved to
+  `Downloads/<Provider>/`.
+- 🔄 **Reload page** from the account menu, and 🧹 **Clear cache** (Settings → Data & tools; logins stay).
 - ⚙️ **Settings button on every provider** in the top bar; a minimal Material 3 settings screen.
 - 🔒 **Safer by design**: only duck.ai's own page can talk to the app, through a checked message bridge; the
   other chat sites get no bridge at all.
@@ -39,16 +42,15 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
   it with the system assistant gesture; with duck.ai it can start voice chat automatically.
 - 🚀 **"Ask AI" text action**: select text in any app → overflow menu → *Ask AI*.
 - 📁 **File support**: upload files/photos, download attachments to your Downloads folder.
-- 📄 **Offline document conversion**: shared Word/Excel/PowerPoint/OpenDocument/ePub/RTF/CSV files are
-  converted on the phone into text or PDF; large PDFs are split into 15-page parts. The converter is
-  downloaded once and verified with a SHA-256 fingerprint before it runs.
+- 📄 **Share any file**: files shared to the app (documents, PDFs, images…) reach the chat exactly as
+  they are, same name and content; tap 📎 on the page to attach them.
 - 💬 **Offline chat history** for duck.ai, shown automatically when there's no connection.
 - 🧩 **User scripts**: optional custom scripts per website (off by default, with a security warning).
 - 🌐 **External links** open in your normal browser.
 
 ## Planned (see PROJECT.md)
 
-Per-account offline history, `blob:` downloads on every provider, per-account cache settings.
+Per-account offline history, per-account cache sizes, app lock.
 
 ## Signing in to providers
 

@@ -7,15 +7,27 @@ import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
 import org.json.JSONObject;
+import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
 
 import java.net.URI;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
 
 /**
- * The safe "phone line" between duck.ai's page and the app (PROJECT.md P1, §5.4).
+ * The safe "phone line" between the chat websites and the app (PROJECT.md P1, §5.4). Round 5 built it
+ * for duck.ai ("DuckBridge"); round 6 renamed it and added a second, much smaller <b>scope</b>:
+ * <ul>
+ *   <li><b>duck.ai</b> ({@link #attachDuck}): all the message types below, from duck.ai's pages;</li>
+ *   <li><b>downloads only</b> ({@link #attachDownloads}), for ChatGPT, Claude, DeepSeek and Z.ai: the
+ *       single message type {@code blob} (hand over a file the page made), and only from the
+ *       provider's own chat site, e.g. {@code https://chatgpt.com}, not from its sign-in sites.</li>
+ * </ul>
+ * <p>Everything below applies to both scopes.</p>
  *
  * <p><b>What it replaces:</b> until round 5 the duck.ai tab had {@code addJavascriptInterface(this,
  * "Android")}. That puts a Java object into <i>every frame of every page</i> loaded in the tab,
@@ -56,12 +68,12 @@ import java.util.Set;
  * <p>Docs: https://developer.android.com/reference/androidx/webkit/WebViewCompat#addWebMessageListener(android.webkit.WebView,java.lang.String,java.util.Set%3Cjava.lang.String%3E,androidx.webkit.WebViewCompat.WebMessageListener)
  * ("treat received messages as untrustworthy and validate carefully").</p>
  *
- * <p>Everything except {@link #attach} is plain Java, so DuckBridgeTest checks the rules on the
+ * <p>Everything except {@link #attach} is plain Java, so AppBridgeTest checks the rules on the
  * computer.</p>
  */
-public final class DuckBridge {
+public final class AppBridge {
 
-    private static final String TAG = "DuckBridge";
+    private static final String TAG = "AppBridge";
 
     /** Name of the object pages see: {@code window.AppBridge.postMessage("copy:hi")}. */
     public static final String JS_OBJECT = "AppBridge";
@@ -77,6 +89,41 @@ public final class DuckBridge {
     /** Longest text the page may put on the clipboard (1 million characters is plenty for a chat). */
     static final int MAX_COPY_CHARS = 1_000_000;
 
+    /**
+     * Who may use a bridge, and for what: the allowed web domains and message types.
+     * {@link #duck()} or {@link #downloads}.
+     */
+    static final class Scope {
+        final String[] domains;
+        final Set<String> types;
+
+        Scope(String[] domains, Set<String> types) {
+            this.domains = domains;
+            this.types = types;
+        }
+
+        /** duck.ai: its own domains, every message type. */
+        static Scope duck() {
+            return new Scope(Providers.DUCK.inAppDomains(), new HashSet<>(Arrays.asList(
+                    COPY, CHATS, BLOB, ZOOM, KEYBOARD, SHORTCUT, CONTINUED)));
+        }
+
+        /**
+         * Another provider: only its chat site (the host of its home page, e.g. chatgpt.com or
+         * chat.deepseek.com, and that host's subdomains), only file downloads.
+         */
+        static Scope downloads(ProviderSpec provider) {
+            String host;
+            try {
+                host = new URI(provider.homeUrl).getHost();
+            } catch (Exception e) {
+                host = null;
+            }
+            return new Scope(host == null ? new String[0] : new String[]{host},
+                    Collections.singleton(BLOB));
+        }
+    }
+
     /** What the bridge can ask the app to do (implemented by MainActivity). Called on the main thread. */
     public interface Host {
         void copyToClipboard(String text);
@@ -85,7 +132,8 @@ public final class DuckBridge {
         void onChatsFetched(String json);
 
         /** A downloaded file as a {@code data:} URL, to be saved in Downloads. */
-        void processBlob(String dataUrl, String mimetype, String contentDisposition, String pageUrl);
+        void processBlob(String dataUrl, String mimetype, String contentDisposition, String pageUrl,
+                         String fileName);
 
         void showSoftKeyboard();
 
@@ -97,39 +145,57 @@ public final class DuckBridge {
         void onContinueLastChatSuccess();
     }
 
-    private DuckBridge() {
+    private AppBridge() {
         // Only static methods.
     }
 
-    /**
-     * Connects the bridge to duck.ai's WebView. Must be called <b>before</b> the page loads (WebView
-     * injects the object on every navigation after this call). Needs a WebView with the
-     * {@code WEB_MESSAGE_LISTENER} feature (WebView 83+, from 2020); older ones get no bridge at all,
-     * which only switches off the duck.ai extras (copy button fix, saved chats, file saving).
-     *
-     * @return true if the bridge was attached
-     */
-    public static boolean attach(WebView webView, Host host) {
-        // The feature check must be written in this method, as a plain "if" around the call, so
-        // Android's lint can see it (see CLAUDE.md §4).
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
-            WebViewCompat.addWebMessageListener(webView, JS_OBJECT, originRules(),
-                    (view, message, sourceOrigin, isMainFrame, replyProxy) ->
-                            handle(message.getData(), String.valueOf(sourceOrigin), isMainFrame, host));
-            return true;
-        }
-        Log.w(TAG, "WebView too old for the message bridge; duck.ai extras are off");
-        return false;
+    /** Connects the full bridge to duck.ai's WebView (see {@link #attach}). */
+    public static boolean attachDuck(WebView webView, Host host) {
+        return attach(webView, Scope.duck(), host);
     }
 
     /**
-     * The allow-list given to WebView, built from duck.ai's domains in {@code Providers}. Each
-     * domain needs two rules: {@code https://*.duck.ai} matches subdomains only, not
-     * {@code https://duck.ai} itself (verified in the androidx.webkit 1.17.1 docs).
+     * Connects the downloads-only bridge to another provider's WebView (see {@link #attach}): the
+     * page can hand over files it made itself (a generated CSV, an exported chat), nothing else.
      */
-    static Set<String> originRules() {
+    public static boolean attachDownloads(WebView webView, ProviderSpec provider, Host host) {
+        return attach(webView, Scope.downloads(provider), host);
+    }
+
+    /**
+     * Connects a bridge to a tab's WebView. Must be called <b>before</b> the page loads (WebView
+     * injects the object on every navigation after this call). Needs a WebView with the
+     * {@code WEB_MESSAGE_LISTENER} feature (WebView 83+, from 2020); older ones get no bridge at all,
+     * which only switches off the extras (copy button fix, saved chats, saving files the page made).
+     *
+     * @return true if the bridge was attached
+     */
+    private static boolean attach(WebView webView, Scope scope, Host host) {
+        // The feature check must be written in this method, as a plain "if" around the call, so
+        // Android's lint can see it (see CLAUDE.md §4).
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            WebViewCompat.addWebMessageListener(webView, JS_OBJECT, originRules(scope),
+                    (view, message, sourceOrigin, isMainFrame, replyProxy) ->
+                            handle(message.getData(), String.valueOf(sourceOrigin), isMainFrame, host, scope));
+            return true;
+        }
+        Log.w(TAG, "WebView too old for the message bridge; its extras are off");
+        return false;
+    }
+
+    /** @return true if this phone's WebView can use the bridge at all. */
+    public static boolean isSupported() {
+        return WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER);
+    }
+
+    /**
+     * The allow-list given to WebView, built from the scope's domains. Each domain needs two rules:
+     * {@code https://*.duck.ai} matches subdomains only, not {@code https://duck.ai} itself (verified
+     * in the androidx.webkit 1.17.1 docs).
+     */
+    static Set<String> originRules(Scope scope) {
         Set<String> rules = new LinkedHashSet<>();
-        for (String domain : Providers.DUCK.inAppDomains()) {
+        for (String domain : scope.domains) {
             rules.add("https://" + domain);
             rules.add("https://*." + domain);
         }
@@ -137,10 +203,10 @@ public final class DuckBridge {
     }
 
     /**
-     * @return true if a message from {@code origin} may be trusted: HTTPS, the normal port and a
-     *         duck.ai host (same exact-domain rule as navigation, {@link NavigationPolicy#hostMatches}).
+     * @return true if a message from {@code origin} may be trusted: HTTPS, the normal port and one of
+     *         the scope's hosts (same exact-domain rule as navigation, {@link NavigationPolicy#hostMatches}).
      */
-    static boolean isTrustedOrigin(String origin) {
+    static boolean isTrustedOrigin(String origin, Scope scope) {
         if (origin == null) {
             return false;
         }
@@ -149,7 +215,7 @@ public final class DuckBridge {
             return "https".equals(uri.getScheme() == null ? null : uri.getScheme().toLowerCase(Locale.ROOT))
                     && (uri.getPort() == -1 || uri.getPort() == 443)
                     && uri.getRawUserInfo() == null
-                    && Providers.DUCK.ownsHost(uri.getHost());
+                    && NavigationPolicy.hostMatches(uri.getHost(), scope.domains);
         } catch (Exception e) {
             return false; // "null" (a file: page) or anything unparsable
         }
@@ -161,15 +227,19 @@ public final class DuckBridge {
      * @param raw         the text the page posted
      * @param origin      where it came from, as WebView reports it (e.g. "https://duck.ai")
      * @param isMainFrame false for embedded frames (never trusted)
+     * @param scope       which sites and message types this bridge accepts
      * @return true if the message was accepted (used by the tests)
      */
-    static boolean handle(String raw, String origin, boolean isMainFrame, Host host) {
-        if (raw == null || !isMainFrame || !isTrustedOrigin(origin)) {
+    static boolean handle(String raw, String origin, boolean isMainFrame, Host host, Scope scope) {
+        if (raw == null || !isMainFrame || !isTrustedOrigin(origin, scope)) {
             return false;
         }
         int colon = raw.indexOf(':');
         String type = colon < 0 ? raw : raw.substring(0, colon);
         String payload = colon < 0 ? "" : raw.substring(colon + 1);
+        if (!scope.types.contains(type)) {
+            return false; // e.g. "copy" on ChatGPT's downloads-only bridge
+        }
         switch (type) {
             case COPY:
                 if (payload.length() > MAX_COPY_CHARS) {
@@ -206,7 +276,7 @@ public final class DuckBridge {
         }
     }
 
-    /** {"data":"data:…;base64,…","mime":"…","disposition":"…","url":"https://duck.ai/…"} */
+    /** {"data":"data:…;base64,…","mime":"…","disposition":"…","url":"https://…","name":"report.csv"} */
     private static boolean handleBlob(String payload, Host host) {
         try {
             JSONObject o = new JSONObject(payload);
@@ -215,8 +285,10 @@ public final class DuckBridge {
             if (!data.startsWith("data:")) {
                 return false;
             }
+            // "name": the name the page gave the file (<a download="…">), which WebView itself
+            // doesn't pass on; optional.
             host.processBlob(data, o.optString("mime", ""), o.optString("disposition", ""),
-                    o.optString("url", ""));
+                    o.optString("url", ""), o.optString("name", ""));
             return true;
         } catch (Exception e) {
             return false;

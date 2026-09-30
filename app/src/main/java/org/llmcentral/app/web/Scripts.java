@@ -46,6 +46,10 @@ public final class Scripts {
     public static final String DUMP_CHATS = "dump_chats.js";
     /** A function expression: the app appends "(url, contentDisposition, mimetype)". */
     public static final String BLOB_FETCH = "blob_fetch.js";
+    /** Other providers: remembers Blobs the page makes, so blob: downloads can be saved (round 6). */
+    public static final String BLOB_CAPTURE = "blob_capture.js";
+    /** Answers the name of the file the page just offered as a data: link (see blob_capture.js). */
+    public static final String DOWNLOAD_NAME = "download_name.js";
     /** "Desktop site": widens the page's viewport (web/DesktopMode). */
     public static final String DESKTOP_VIEWPORT = "desktop_viewport.js";
     /** A function expression: the app appends "(prompt)". Run by PromptFiller on other providers. */
@@ -56,7 +60,7 @@ public final class Scripts {
     /** Every script file above; used by the unit test. Add new names here too. */
     public static final String[] ALL = {
             BLOB_DOWNLOAD_PATCH, IMAGE_ZOOM_MONITOR, AUTO_FOCUS, CLIPBOARD_PATCH, SWIPE_SCROLL,
-            RTL_RESOLVER, RTL_CLEANUP, VOICE_CHAT, CONTINUE_LAST_CHAT, DUMP_CHATS, BLOB_FETCH,
+            RTL_RESOLVER, RTL_CLEANUP, VOICE_CHAT, CONTINUE_LAST_CHAT, DUMP_CHATS, BLOB_FETCH, BLOB_CAPTURE, DOWNLOAD_NAME,
             PREFILL_PROMPT, DESKTOP_VIEWPORT, USER_SCRIPT_SAMPLE
     };
 
