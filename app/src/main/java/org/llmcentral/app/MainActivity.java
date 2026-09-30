@@ -48,6 +48,7 @@ import org.llmcentral.app.scripts.UserScriptMatcher;
 import org.llmcentral.app.downloads.Downloader;
 import org.llmcentral.app.storage.AppCache;
 import org.llmcentral.app.storage.StorageBridge;
+import org.llmcentral.app.storage.UploadCopies;
 import org.llmcentral.app.web.DesktopMode;
 import org.llmcentral.app.web.DialogWebViewClient;
 import org.llmcentral.app.web.AppBridge;
@@ -2079,15 +2080,19 @@ public class MainActivity extends Activity {
 
         public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> filePathCallback,
                 WebChromeClient.FileChooserParams fileChooserParams) {
+            // Files shared to the app are handed over now, as copies in the app's own storage (same
+            // name, same bytes; see storage/UploadCopies for why a copy).
             if (pendingSharedFileUris != null && !pendingSharedFileUris.isEmpty()) {
-                filePathCallback.onReceiveValue(pendingSharedFileUris.toArray(new Uri[0]));
+                Uri[] files = pendingSharedFileUris.toArray(new Uri[0]);
                 pendingSharedFileUris = null;
                 pendingSharedFileUri = null;
+                UploadCopies.prepare(MainActivity.this, files, filePathCallback::onReceiveValue);
                 return true;
             }
             if (pendingSharedFileUri != null) {
-                filePathCallback.onReceiveValue(new Uri[] { pendingSharedFileUri });
+                Uri[] files = { pendingSharedFileUri };
                 pendingSharedFileUri = null;
+                UploadCopies.prepare(MainActivity.this, files, filePathCallback::onReceiveValue);
                 return true;
             }
             if (mUploadMessage != null) {
@@ -2176,9 +2181,15 @@ public class MainActivity extends Activity {
                 }
             }
 
-            // The chosen files go to the page exactly as they are (no conversion or splitting).
-            mUploadMessage.onReceiveValue(result);
+            // The chosen files go to the page as copies in the app's own storage: same name, same
+            // bytes, no conversion (see storage/UploadCopies for why a copy).
+            ValueCallback<Uri[]> callback = mUploadMessage;
             mUploadMessage = null;
+            if (result != null && result.length > 0) {
+                UploadCopies.prepare(this, result, callback::onReceiveValue);
+            } else {
+                callback.onReceiveValue(result);
+            }
         } else if (requestCode == CAMERA_REQUEST_CODE) {
             if (null == mUploadMessage)
                 return;

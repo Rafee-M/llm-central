@@ -178,7 +178,7 @@ public final class DownloadNames {
      *
      * @return the cleaned name, or {@code fallback} if nothing usable is left
      */
-    static String clean(String name, String fallback) {
+    public static String clean(String name, String fallback) {
         if (name == null) {
             return fallback;
         }

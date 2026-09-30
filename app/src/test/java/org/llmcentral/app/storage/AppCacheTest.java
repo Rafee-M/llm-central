@@ -85,4 +85,27 @@ public class AppCacheTest {
         assertTrue(webViewFile.exists());
         assertEquals(0, AppCache.deleteTopLevelFiles(null, now, null));
     }
+
+    @Test
+    public void oldUploadCopiesAreDeletedWithTheirFolderButNewOnesAndLinkedFilesStay() throws Exception {
+        File uploads = tmp.newFolder("cache", UploadCopies.DIR);
+        long now = System.currentTimeMillis();
+        long twoDaysAgo = now - 2 * AppCache.TEMP_MAX_AGE_MS;
+        File old = new File(uploads, "1_1");
+        assertTrue(old.mkdirs());
+        file(old, "archive.zip", 10, twoDaysAgo);
+        File outside = tmp.newFolder("outside");
+        File precious = file(outside, "precious", 10, twoDaysAgo);
+        Files.createSymbolicLink(new File(old, "link").toPath(), outside.toPath());
+        assertTrue(old.setLastModified(twoDaysAgo));
+        File fresh = new File(uploads, "2_2");
+        assertTrue(fresh.mkdirs());
+        file(fresh, "archive.zip", 10, now);
+
+        assertEquals(1, AppCache.deleteOldFolders(uploads, now - AppCache.TEMP_MAX_AGE_MS));
+        assertFalse(old.exists());                 // old copy and its folder gone
+        assertTrue(new File(fresh, "archive.zip").exists()); // a copy made today stays
+        assertTrue(precious.exists());             // a link inside is removed, never followed
+        assertEquals(0, AppCache.deleteOldFolders(new File(uploads, "missing"), now));
+    }
 }

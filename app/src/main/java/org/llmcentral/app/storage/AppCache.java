@@ -39,8 +39,9 @@ public final class AppCache {
     }
 
     /**
-     * Deletes the app's own temporary files (only files lying directly in the cache folders, never
-     * folders, so WebView's cache is untouched). Run on a background thread.
+     * Deletes the app's own temporary files: files lying directly in the cache folders, and the
+     * copies of attached files in {@code cache/uploads/}. Other folders are never touched, so
+     * WebView's cache stays. Run on a background thread.
      *
      * @param olderThanMs only files last changed more than this long ago (0 = all)
      * @param keep        absolute paths of files still needed (e.g. a shared file waiting for 📎)
@@ -49,7 +50,41 @@ public final class AppCache {
     public static int deleteTempFiles(Context context, long olderThanMs, Set<String> keep) {
         long cutoff = System.currentTimeMillis() - olderThanMs;
         return deleteTopLevelFiles(context.getCacheDir(), cutoff, keep)
-                + deleteTopLevelFiles(context.getExternalCacheDir(), cutoff, keep);
+                + deleteTopLevelFiles(context.getExternalCacheDir(), cutoff, keep)
+                + deleteOldFolders(new File(context.getCacheDir(), UploadCopies.DIR), cutoff);
+    }
+
+    /**
+     * Deletes the sub-folders of {@code dir} (with everything in them) last changed before
+     * {@code cutoffMillis}: the copies of attached files ({@link UploadCopies}), one folder each.
+     *
+     * @return how many folders were deleted
+     */
+    static int deleteOldFolders(File dir, long cutoffMillis) {
+        File[] children = dir.listFiles();
+        if (children == null) {
+            return 0;
+        }
+        int deleted = 0;
+        for (File child : children) {
+            if (child.lastModified() < cutoffMillis && deleteFolder(child)) {
+                deleted++;
+            }
+        }
+        return deleted;
+    }
+
+    /** Deletes a file, or a folder with everything in it (links are removed, never followed). */
+    static boolean deleteFolder(File file) {
+        if (file.isDirectory() && !isLink(file)) {
+            File[] children = file.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deleteFolder(child);
+                }
+            }
+        }
+        return file.delete();
     }
 
     /** Total size of all files in a folder and its sub-folders (0 for a missing folder). */
