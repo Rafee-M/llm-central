@@ -44,13 +44,15 @@ public final class Scripts {
     public static final String VOICE_CHAT = "voice_chat.js";
     public static final String CONTINUE_LAST_CHAT = "continue_last_chat.js";
     public static final String DUMP_CHATS = "dump_chats.js";
+    /** A function expression: the app appends "(url, contentDisposition, mimetype)". */
+    public static final String BLOB_FETCH = "blob_fetch.js";
     /** Not injected automatically: the example shown in the user-script manager (off by default). */
     public static final String USER_SCRIPT_SAMPLE = "user_script_sample.js";
 
     /** Every script file above; used by the unit test. Add new names here too. */
     public static final String[] ALL = {
             BLOB_DOWNLOAD_PATCH, IMAGE_ZOOM_MONITOR, AUTO_FOCUS, CLIPBOARD_PATCH, SWIPE_SCROLL,
-            RTL_RESOLVER, RTL_CLEANUP, VOICE_CHAT, CONTINUE_LAST_CHAT, DUMP_CHATS,
+            RTL_RESOLVER, RTL_CLEANUP, VOICE_CHAT, CONTINUE_LAST_CHAT, DUMP_CHATS, BLOB_FETCH,
             USER_SCRIPT_SAMPLE
     };
 

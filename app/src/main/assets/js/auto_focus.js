@@ -1,10 +1,12 @@
 // auto_focus.js — injected into the chat page by the app (loaded via web/Scripts.java).
 //
 // "Auto-focus keyboard" setting: waits until duck.ai has loaded, presses duck.ai's
-// new-chat shortcut (Ctrl+Shift+O), then focuses the message box and asks Android to open the keyboard.
+// new-chat shortcut (Ctrl+Shift+O), then focuses the message box and asks the app to open the keyboard.
 // Does nothing while a voice chat is active.
 //
 // Moved unchanged from a Java string in MainActivity (Phase 0.4); only line breaks were added.
+// Round 5: talks to the app through window.AppBridge.postMessage("type:payload") (see web/DuckBridge.java)
+// instead of the old window.Android object.
 
 (function() {
   if (window.isVoiceChatActive) {
@@ -34,9 +36,7 @@
         }
       }
     }
-    if (window.Android && window.Android.triggerShortcutNative) {
-      window.Android.triggerShortcutNative();
-    }
+    if (window.AppBridge) AppBridge.postMessage('shortcut:');
   }
   function isPageReady() {
     var app = document.getElementById('app');
@@ -52,9 +52,7 @@
       input.focus();
       input.click();
     }
-    if (window.Android && window.Android.showSoftKeyboard) {
-      window.Android.showSoftKeyboard();
-    }
+    if (window.AppBridge) AppBridge.postMessage('keyboard:');
   }
   var attempts = 0;
   function checkAndFire() {
