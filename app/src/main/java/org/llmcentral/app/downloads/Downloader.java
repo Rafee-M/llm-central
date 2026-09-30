@@ -23,6 +23,7 @@ import android.util.Base64;
 import android.util.Log;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
+import android.webkit.MimeTypeMap;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.Toast;
@@ -106,10 +107,12 @@ public final class Downloader {
     /**
      * A file the page handed over as a {@code data:} URL ("data:text/csv;base64,…").
      *
-     * @param pageUrl the page it came from (only used to guess a name)
+     * @param pageUrl  the page it came from (duck.ai only: used to guess a name, as before)
+     * @param pageName the name the page chose for it ({@code <a download="…">}), or null. WebView
+     *                 doesn't pass it on (verified in Chromium), so the page's script reports it.
      */
     public void saveDataUrl(ProviderSpec provider, String dataUrl, String mimetype,
-                            String contentDisposition, String pageUrl) {
+                            String contentDisposition, String pageUrl, String pageName) {
         if (dataUrl == null || !dataUrl.startsWith("data:")) {
             return;
         }
@@ -117,9 +120,16 @@ public final class Downloader {
             Toast.makeText(activity, R.string.download_too_large, Toast.LENGTH_LONG).show();
             return;
         }
-        whenAllowed(() -> askName(provider, "Save File", "Save",
-                nameFromWeb(pageUrl, contentDisposition, mimetype), mimetype,
-                (name, type) -> background.execute(() -> writeDataUrl(provider, dataUrl, name, type))));
+        // The page's own type for the file; a generic one ("octet-stream") is replaced by the type
+        // written in the data: text itself.
+        String type = DownloadNames.isGenericType(mimetype) ? DownloadNames.typeOfDataUrl(dataUrl) : mimetype;
+        // duck.ai: its old naming, unchanged. Others: the page's own name or the header's; never a guess
+        // from the page's address (on Claude that's the chat id, which looked like random letters).
+        String webName = provider.isDuck()
+                ? nameFromWeb(pageUrl, contentDisposition, mimetype) // exactly as before round 6
+                : DownloadNames.pageFileName(pageName, URLUtilCompat.getFilenameFromContentDisposition(contentDisposition));
+        whenAllowed(() -> askName(provider, "Save File", "Save", webName, type,
+                (name, fileType) -> background.execute(() -> writeDataUrl(provider, dataUrl, name, fileType))));
     }
 
     /** Pass on MainActivity's onRequestPermissionsResult for {@link #PERMISSION_REQUEST_CODE}. */
@@ -173,7 +183,10 @@ public final class Downloader {
             return; // e.g. the assistant drawer is closing: a dialog can't be shown any more
         }
         String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(new Date());
-        String suggested = DownloadNames.suggested(provider, webName, timestamp);
+        String named = DownloadNames.suggested(provider, webName, timestamp);
+        // A name without an extension gets one from the file type ("report" + text/csv → "report.csv"),
+        // so the phone knows which app opens it. (duck.ai's own rules already add ".md".)
+        String suggested = provider.isDuck() ? named : DownloadNames.withExtension(named, extensionForType(mimetype));
 
         EditText input = new EditText(activity);
         input.setSingleLine(true);
@@ -199,7 +212,7 @@ public final class Downloader {
                 .setView(container)
                 .setPositiveButton(button, (dialog, which) -> {
                     String name = DownloadNames.chosen(provider, suggested, input.getText().toString());
-                    onName.onName(name, DownloadNames.mimeType(name, mimetype));
+                    onName.onName(name, bestType(name, mimetype));
                 })
                 .setNegativeButton(android.R.string.cancel, (dialog, which) -> dialog.cancel())
                 .show();
@@ -220,7 +233,8 @@ public final class Downloader {
                 request.addRequestHeader("User-Agent", userAgent);
             }
             request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            if (fileName.endsWith(".md")) {
+            // The type Android uses to pick the app that opens it from the "done" notification.
+            if (!DownloadNames.isGenericType(mimetype)) {
                 request.setMimeType(mimetype);
             }
             request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS,
@@ -312,6 +326,43 @@ public final class Downloader {
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(true);
         manager.notify((int) System.currentTimeMillis(), builder.build());
+    }
+
+    /**
+     * The type to save the file with, which also decides the app that opens it: Markdown for .md; else
+     * the type that belongs to the name's extension (Android's own list, {@link MimeTypeMap}); else the
+     * website's type unless it's a generic "some bytes" one; else "application/octet-stream".
+     *
+     * <p>Why the extension wins: when a name's extension and the saved type disagree, Android adds the
+     * type's extension ("data.csv" saved as text/plain becomes "data.csv.txt"; MediaProvider's
+     * {@code FileUtils.splitFileName}). The name is what the user saw and maybe edited, so it decides.</p>
+     */
+    static String bestType(String fileName, String reported) {
+        if (DownloadNames.extension(fileName).equals("md")) {
+            return "text/markdown"; // not in every phone's list
+        }
+        String fromName = MimeTypeMap.getSingleton().getMimeTypeFromExtension(DownloadNames.extension(fileName));
+        if (fromName != null) {
+            return fromName;
+        }
+        return DownloadNames.isGenericType(reported) ? "application/octet-stream" : reported;
+    }
+
+    /** @return the usual extension for a type ("text/csv" → "csv"), or "" if unknown or generic. */
+    static String extensionForType(String mimetype) {
+        if (DownloadNames.isGenericType(mimetype)) {
+            return "";
+        }
+        String type = mimetype.trim().toLowerCase(Locale.ROOT);
+        int semicolon = type.indexOf(';');
+        if (semicolon > 0) {
+            type = type.substring(0, semicolon).trim(); // "text/plain;charset=utf-8"
+        }
+        if (type.equals("text/markdown")) {
+            return "md"; // not in every phone's list
+        }
+        String ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(type);
+        return ext != null ? ext : "";
     }
 
     /** The file name the website suggests (header "Content-Disposition", else the address). */

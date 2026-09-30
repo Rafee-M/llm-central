@@ -408,6 +408,16 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Turns evaluateJavascript's answer (a JSON value like "\"report.csv\"" or "null") into text. */
+    private static String jsString(String jsonValue) {
+        try {
+            Object value = new org.json.JSONTokener(jsonValue).nextValue();
+            return value instanceof String ? (String) value : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** Full set-up of a tab: settings, clients, bridges, plus the account's desktop-site choice. */
     private void setUpTab(WebView webView, Account account) {
         configureWebView(webView, Providers.byId(account.providerId));
@@ -556,7 +566,15 @@ public class MainActivity extends Activity {
                 webView.evaluateJavascript(js(Scripts.BLOB_FETCH) + args, null); // in the tab it came from
                 return;
             } else if (url.startsWith("data:")) {
-                downloader.saveDataUrl(provider, url, mimetype, contentDisposition, url);
+                if (provider.isDuck()) {
+                    downloader.saveDataUrl(provider, url, mimetype, contentDisposition, url, null);
+                } else {
+                    // WebView doesn't pass on the name the page gave the file (<a download="…">), but
+                    // blob_capture.js noted it when the page clicked the link: ask the page for it
+                    // (evaluateJavascript hands the script's answer back), then save.
+                    webView.evaluateJavascript(js(Scripts.DOWNLOAD_NAME), name ->
+                            downloader.saveDataUrl(provider, url, mimetype, contentDisposition, url, jsString(name)));
+                }
                 return;
             }
             // A normal link: Android's download manager fetches it with this tab's login cookies.
@@ -626,8 +644,9 @@ public class MainActivity extends Activity {
             }
 
             @Override
-            public void processBlob(String dataUrl, String mimetype, String contentDisposition, String pageUrl) {
-                downloader.saveDataUrl(provider, dataUrl, mimetype, contentDisposition, pageUrl);
+            public void processBlob(String dataUrl, String mimetype, String contentDisposition, String pageUrl,
+                                    String fileName) {
+                downloader.saveDataUrl(provider, dataUrl, mimetype, contentDisposition, pageUrl, fileName);
             }
 
             @Override
@@ -1189,7 +1208,7 @@ public class MainActivity extends Activity {
                 public void processBlob(String base64Data, String mimetype, String contentDisposition, String currentUrl) {
                     // Saving a chat from the offline viewer (duck.ai chats: duck.ai's file names).
                     runOnUiThread(() -> downloader.saveDataUrl(Providers.DUCK, base64Data, mimetype,
-                            contentDisposition, currentUrl));
+                            contentDisposition, currentUrl, null));
                 }
             }, "AndroidChatsViewer");
             

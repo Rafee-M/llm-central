@@ -15,13 +15,17 @@
 // This file is one function expression; the app appends "(url, contentDisposition, mimetype)".
 
 (function(url, contentDisposition, mimetype) {
+  // The name the page gave the file (<a download="…">), noted by blob_capture.js (other providers).
+  var names = window.__llmcDownloadNames;
+  var name = (names && names.get(url)) || '';
   function send(dataUrl, type) {
     if (!window.AppBridge) return;
     AppBridge.postMessage('blob:' + JSON.stringify({
       data: dataUrl,
       mime: type || '',
       disposition: contentDisposition || '',
-      url: window.location.href
+      url: window.location.href,
+      name: name
     }));
   }
   var blob = window.blobMap ? window.blobMap.get(url) : null;

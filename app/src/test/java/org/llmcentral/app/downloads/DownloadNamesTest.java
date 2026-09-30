@@ -85,7 +85,33 @@ public class DownloadNamesTest {
         assertEquals("Duck_AI_Chat_" + TS + ".md", DownloadNames.chosen(Providers.DUCK, "Duck_AI_Chat_" + TS + ".md", "  "));
         // Others: what the user typed, cleaned; no forced extension.
         assertEquals("my_data.csv", DownloadNames.chosen(Providers.CHATGPT, "data.csv", "my/data.csv"));
-        assertEquals("text/markdown", DownloadNames.mimeType("a.md", "text/plain"));
-        assertEquals("text/csv", DownloadNames.mimeType("a.csv", "text/csv"));
+    }
+
+    @Test
+    public void pageMadeFilesUseThePagesOwnNameNeverThePageAddress() {
+        // Claude's case: no header, no type; the page named it with <a download="report.md">.
+        assertEquals("report.md", DownloadNames.pageFileName("report.md", null));
+        assertEquals("from-header.csv", DownloadNames.pageFileName("  ", "from-header.csv"));
+        assertEquals(null, DownloadNames.pageFileName("", null)); // → "Claude_download_<time>" + extension
+        assertEquals("Claude_download_" + TS, DownloadNames.suggested(Providers.CLAUDE, null, TS));
+    }
+
+    @Test
+    public void typesAndExtensions() {
+        assertEquals(true, DownloadNames.isGenericType(""));
+        assertEquals(true, DownloadNames.isGenericType(null));
+        assertEquals(true, DownloadNames.isGenericType("application/octet-stream"));
+        assertEquals(false, DownloadNames.isGenericType("text/csv"));
+        assertEquals("text/csv", DownloadNames.typeOfDataUrl("data:text/csv;base64,YSxi"));
+        assertEquals("text/plain", DownloadNames.typeOfDataUrl("data:TEXT/PLAIN,hello"));
+        assertEquals("", DownloadNames.typeOfDataUrl("data:;base64,YSxi"));
+        assertEquals("", DownloadNames.typeOfDataUrl("https://x"));
+        assertEquals("csv", DownloadNames.extension("Report.CSV"));
+        assertEquals("", DownloadNames.extension("sdfwsfiuwehfwewo")); // the reported symptom: no extension
+        assertEquals("", DownloadNames.extension(".hidden"));
+        assertEquals("", DownloadNames.extension("v1.2 notes"));
+        assertEquals("report.csv", DownloadNames.withExtension("report", "csv"));
+        assertEquals("report.md", DownloadNames.withExtension("report.md", "txt")); // already has one
+        assertEquals("report", DownloadNames.withExtension("report", ""));
     }
 }

@@ -61,9 +61,79 @@ public final class DownloadNames {
         return name;
     }
 
-    /** @return the file type to store: Markdown for .md files, else what the website said. */
-    public static String mimeType(String fileName, String mimetype) {
-        return fileName.endsWith(".md") ? "text/markdown" : mimetype;
+    // ---------------------------------------------------------------- names and types of page-made files
+    // (round 6 fix) WebView tells the app a download's address, header and type, but NOT the name the
+    // website chose with <a download="report.csv"> (verified in Chromium's AwDownloadManagerDelegate).
+    // For a file the page made itself there is no header, so the old code guessed a name from the page's
+    // address (on Claude: the chat id, random-looking letters) and had no real type ("octet-stream"),
+    // so the file got no extension and opened as "binary". These rules fix both.
+
+    /**
+     * The name for a file the page made (ChatGPT, Claude, DeepSeek, Z.ai): the page's own name for it
+     * (its {@code download} attribute), else the name in the "Content-Disposition" header.
+     *
+     * @return that name, or null if neither exists (the caller then uses "Provider_download_time")
+     */
+    public static String pageFileName(String pageName, String headerName) {
+        if (pageName != null && !pageName.trim().isEmpty()) {
+            return pageName.trim();
+        }
+        return headerName != null && !headerName.trim().isEmpty() ? headerName.trim() : null;
+    }
+
+    /**
+     * @return true for a type that says nothing about the content ("some bytes"), so the file's
+     *         extension or the data: text is a better guide
+     */
+    public static boolean isGenericType(String mimetype) {
+        if (mimetype == null) {
+            return true;
+        }
+        String t = mimetype.trim().toLowerCase(Locale.ROOT);
+        return t.isEmpty() || t.equals("application/octet-stream") || t.equals("binary/octet-stream")
+                || t.equals("application/binary") || t.equals("application/x-binary")
+                || t.equals("application/unknown") || t.equals("*/*");
+    }
+
+    /** @return the type written in a data: URL ("data:text/csv;base64,…" → "text/csv"), or "". */
+    public static String typeOfDataUrl(String dataUrl) {
+        if (dataUrl == null || !dataUrl.startsWith("data:")) {
+            return "";
+        }
+        int end = dataUrl.length();
+        for (char c : new char[]{';', ','}) {
+            int i = dataUrl.indexOf(c);
+            if (i >= 0 && i < end) {
+                end = i;
+            }
+        }
+        return dataUrl.substring(5, end).trim().toLowerCase(Locale.ROOT);
+    }
+
+    /** @return the extension in lower case without the dot ("Report.CSV" → "csv"), or "" if none. */
+    public static String extension(String name) {
+        if (name == null) {
+            return "";
+        }
+        int dot = name.lastIndexOf('.');
+        if (dot <= 0 || dot == name.length() - 1 || name.length() - dot - 1 > 10) {
+            return "";
+        }
+        String ext = name.substring(dot + 1);
+        for (int i = 0; i < ext.length(); i++) {
+            if (!Character.isLetterOrDigit(ext.charAt(i))) {
+                return "";
+            }
+        }
+        return ext.toLowerCase(Locale.ROOT);
+    }
+
+    /** @return the name with ".ext" added if it has no extension yet and {@code ext} is known. */
+    public static String withExtension(String name, String ext) {
+        if (name == null || ext == null || ext.isEmpty() || !extension(name).isEmpty()) {
+            return name;
+        }
+        return name + "." + ext;
     }
 
     /**

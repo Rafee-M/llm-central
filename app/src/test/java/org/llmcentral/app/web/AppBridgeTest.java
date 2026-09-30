@@ -24,7 +24,7 @@ public class AppBridgeTest {
 
         @Override public void copyToClipboard(String text) { calls.add("copy " + text); }
         @Override public void onChatsFetched(String json) { calls.add("chats " + json); }
-        @Override public void processBlob(String d, String m, String cd, String u) { calls.add("blob " + d + " " + m + " " + cd + " " + u); }
+        @Override public void processBlob(String d, String m, String cd, String u, String n) { calls.add("blob " + d + " " + m + " " + cd + " " + u + " " + n); }
         @Override public void showSoftKeyboard() { calls.add("keyboard"); }
         @Override public void triggerNewChatShortcut() { calls.add("shortcut"); }
         @Override public void setImageZoomActive(boolean active) { calls.add("zoom " + active); }
@@ -72,7 +72,7 @@ public class AppBridgeTest {
         assertEquals(Arrays.asList(
                 "copy Hello: world", // only the first ":" separates the type
                 "chats {\"a\":1}",
-                "blob data:text/plain;base64,SGk= text/plain x.txt https://duck.ai/chat",
+                "blob data:text/plain;base64,SGk= text/plain x.txt https://duck.ai/chat ",
                 "zoom true", "zoom false", "keyboard", "shortcut", "continued"), host.calls);
     }
 
@@ -128,6 +128,10 @@ public class AppBridgeTest {
         assertFalse(AppBridge.handle("chats:{}", "https://chatgpt.com", true, host, g));
         assertFalse(AppBridge.handle("zoom:true", "https://chatgpt.com", true, host, g));
         assertFalse(AppBridge.handle("keyboard:", "https://chatgpt.com", true, host, g));
-        assertEquals(Arrays.asList("blob data:text/csv;base64,YSxi text/csv  "), host.calls);
+        // The page's own name for the file travels along (WebView itself doesn't pass it on).
+        assertTrue(AppBridge.handle("blob:{\"data\":\"data:;base64,YSxi\",\"name\":\"scores.csv\"}",
+                "https://chatgpt.com", true, host, g));
+        assertEquals(Arrays.asList("blob data:text/csv;base64,YSxi text/csv   ",
+                "blob data:;base64,YSxi    scores.csv"), host.calls);
     }
 }

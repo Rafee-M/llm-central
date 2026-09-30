@@ -132,7 +132,8 @@ public final class AppBridge {
         void onChatsFetched(String json);
 
         /** A downloaded file as a {@code data:} URL, to be saved in Downloads. */
-        void processBlob(String dataUrl, String mimetype, String contentDisposition, String pageUrl);
+        void processBlob(String dataUrl, String mimetype, String contentDisposition, String pageUrl,
+                         String fileName);
 
         void showSoftKeyboard();
 
@@ -275,7 +276,7 @@ public final class AppBridge {
         }
     }
 
-    /** {"data":"data:…;base64,…","mime":"…","disposition":"…","url":"https://duck.ai/…"} */
+    /** {"data":"data:…;base64,…","mime":"…","disposition":"…","url":"https://…","name":"report.csv"} */
     private static boolean handleBlob(String payload, Host host) {
         try {
             JSONObject o = new JSONObject(payload);
@@ -284,8 +285,10 @@ public final class AppBridge {
             if (!data.startsWith("data:")) {
                 return false;
             }
+            // "name": the name the page gave the file (<a download="…">), which WebView itself
+            // doesn't pass on; optional.
             host.processBlob(data, o.optString("mime", ""), o.optString("disposition", ""),
-                    o.optString("url", ""));
+                    o.optString("url", ""), o.optString("name", ""));
             return true;
         } catch (Exception e) {
             return false;
