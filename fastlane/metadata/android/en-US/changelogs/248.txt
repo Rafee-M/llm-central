@@ -1,3 +1,0 @@
-- Saved Chats: Offline chat history viewer with AI-generated image viewing and downloads.
-- Auto Focus: Automatically focuses the prompt input box and opens keyboard when loading finishes.
-- Image Canvas Zooming: Pinch-to-zoom and pan support for AI-generated images.

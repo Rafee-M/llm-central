@@ -1,1 +1,0 @@
-- Uygulama duraklatıldığında veya simge durumuna küçültüldüğünde WebView'ın yeniden yüklenmesi ve durumun kaybolması engellendi.

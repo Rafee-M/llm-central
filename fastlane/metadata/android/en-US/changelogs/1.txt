@@ -1,0 +1,1 @@
+First release of LLM Central (fork of duckAssist): duck.ai, ChatGPT, Claude, DeepSeek and Z.ai in one app, several isolated accounts per provider, Material You themes, assistant and sharing to the account you choose, prompt pre-fill, downloads and attachments with real file names, desktop site toggle, clear cache.

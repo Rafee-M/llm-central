@@ -1,2 +1,0 @@
-Update for Android 15 (SDK 35)
-Chinese translation

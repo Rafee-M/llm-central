@@ -1,1 +1,0 @@
-Directly load selected text in Duck.ai chat, reusing a single separate window.

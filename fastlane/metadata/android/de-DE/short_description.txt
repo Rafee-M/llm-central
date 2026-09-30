@@ -1,1 +1,0 @@
-Schlanker, datenschutzfreundlicher WebView-Wrapper für Duck.ai

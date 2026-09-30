@@ -1,1 +1,1 @@
-Lightweight, privacy-focused WebView wrapper for Duck.ai
+Several AI chat sites and accounts in one small, private app

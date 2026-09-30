@@ -1,6 +1,0 @@
-- Estabilidade aprimorada para "Continuar último chat".
-- Configurações renovadas com salvamento automático e tema DuckDuckGo.
-- Correção de foco automático e desmarcação de campos de texto.
-- Envio de avaliações e feedback do site restaurado.
-- Adicionadas opções (Câmera/Gerenciador de arquivos) para anexos.
-- Suporte aprimorado para distribuições de OS customizadas.
