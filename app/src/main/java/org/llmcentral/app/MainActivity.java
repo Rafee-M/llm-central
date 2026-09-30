@@ -290,7 +290,7 @@ public class MainActivity extends Activity {
         // (see web/Profiles for why this waits for a fresh start).
         Profiles.cleanUp(accounts.all());
         // duck.ai's (default) profile gets the same cache cap as the accounts; old temporary files
-        // (shared files, converted documents, camera photos) are deleted in the background.
+        // (camera photos, and copies older versions left) are deleted in the background.
         Profiles.limitDefaultCache();
         background.execute(() -> {
             AppCache.deleteTempFiles(this, AppCache.TEMP_MAX_AGE_MS, null);
