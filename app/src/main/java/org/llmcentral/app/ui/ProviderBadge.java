@@ -1,19 +1,26 @@
 package org.llmcentral.app.ui;
 
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.view.Gravity;
 import android.widget.TextView;
 
+import org.llmcentral.app.R;
 import org.llmcentral.app.provider.ProviderSpec;
+import org.llmcentral.app.provider.Providers;
 
 /**
- * Draws a provider's "icon": a coloured circle with 1–2 letters (e.g. an orange "D" for duck.ai).
+ * Draws a provider's "icon": a circle in the provider's colour with its logo in white (ChatGPT,
+ * Claude, DeepSeek), or with 1–2 letters for the others (e.g. an orange "D" for duck.ai).
  *
- * <p><b>Why letters instead of logos:</b> real logos are trademarks and would add image files
- * (APK size). A {@link GradientDrawable} is a shape drawn by Android at runtime: it costs no file
- * and scales sharply to any screen. Real icons (e.g. the sites' favicons) can replace this later
- * without changing any other code.</p>
+ * <p><b>How:</b> the circle is a {@link GradientDrawable}, a shape Android draws at runtime. The
+ * logos are vector drawables built into the app ({@code res/drawable/ic_logo_*.xml}; nothing is
+ * downloaded), so they scale sharply to any size. A {@link LayerDrawable} stacks the logo on the
+ * circle. To give another provider a logo: add its {@code ic_logo_<id>.xml} and one line in
+ * {@link #logoFor}. The Settings page draws the same badges from its own copy of the logo paths
+ * ({@code settings.html}, {@code LOGOS}).</p>
  */
 public final class ProviderBadge {
 
@@ -30,8 +37,19 @@ public final class ProviderBadge {
         GradientDrawable circle = new GradientDrawable();
         circle.setShape(GradientDrawable.OVAL);
         circle.setColor(provider.badgeColor);
-        view.setBackground(circle);
-        view.setText(provider.badgeText);
+        int logo = logoFor(provider);
+        if (logo != 0) {
+            // Circle underneath, logo on top with a margin all round (the logo fills ~56% of the circle).
+            Drawable glyph = view.getContext().getDrawable(logo);
+            LayerDrawable layers = new LayerDrawable(new Drawable[]{circle, glyph});
+            int inset = Math.round(sizePx * 0.22f);
+            layers.setLayerInset(1, inset, inset, inset, inset);
+            view.setBackground(layers);
+            view.setText("");
+        } else {
+            view.setBackground(circle);
+            view.setText(provider.badgeText);
+        }
         view.setTextColor(0xFFFFFFFF);
         view.setTypeface(Typeface.DEFAULT_BOLD);
         view.setGravity(Gravity.CENTER);
@@ -47,6 +65,18 @@ public final class ProviderBadge {
         }
         // Screen readers read the provider name instead of the letters.
         view.setContentDescription(provider.displayName);
+    }
+
+    /** @return the provider's built-in logo, or 0 if it has none (it then shows its letters). */
+    static int logoFor(ProviderSpec provider) {
+        if (provider == Providers.CHATGPT) {
+            return R.drawable.ic_logo_chatgpt;
+        } else if (provider == Providers.CLAUDE) {
+            return R.drawable.ic_logo_claude;
+        } else if (provider == Providers.DEEPSEEK) {
+            return R.drawable.ic_logo_deepseek;
+        }
+        return 0;
     }
 
     /**
