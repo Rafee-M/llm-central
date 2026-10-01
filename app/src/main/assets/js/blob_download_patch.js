@@ -13,6 +13,12 @@
 // memory until the page reloaded. The list is also what the offline-chat backup copies (dump_chats.js),
 // so it keeps the most recent images. A forgotten file can still be downloaded while the page uses it:
 // blob_fetch.js then reads it from the page itself.
+//
+// Setting "Offline chats" (storage/OfflineChats): the app sets window.__llmcOfflineChats before this
+// script runs. When it is false no backup needs the files, so a file is forgotten 60 s after the page
+// lets go of its address (URL.revokeObjectURL), the same rule as on the other providers (blob_capture.js).
+// window.__duckSetOfflineChats(on) is called by the app when the setting changes; off forgets every
+// kept file at once.
 
 (function() {
     if (!window.blobHandlerInjected) {
@@ -43,6 +49,20 @@
             }
             console.log('Blob created: ' + u);
             return u;
+        };
+        const oR = URL.revokeObjectURL;
+        URL.revokeObjectURL = function(u) {
+            oR.apply(URL, arguments);
+            if (window.__llmcOfflineChats === false) {
+                setTimeout(function() { window.__duckForgetBlob(u); }, 60000);
+            }
+        };
+        window.__duckSetOfflineChats = function(on) {
+            window.__llmcOfflineChats = on;
+            if (!on) {
+                window.blobMap.clear();
+                keptBytes = 0;
+            }
         };
         console.log('Blob Handler Patch Active');
     }

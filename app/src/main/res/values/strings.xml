@@ -31,4 +31,5 @@
     <string name="state_on">On</string>
     <string name="state_off">Off</string>
     <string name="microphone_denied">Voice needs the microphone. You can allow it in App info → Permissions → Microphone.</string>
+    <string name="offline_chats_off">Offline chats are off. Turn them on in Settings → Data &amp; tools.</string>
 </resources>

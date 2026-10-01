@@ -358,7 +358,13 @@
         <section id="data" aria-labelledby="dataLabel">
             <h2 class="section-label" id="dataLabel">Data &amp; tools</h2>
             <div class="group">
-                <button type="button" class="row clickable" onclick="openChatsViewer()">
+                <!-- Copy duck.ai's chats to the phone (storage/OfflineChats). Off deletes the copy, so it asks first. -->
+                <div class="row">
+                    <div class="text"><div class="title" id="l_oc">Offline chats (duck.ai)</div>
+                        <div class="sub">Keep a copy of your duck.ai chats on this phone, to read without internet</div></div>
+                    <label class="switch"><input type="checkbox" role="switch" id="offline_chats" aria-labelledby="l_oc"><span class="track"><span class="thumb"></span></span></label>
+                </div>
+                <button type="button" class="row clickable" id="savedChatsRow" onclick="openChatsViewer()">
                     <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12z"/></svg>
                     <div class="text"><div class="title">Saved chats</div>
                         <div class="sub">duck.ai chats saved on this phone, readable offline (duck.ai only)</div></div>
@@ -906,6 +912,36 @@
             document.getElementById('ask_duck_suffix').value = settings.ask_duck_suffix || '';
             document.getElementById('shared_doc_suffix').value = settings.shared_doc_suffix || '';
             setMaxLiveTabs(settings.max_live_tabs || 3);
+            showOfflineChats(settings.offline_chats !== false);
+        }
+
+        // "Offline chats (duck.ai)": turning on saves at once; turning off asks first, because the app
+        // then deletes the chats saved on the phone. "Saved chats" is greyed out while it is off.
+        function showOfflineChats(on) {
+            document.getElementById('offline_chats').checked = on;
+            const row = document.getElementById('savedChatsRow');
+            row.disabled = !on;
+            row.classList.toggle('off', !on);
+        }
+        function onOfflineChatsChange(e) {
+            if (!S || !S.setOfflineChats) return;
+            if (e.target.checked) {
+                S.setOfflineChats(true);
+                showOfflineChats(true);
+                return;
+            }
+            showOfflineChats(true); // stays on until the user confirms
+            dialog('Turn off offline chats?',
+                el('p', {}, 'The duck.ai chats saved on this phone will be deleted and no new copies are made. '
+                    + 'Without internet duck.ai then shows an error page instead of your saved chats. '
+                    + 'Your chats inside duck.ai itself are not touched.'),
+                [{ label: 'Cancel', onclick: closeOverlay },
+                 { label: 'Turn off', danger: true, onclick: () => {
+                     closeOverlay();
+                     S.setOfflineChats(false);
+                     showOfflineChats(false);
+                     snack('Offline chats turned off. Saved chats deleted.');
+                 } }]);
         }
 
         function closeSettings() {
@@ -980,6 +1016,7 @@
                 t.addEventListener('blur', autoSave);
                 t.addEventListener('focus', () => setTimeout(() => t.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300));
             }
+            document.getElementById('offline_chats').addEventListener('change', onOfflineChatsChange);
             document.getElementById('material_you').addEventListener('change', (e) => {
                 if (AP) renderAppearance(parse(AP.setMaterialYou(e.target.checked)));
             });

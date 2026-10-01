@@ -47,6 +47,7 @@ import android.os.Looper;
 import org.llmcentral.app.scripts.UserScriptMatcher;
 import org.llmcentral.app.downloads.Downloader;
 import org.llmcentral.app.storage.AppCache;
+import org.llmcentral.app.storage.OfflineChats;
 import org.llmcentral.app.storage.StorageBridge;
 import org.llmcentral.app.storage.UploadCopies;
 import org.llmcentral.app.web.DesktopMode;
@@ -267,6 +268,9 @@ public class MainActivity extends Activity {
 
         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
         background.execute(() -> {
+            if (!OfflineChats.isEnabled(MainActivity.this)) {
+                return; // setting "Offline chats" is off: nothing saved to load
+            }
             try {
                 String cached = ChatDatabaseHelper.getInstance(MainActivity.this).getCachedChatsJson();
                 if (cached != null && !cached.equals("{}") && !cached.isEmpty()) {
@@ -718,6 +722,7 @@ public class MainActivity extends Activity {
                         obj.put("ask_duck_suffix", prefs.getString("ask_duck_suffix", ""));
                         obj.put("shared_doc_suffix", prefs.getString("shared_doc_suffix", ""));
                         obj.put("max_live_tabs", prefs.getInt(PREF_MAX_LIVE_TABS, 3));
+                        obj.put("offline_chats", OfflineChats.isEnabled(MainActivity.this));
                     } catch (Exception e) {
                         Log.e(TAG, "Error generating settings JSON", e);
                     }
@@ -829,6 +834,29 @@ public class MainActivity extends Activity {
                 @JavascriptInterface
                 public void dismissSettings() {
                     runOnUiThread(() -> dialog.dismiss());
+                }
+
+                /**
+                 * Settings → Data & tools → "Offline chats (duck.ai)" (storage/OfflineChats). The page
+                 * asks for confirmation before turning it off, because off deletes the saved chats.
+                 */
+                @JavascriptInterface
+                public void setOfflineChats(boolean on) {
+                    OfflineChats.setEnabled(MainActivity.this, on);
+                    if (!on) {
+                        lastFetchedChatsJson = "{}";
+                        // Same single background thread as the chat save: a save already running
+                        // finishes first and is then deleted; a later one sees the setting is off.
+                        background.execute(() -> ChatDatabaseHelper.getInstance(MainActivity.this).deleteAll());
+                    }
+                    runOnUiThread(() -> {
+                        if (chatWebView != null) {
+                            safeEvaluateJavascript(chatWebView, OfflineChats.pageSwitch(on));
+                        }
+                        if (!on) {
+                            retryDuckIfOffline(); // the saved chats were standing in for duck.ai
+                        }
+                    });
                 }
 
                 @JavascriptInterface
@@ -964,6 +992,10 @@ public class MainActivity extends Activity {
     /** Receives duck.ai's chat dump (from the message bridge), merges it with the saved copy and stores it. */
     private void onChatsFetched(String jsonStr) {
         background.execute(() -> {
+            if (!OfflineChats.isEnabled(MainActivity.this)) {
+                isRequestingViewer = false;
+                return; // setting "Offline chats" is off: never store chats
+            }
             if (jsonStr == null || jsonStr.isEmpty() || jsonStr.equals("{}")) {
                 if (isRequestingViewer) {
                     isRequestingViewer = false;
@@ -1111,6 +1143,10 @@ public class MainActivity extends Activity {
 
     private void fetchChatsAndShowViewer() {
         runOnUiThread(() -> {
+            if (!OfflineChats.isEnabled(this)) {
+                Toast.makeText(this, R.string.offline_chats_off, Toast.LENGTH_SHORT).show();
+                return;
+            }
             isRequestingViewer = true;
             String currentUrl = chatWebView.getUrl();
             if (currentUrl != null && (currentUrl.startsWith("https://duck.ai") || currentUrl.startsWith("https://duckduckgo.com"))) {
@@ -1131,6 +1167,9 @@ public class MainActivity extends Activity {
      * If the duck.ai tab isn't on screen, the window waits until the user switches to it.
      */
     private void showOfflineChats(WebView duckView) {
+        if (!OfflineChats.isEnabled(this)) {
+            return; // setting off: WebView's own error page stays
+        }
         duckOffline = true;
         if (isVisibleTab(duckView) && (chatsViewerDialog == null || !chatsViewerDialog.isShowing())) {
             showChatsViewerDialog();
@@ -1462,6 +1501,9 @@ public class MainActivity extends Activity {
             applyTheme();
         }
         refreshAccounts();
+        if (!OfflineChats.isEnabled(this)) {
+            lastFetchedChatsJson = "{}"; // turned off in the other screen: drop the copy in memory too
+        }
         if (tabManager != null) {
             syncDesktopMode(tabManager.current());
             if (tabManager.current().isDuck()) {
@@ -1520,7 +1562,7 @@ public class MainActivity extends Activity {
         // Save duck.ai's chats for offline reading, but only if duck.ai was used since the last save:
         // the dump reads every chat and image, too much work to repeat when only other accounts were
         // used (round 6).
-        if (duckUsedSinceDump && chatWebView != null && chatWebView.getUrl() != null
+        if (duckUsedSinceDump && OfflineChats.isEnabled(this) && chatWebView != null && chatWebView.getUrl() != null
                 && chatWebView.getUrl().startsWith("https://duck")) {
             duckUsedSinceDump = false;
             chatWebView.evaluateJavascript(js(Scripts.DUMP_CHATS), null);
@@ -1899,8 +1941,10 @@ public class MainActivity extends Activity {
             }
 
             if (rendererRecoveryTimes.size() >= MAX_RECOVERIES_PER_MINUTE) {
-                Toast.makeText(MainActivity.this,
-                        "The chat page keeps crashing. Showing saved chats instead.", Toast.LENGTH_LONG).show();
+                Toast.makeText(MainActivity.this, OfflineChats.isEnabled(MainActivity.this)
+                        ? "The chat page keeps crashing. Showing saved chats instead."
+                        : "The chat page keeps crashing. Try \"Reload page\" in the account menu later.",
+                        Toast.LENGTH_LONG).show();
                 chatWebView.loadUrl("about:blank");
                 showOfflineChats(chatWebView);
             } else {
@@ -1968,7 +2012,8 @@ public class MainActivity extends Activity {
                 injectUserScripts(view, url);
                 return;
             }
-            safeEvaluateJavascript(view, js(Scripts.BLOB_DOWNLOAD_PATCH));
+            safeEvaluateJavascript(view, OfflineChats.pageFlag(OfflineChats.isEnabled(MainActivity.this))
+                    + js(Scripts.BLOB_DOWNLOAD_PATCH));
             safeEvaluateJavascript(view, js(Scripts.CLIPBOARD_PATCH));
             safeEvaluateJavascript(view, js(Scripts.IMAGE_ZOOM_MONITOR));
             SharedPreferences prefs = view.getContext().getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
@@ -2030,7 +2075,8 @@ public class MainActivity extends Activity {
             if (isSafeMode || !provider.isDuck()) return; // helper scripts are duck.ai-only
             if (newProgress > 5 && !hasInjectedProgressJs) {
                 hasInjectedProgressJs = true;
-                safeEvaluateJavascript(view, js(Scripts.BLOB_DOWNLOAD_PATCH));
+                safeEvaluateJavascript(view, OfflineChats.pageFlag(OfflineChats.isEnabled(MainActivity.this))
+                        + js(Scripts.BLOB_DOWNLOAD_PATCH));
                 safeEvaluateJavascript(view, js(Scripts.CLIPBOARD_PATCH));
                 safeEvaluateJavascript(view, js(Scripts.SWIPE_SCROLL));
                 SharedPreferences prefs = view.getContext().getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
