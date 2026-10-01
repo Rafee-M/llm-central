@@ -39,7 +39,6 @@ import android.webkit.PermissionRequest;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.content.SharedPreferences;
-import android.os.StrictMode;
 import android.os.Looper;
 
 
@@ -228,9 +227,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        StrictMode.VmPolicy.Builder StrictBuilder = new StrictMode.VmPolicy.Builder();
-        StrictMode.setVmPolicy(StrictBuilder.build());
-
+        // No StrictMode override any more (2026-10-01, VERIFICATION O-H4): until then an empty policy
+        // here switched off Android's check against file:// addresses leaving the app, only so the
+        // Android 7–9 download notification worked. That now uses a content:// address
+        // (downloads/Downloader.sharedAddress), so Android's default check stays on.
         setActivityTheme();
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
         requestWindowFeature(Window.FEATURE_NO_TITLE);

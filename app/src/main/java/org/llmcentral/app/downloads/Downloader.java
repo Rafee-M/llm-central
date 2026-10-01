@@ -28,6 +28,7 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.Toast;
 
+import androidx.core.content.FileProvider;
 import androidx.webkit.URLUtilCompat;
 
 import org.llmcentral.app.R;
@@ -253,7 +254,8 @@ public final class Downloader {
 
     /** Background thread: decodes the data: URL and writes the file into Downloads/<folder>/. */
     private void writeDataUrl(ProviderSpec provider, String dataUrl, String fileName, String mimetype) {
-        Uri fileUri = null;
+        boolean written = false;
+        Uri openUri = null; // the address other apps open from the notification (null = no tap action)
         try {
             // "data:<type>;base64,<data>": the file is everything after the first comma.
             byte[] data = Base64.decode(dataUrl.substring(dataUrl.indexOf(',') + 1), Base64.DEFAULT);
@@ -268,7 +270,8 @@ public final class Downloader {
                     try (OutputStream out = appContext.getContentResolver().openOutputStream(uri)) {
                         if (out != null) {
                             out.write(data);
-                            fileUri = uri;
+                            written = true;
+                            openUri = uri;
                         }
                     }
                 }
@@ -280,25 +283,50 @@ public final class Downloader {
                 File file = new File(dir, fileName);
                 try (FileOutputStream out = new FileOutputStream(file)) {
                     out.write(data);
-                    fileUri = Uri.fromFile(file);
+                    written = true;
                 }
                 MediaScannerConnection.scanFile(appContext, new String[]{file.getAbsolutePath()}, new String[]{mimetype}, null);
+                openUri = sharedAddress(file);
             }
         } catch (Exception | OutOfMemoryError e) {
             Log.e(TAG, "Saving the file failed", e);
         }
-        final Uri saved = fileUri;
+        final boolean saved = written;
+        final Uri open = openUri;
         main.post(() -> {
-            if (saved == null) {
+            if (!saved) {
                 Toast.makeText(appContext, R.string.download_failed, Toast.LENGTH_SHORT).show();
                 return;
             }
             Toast.makeText(appContext, appContext.getString(R.string.download) + " " + fileName, Toast.LENGTH_SHORT).show();
-            showNotification(fileName, mimetype, saved);
+            showNotification(fileName, mimetype, open);
         });
     }
 
-    /** "Download completed" notification; tapping it opens the file. */
+    /**
+     * Android 7–9: a {@code content://} address for a file saved in Download/, which other apps may
+     * open (the "download completed" notification grants them read access).
+     *
+     * <p>Why not {@code Uri.fromFile(file)} ({@code file:///storage/...})? Since Android 7, handing a
+     * {@code file://} address to another app throws FileUriExposedException. Until 2026-10-01 the app
+     * hid that by switching Android's check off for the whole app (an empty StrictMode policy). Now
+     * the app's own FileProvider (manifest, {@code res/xml/file_paths.xml} "downloads") hands out
+     * the file instead, and the check stays on. Docs:
+     * https://developer.android.com/reference/androidx/core/content/FileProvider</p>
+     *
+     * @return the address, or null if the file isn't inside a folder the FileProvider shares (then
+     *         the notification simply has no tap action; the file is saved either way)
+     */
+    private Uri sharedAddress(File file) {
+        try {
+            return FileProvider.getUriForFile(appContext, appContext.getPackageName() + ".fileprovider", file);
+        } catch (IllegalArgumentException e) {
+            Log.w(TAG, "Saved file is outside the shared Download folder", e);
+            return null;
+        }
+    }
+
+    /** "Download completed" notification; tapping it opens the file ({@code uri} null: no tap action). */
     private void showNotification(String fileName, String mimeType, Uri uri) {
         NotificationManager manager = (NotificationManager) appContext.getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager == null) {
@@ -309,22 +337,24 @@ public final class Downloader {
             manager.createNotificationChannel(
                     new NotificationChannel(channelId, "Downloads", NotificationManager.IMPORTANCE_DEFAULT));
         }
-        Intent intent = new Intent(Intent.ACTION_VIEW);
-        intent.setDataAndType(uri, mimeType != null && !mimeType.isEmpty() ? mimeType : "*/*");
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            flags |= PendingIntent.FLAG_IMMUTABLE;
-        }
-        PendingIntent pendingIntent = PendingIntent.getActivity(appContext, 0, intent, flags);
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? new Notification.Builder(appContext, channelId)
                 : new Notification.Builder(appContext);
         builder.setSmallIcon(android.R.drawable.stat_sys_download_done)
                 .setContentTitle(fileName)
                 .setContentText("Download completed")
-                .setContentIntent(pendingIntent)
                 .setAutoCancel(true);
+        if (uri != null) {
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(uri, mimeType != null && !mimeType.isEmpty() ? mimeType : "*/*");
+            // The app that opens it gets read access to this one content:// address only.
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                flags |= PendingIntent.FLAG_IMMUTABLE;
+            }
+            builder.setContentIntent(PendingIntent.getActivity(appContext, 0, intent, flags));
+        }
         manager.notify((int) System.currentTimeMillis(), builder.build());
     }
 
