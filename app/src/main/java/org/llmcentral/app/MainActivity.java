@@ -63,6 +63,7 @@ import org.llmcentral.app.account.AccountStore;
 import org.llmcentral.app.provider.PromptPrefill;
 import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
+import org.llmcentral.app.ui.AboutWindow;
 import org.llmcentral.app.ui.ProviderBadge;
 import org.llmcentral.app.ui.SwitcherPopup;
 import org.llmcentral.app.account.AccountsBridge;
@@ -865,6 +866,12 @@ public class MainActivity extends Activity {
                         dialog.dismiss();
                         fetchChatsAndShowViewer();
                     });
+                }
+
+                /** Settings → About: opens on top; Settings stays open underneath (ui/AboutWindow). */
+                @JavascriptInterface
+                public void openAbout() {
+                    runOnUiThread(() -> AboutWindow.show(MainActivity.this));
                 }
 
                 @JavascriptInterface

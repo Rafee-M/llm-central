@@ -411,6 +411,18 @@
                 </div>
             </div>
         </section>
+
+        <!-- ================= About (opens its own window: ui/AboutWindow + about.html) ================= -->
+        <section id="about" aria-labelledby="aboutLabel">
+            <h2 class="section-label" id="aboutLabel">About</h2>
+            <div class="group">
+                <button type="button" class="row clickable" onclick="openAbout()">
+                    <svg viewBox="0 0 24 24"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
+                    <div class="text"><div class="title">About LLM Central</div>
+                        <div class="sub">Version, developer, source code</div></div>
+                </button>
+            </div>
+        </section>
     </main>
 
     <div id="snackbar" role="status" aria-live="polite"><span id="snackText"></span></div>
@@ -983,6 +995,7 @@
                  } }]);
         }
         function openScriptsManager() { if (S && S.openScriptsManager) S.openScriptsManager(); }
+        function openAbout() { if (S && S.openAbout) S.openAbout(); }
 
         // Tapping anywhere on a row with a switch flips the switch, as in Android's own settings (before,
         // only the small switch itself reacted). Taps on the switch, buttons and text boxes keep their
