@@ -7,15 +7,40 @@
 // store instead of failing, so image chats keep working.
 //
 // Moved unchanged from a Java string in MainActivity (Phase 0.4); only line breaks were added.
+//
+// Memory cap (2026-10-01): the list keeps at most 20 MB of files, the oldest are forgotten first (the
+// newest file is always kept, even if it is bigger). Before, every file duck.ai ever made stayed in
+// memory until the page reloaded. The list is also what the offline-chat backup copies (dump_chats.js),
+// so it keeps the most recent images. A forgotten file can still be downloaded while the page uses it:
+// blob_fetch.js then reads it from the page itself.
 
 (function() {
     if (!window.blobHandlerInjected) {
         window.blobHandlerInjected = true;
         window.blobMap = window.blobMap || new Map();
+        var CAP_BYTES = 20 * 1024 * 1024;
+        var keptBytes = 0;
+        window.blobMap.forEach(function(b) { keptBytes += b.size; });
+        window.__duckForgetBlob = function(u) {
+            var old = window.blobMap.get(u);
+            if (old) { window.blobMap.delete(u); keptBytes -= old.size; }
+        };
+        function trimToCap() {
+            // A Map remembers the order things were added, so the first entries are the oldest.
+            for (const [key, blob] of window.blobMap) {
+                if (keptBytes <= CAP_BYTES || window.blobMap.size <= 1) break;
+                window.blobMap.delete(key);
+                keptBytes -= blob.size;
+            }
+        }
         const oC = URL.createObjectURL;
         URL.createObjectURL = function(b) {
             const u = oC.call(URL, b);
-            if (b instanceof Blob) window.blobMap.set(u, b);
+            if (b instanceof Blob) {
+                window.blobMap.set(u, b);
+                keptBytes += b.size;
+                trimToCap();
+            }
             console.log('Blob created: ' + u);
             return u;
         };
