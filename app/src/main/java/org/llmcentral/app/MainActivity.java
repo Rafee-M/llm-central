@@ -50,6 +50,7 @@ import org.llmcentral.app.storage.AppCache;
 import org.llmcentral.app.storage.StorageBridge;
 import org.llmcentral.app.storage.UploadCopies;
 import org.llmcentral.app.web.DesktopMode;
+import org.llmcentral.app.web.MicrophoneAccess;
 import org.llmcentral.app.web.DialogWebViewClient;
 import org.llmcentral.app.web.AppBridge;
 import org.llmcentral.app.web.NavigationPolicy;
@@ -150,6 +151,8 @@ public class MainActivity extends Activity {
     private boolean duckUsedSinceDump = false;
     // Saves files from the websites into Downloads (downloads/Downloader).
     private Downloader downloader;
+    // Microphone for voice chat: asks Android only when a page wants it (web/MicrophoneAccess).
+    private final MicrophoneAccess microphone = new MicrophoneAccess(this);
     private String lastFetchedChatsJson = "{}";
     private android.app.Dialog chatsViewerDialog = null;
     // true while duck.ai failed to load and the saved-chats window stands in for it (showOfflineChats).
@@ -320,11 +323,7 @@ public class MainActivity extends Activity {
         appliedNight = ThemeManager.isNight(this);
         applyTheme();
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[] { Manifest.permission.RECORD_AUDIO }, 123);
-            }
-        }
+        // The microphone is no longer asked for here: web/MicrophoneAccess asks when a page wants it.
 
         boolean restored = false;
         if (savedInstanceState != null) {
@@ -1363,6 +1362,8 @@ public class MainActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == Downloader.PERMISSION_REQUEST_CODE) {
             downloader.onPermissionResult(permissions, grantResults);
+        } else if (requestCode == MicrophoneAccess.REQUEST_CODE) {
+            microphone.onAndroidResult(grantResults);
         } else if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 openCamera();
@@ -2060,22 +2061,14 @@ public class MainActivity extends Activity {
 
         @Override
         public void onPermissionRequest(final PermissionRequest request) {
-            MainActivity.this.runOnUiThread(() -> {
-                // Microphone access (voice chat) only for the provider's own pages, never for
-                // embedded content from other sites (ads, trackers...).
-                Uri origin = request.getOrigin();
-                if (origin == null || !provider.ownsHost(origin.getHost())) {
-                    request.deny();
-                    return;
-                }
-                for (String resource : request.getResources()) {
-                    if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
-                        request.grant(new String[] { resource });
-                        return;
-                    }
-                }
-                request.deny();
-            });
+            // Microphone (voice chat): only for the provider's own pages; Android's permission is
+            // asked at this moment if the app doesn't have it yet (web/MicrophoneAccess).
+            MainActivity.this.runOnUiThread(() -> microphone.onPageRequest(request, provider));
+        }
+
+        @Override
+        public void onPermissionRequestCanceled(PermissionRequest request) {
+            MainActivity.this.runOnUiThread(() -> microphone.onPageRequestCanceled(request));
         }
 
         public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> filePathCallback,

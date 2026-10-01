@@ -30,4 +30,5 @@
     <string name="desktop_site">Desktop site</string>
     <string name="state_on">On</string>
     <string name="state_off">Off</string>
+    <string name="microphone_denied">Voice needs the microphone. You can allow it in App info → Permissions → Microphone.</string>
 </resources>
