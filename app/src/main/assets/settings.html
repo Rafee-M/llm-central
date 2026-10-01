@@ -112,6 +112,8 @@
             color: var(--md-on-surface-variant); flex-shrink: 0;
         }
         .icon-btn.tonal { background: var(--md-secondary-container); color: var(--md-on-secondary-container); width: 40px; height: 40px; }
+        /* Material 3: a 40px tonal button still gets a 48px touch area (an invisible ring around it). */
+        .icon-btn.tonal::before { content: ""; position: absolute; inset: -4px; }
         .icon-btn[disabled] { opacity: .38; pointer-events: none; }
         .text-btn, .tonal-btn {
             position: relative; overflow: hidden; border: 0; border-radius: 20px;
@@ -291,7 +293,7 @@
                 </button>
                 <div class="row">
                     <div class="text"><div class="title" id="l_uds">Shared items open in a drawer</div>
-                        <div class="sub">Text and documents shared to the app</div></div>
+                        <div class="sub">Text and files shared to the app</div></div>
                     <label class="switch"><input type="checkbox" role="switch" id="use_drawer_shared" aria-labelledby="l_uds"><span class="track"><span class="thumb"></span></span></label>
                 </div>
                 <!-- duck.ai-only extras: greyed out with a note when another account is chosen above. -->
@@ -314,8 +316,8 @@
                     <textarea id="ask_duck_suffix" placeholder="Optional, e.g. Explain like I'm 5"></textarea>
                 </div>
                 <div class="row block">
-                    <label class="field-label" for="shared_doc_suffix">Text added to shared documents</label>
-                    <textarea id="shared_doc_suffix" placeholder="Optional, e.g. Summarize this document"></textarea>
+                    <label class="field-label" for="shared_doc_suffix">Text added to shared files</label>
+                    <textarea id="shared_doc_suffix" placeholder="Optional, e.g. Summarize this file"></textarea>
                 </div>
             </div>
         </section>
@@ -945,6 +947,16 @@
                  } }]);
         }
         function openScriptsManager() { if (S && S.openScriptsManager) S.openScriptsManager(); }
+
+        // Tapping anywhere on a row with a switch flips the switch, as in Android's own settings (before,
+        // only the small switch itself reacted). Taps on the switch, buttons and text boxes keep their
+        // own behaviour; a disabled switch stays as it is.
+        document.addEventListener('click', (e) => {
+            const row = e.target.closest('.row');
+            if (!row || e.target.closest('label.switch, button, a, input, textarea, select')) return;
+            const input = row.querySelector('label.switch input');
+            if (input && !input.disabled) input.click();
+        });
 
         document.addEventListener('DOMContentLoaded', () => {
             loadSettings();
