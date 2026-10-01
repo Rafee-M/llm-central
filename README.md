@@ -44,7 +44,7 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 - 📁 **File support**: upload files/photos, download attachments to your Downloads folder.
 - 📄 **Share any file**: files shared to the app (documents, PDFs, images…) reach the chat exactly as
   they are, same name and content; tap 📎 on the page to attach them.
-- 💬 **Offline chat history** for duck.ai, shown automatically when there's no connection.
+- 💬 **Offline chat history** for duck.ai, shown automatically when there's no connection (can be switched off in Settings → Data & tools).
 - 🧩 **User scripts**: optional custom scripts per website (off by default, with a security warning).
 - 🌐 **External links** open in your normal browser.
 
