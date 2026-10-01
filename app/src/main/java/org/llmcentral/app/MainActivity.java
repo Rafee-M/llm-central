@@ -299,8 +299,11 @@ public class MainActivity extends Activity {
         // duck.ai's (default) profile gets the same cache cap as the accounts; old temporary files
         // (camera photos, and copies older versions left) are deleted in the background.
         Profiles.limitDefaultCache();
+        long startedAt = System.currentTimeMillis(); // taken now, before the job waits in the queue
         background.execute(() -> {
             AppCache.deleteTempFiles(this, AppCache.TEMP_MAX_AGE_MS, null);
+            // Copies of attached files from earlier runs: no page can still read them (UploadCopies).
+            UploadCopies.cleanUpAtStart(this, startedAt);
             // The offline document converter was removed (shared files are now sent as they are); its
             // 6.7 MB engine, downloaded by older versions, is no longer needed.
             new File(getFilesDir(), "anydoc_wasm_bg.wasm").delete();
