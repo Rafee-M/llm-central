@@ -31,7 +31,8 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 - 📥 **Downloads on every provider**, including files the chat creates itself (e.g. a CSV), saved to
   `Downloads/<Provider>/`.
 - 🔄 **Reload page** from the account menu, and 🧹 **Clear cache** (Settings → Data & tools; logins stay).
-- ⚙️ **Settings button on every provider** in the top bar; a minimal Material 3 settings screen.
+- ⚙️ **Settings button on every provider** in the top bar; a minimal Material 3 settings screen, with an
+  **About** page (version, developer, source code link).
 - 🔒 **Safer by design**: only duck.ai's own page can talk to the app, through a checked message bridge; the
   other chat sites get no bridge at all.
 
