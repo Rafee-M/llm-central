@@ -1982,12 +1982,15 @@ public class MainActivity extends Activity {
                 return false;
             }
 
-            // Redirect all other external links to the default browser
+            // Redirect all other external links to the default browser. CATEGORY_BROWSABLE: only apps
+            // that agree to be opened from web links may answer (what browsers do; a chat page can't
+            // start any other app this way). The address isn't logged: it may contain private text.
             try {
                 Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+                intent.addCategory(Intent.CATEGORY_BROWSABLE);
                 startActivity(intent);
             } catch (Throwable t) {
-                Log.e(TAG, "Error opening external link: " + url, t);
+                Log.e(TAG, "Error opening external link", t);
             }
             return true;
         }
