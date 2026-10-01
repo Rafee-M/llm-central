@@ -9,12 +9,12 @@ LLM Central puts several AI chat websites in one small app: duck.ai, ChatGPT, Cl
 <li><b>Files</b>: attach files and photos exactly as they are; save files the chat sites create, with their real names, to Downloads.</li>
 <li><b>Material You</b>: light, dark, black (OLED) or system theme, colour palettes or your wallpaper colours (Android 12+).</li>
 <li><b>Desktop site</b> toggle per account, sign-in pop-ups, reload page, hide the status bar.</li>
-<li><b>duck.ai extras</b>: voice chat from the assistant gesture and offline reading of your saved chats.</li>
+<li><b>duck.ai extras</b>: voice chat from the assistant gesture and offline reading of your saved chats (can be switched off; switching off deletes the saved copy).</li>
 <li><b>User scripts</b> per website (off by default, with a security warning).</li>
 <li><b>Clear cache</b> in Settings; logins stay.</li>
 </ul>
 
-<b>Privacy</b>: no ads, no analytics, no tracking. The app only connects to the chat websites you open. External links open in your browser.
+<b>Privacy</b>: no ads, no analytics, no tracking. The app only connects to the chat websites you open. External links open in your browser. The microphone and camera are only asked for when a chat page needs them.
 
 The chat services are run by their providers under their own terms; you need an account with each (except duck.ai). "Sign in with Google" doesn't work inside apps (Google blocks it), so use email login. LLM Central is not affiliated with or endorsed by any of these providers; their names and logos are trademarks of their owners.
 
