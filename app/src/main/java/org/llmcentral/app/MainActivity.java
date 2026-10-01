@@ -100,7 +100,10 @@ public class MainActivity extends Activity {
     // Types shared prompts into ChatGPT/Claude/DeepSeek/Z.ai's message box (web/PromptFiller).
     private PromptFiller promptFiller;
     // The user's accounts (names, which ones show in the menu). See account/AccountStore.
-    private AccountStore accounts;
+    // "volatile": the Settings page's account actions (account/AccountsBridge) run on WebView's bridge
+    // thread and read this field, while onResume may replace it on the main thread; volatile makes
+    // that thread see the new object. AccountStore's own methods are already synchronized.
+    private volatile AccountStore accounts;
     // Account shown last time, reopened on a normal launch. Round 3 saved a provider id under
     // "last_provider"; first accounts use their provider's id, so that old value still works.
     private static final String PREF_LAST_ACCOUNT = "last_account";
