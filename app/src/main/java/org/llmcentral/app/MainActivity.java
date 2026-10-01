@@ -1282,11 +1282,13 @@ public class MainActivity extends Activity {
         try {
             org.json.JSONArray array = new org.json.JSONArray();
             org.json.JSONObject script = new org.json.JSONObject();
-            script.put("id", "default_duck_clean");
-            script.put("name", "Duck.ai Ultra Clean Unified");
-            script.put("author", "iJahangard (https://github.com/iJahangard)");
-            script.put("description", "Unified, clean split-screen with centered items and coordinated floating buttons. Created by iJahangard.");
-            script.put("match", "*://*.duck.ai/*, *://*.duckduckgo.com/*");
+            // An example written for LLM Central (GPL-3.0-or-later). Until 2026-10-01 this was a
+            // third-party script without a licence (F-Droid requires every file to be free).
+            script.put("id", "example_larger_text");
+            script.put("name", "Example: larger text on duck.ai");
+            script.put("author", "LLM Central");
+            script.put("description", "Shows how user scripts work: makes duck.ai's text 10 % larger. Edit or delete it as you like.");
+            script.put("match", "*://*.duck.ai/*");
             script.put("enabled", false);
             script.put("code", js(Scripts.USER_SCRIPT_SAMPLE));
             array.put(script);
