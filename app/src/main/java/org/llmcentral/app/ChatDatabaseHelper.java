@@ -96,6 +96,26 @@ public class ChatDatabaseHelper extends SQLiteOpenHelper {
         }
     }
 
+    /**
+     * Deletes every saved copy of the chats: the file, a half-written ".tmp", the whole SQLite
+     * database and the copy older versions kept in the preferences. Used when the user turns
+     * "Offline chats" off (storage/OfflineChats). Deleting the database file (not just its row) also
+     * removes the old text from the file's free space. The helper reopens an empty database if it is
+     * needed again (SQLiteOpenHelper calls onCreate).
+     */
+    public synchronized void deleteAll() {
+        new File(context.getFilesDir(), CACHE_FILE_NAME).delete();
+        new File(context.getFilesDir(), CACHE_FILE_NAME + ".tmp").delete();
+        try {
+            close();
+            context.deleteDatabase(DATABASE_NAME);
+        } catch (Throwable t) {
+            Log.w(TAG, "Could not delete the chats database", t);
+        }
+        context.getSharedPreferences("duck_assist_prefs", Context.MODE_PRIVATE)
+                .edit().remove(KEY_CHATS_JSON).apply();
+    }
+
     public synchronized String getCachedChatsJson() {
         // 1. Try reading from internal file storage
         File cacheFile = new File(context.getFilesDir(), CACHE_FILE_NAME);

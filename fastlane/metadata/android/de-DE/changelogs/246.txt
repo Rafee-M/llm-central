@@ -1,6 +1,0 @@
-- Stabilität der Funktion „Letzten Chat fortsetzen“ verbessert.
-- Einstellungen im DuckDuckGo-Design mit automatischer Speicherung überarbeitet.
-- Auto-Fokus und Abwahlverhalten für Textfelder korrigiert.
-- Übermittlung von Bewertungen und Feedback wiederhergestellt.
-- Optionen (Kamera/Dateimanager) für Dateianhänge hinzugefügt.
-- Unterstützung für angepasste OS-Distributionen erweitert.

@@ -2,7 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -12,6 +11,9 @@
          without one (e.g. some tablets/Chromebooks). The camera is optional here (only for photo
          uploads), so declare it as not required. -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- RECORD_AUDIO would otherwise make a microphone "required", hiding the app in stores that filter
+         by hardware on devices without one. Voice is optional, like the camera. -->
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <application
         android:allowBackup="true"

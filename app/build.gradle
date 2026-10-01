@@ -47,6 +47,9 @@ android {
             keyPassword = 'android'
         }
         release {
+            // Optional local signing for your own testing only. Public releases are built UNSIGNED and
+            // signed afterwards with apksigner 34 by .github/workflows/release.yml: a Gradle-signed APK
+            // fails F-Droid's reproducible-build check (tested with apksigcopier; see RELEASE.md).
             // Load signing properties from local.properties
             def localProperties = new Properties()
             def localPropertiesFile = rootProject.file('local.properties')

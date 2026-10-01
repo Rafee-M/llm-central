@@ -1,12 +1,21 @@
-duckAssist is a lightweight, privacy-focused Android WebView wrapper designed specifically for Duck.ai (DuckDuckGo's private AI chat service). It bridges the gap between web and native by providing advanced integration features while maintaining the core privacy principles of DuckDuckGo.
+LLM Central puts several AI chat websites in one small app: duck.ai, ChatGPT, Claude, DeepSeek and Z.ai. Switch between them from the top bar as quickly as between browser tabs.
 
-Key Features:
-- Focused Interface: A clean, distraction-free environment tailored for AI chat, complete with a native progress bar.
-- Digital Assistant Integration: Set duckAssist as your device's default digital assistant app for instant access.
-- Auto-Voice Activation: Launching via the assistant shortcut automatically triggers a new voice chat.
-- "Ask duck.ai" Integration: Select text in any application and choose "Ask duck.ai" from the context menu to paste your query directly.
-- Smart Link Handling: External links open automatically in your system's default browser.
-- Enhanced Privacy: Session persistence is preserved, and the application cache is automatically purged when leaving/closing the app.
-- Native File Support: Seamlessly upload documents and download attachments.
-- Bottom Drawer Interface: Slide up a convenient bottom sheet drawer when using assistant shortcuts or sharing content to interact with the AI without losing your background app context.
-- Customizable Prompts & UI Settings: Configure bottom drawer panel behavior, assistant voice options, and default prompt suffixes for text and document sharing via a custom-styled HTML settings page.
+<b>Features</b>
+<ul>
+<li><b>Several accounts per provider</b> (e.g. ChatGPT "Work" and "Personal"), each in its own container with separate logins, cookies and site data. Rename, hide, re-order, sign out or remove them in Settings.</li>
+<li><b>Instant switching</b>: up to 3 accounts stay loaded (1–5, changeable); others reload when opened.</li>
+<li><b>Assistant and sharing</b>: set the app as your digital assistant, share text or files to it, or select text anywhere and choose "Ask AI". You choose which account each of these opens.</li>
+<li><b>Prompt pre-fill</b>: shared text lands in the chosen chat's message box, ready to edit and send.</li>
+<li><b>Files</b>: attach files and photos exactly as they are; save files the chat sites create, with their real names, to Downloads.</li>
+<li><b>Material You</b>: light, dark, black (OLED) or system theme, colour palettes or your wallpaper colours (Android 12+).</li>
+<li><b>Desktop site</b> toggle per account, sign-in pop-ups, reload page, hide the status bar.</li>
+<li><b>duck.ai extras</b>: voice chat from the assistant gesture and offline reading of your saved chats (can be switched off; switching off deletes the saved copy).</li>
+<li><b>User scripts</b> per website (off by default, with a security warning).</li>
+<li><b>Clear cache</b> in Settings; logins stay.</li>
+</ul>
+
+<b>Privacy</b>: no ads, no analytics, no tracking. The app only connects to the chat websites you open. External links open in your browser. The microphone and camera are only asked for when a chat page needs them.
+
+The chat services are run by their providers under their own terms; you need an account with each (except duck.ai). "Sign in with Google" doesn't work inside apps (Google blocks it), so use email login. LLM Central is not affiliated with or endorsed by any of these providers; their names and logos are trademarks of their owners.
+
+LLM Central is a fork of duckAssist by diekaiju, itself a fork of gptAssist by woheller69.

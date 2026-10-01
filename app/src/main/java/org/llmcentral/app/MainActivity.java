@@ -39,7 +39,6 @@ import android.webkit.PermissionRequest;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.content.SharedPreferences;
-import android.os.StrictMode;
 import android.os.Looper;
 
 
@@ -47,9 +46,11 @@ import android.os.Looper;
 import org.llmcentral.app.scripts.UserScriptMatcher;
 import org.llmcentral.app.downloads.Downloader;
 import org.llmcentral.app.storage.AppCache;
+import org.llmcentral.app.storage.OfflineChats;
 import org.llmcentral.app.storage.StorageBridge;
 import org.llmcentral.app.storage.UploadCopies;
 import org.llmcentral.app.web.DesktopMode;
+import org.llmcentral.app.web.MicrophoneAccess;
 import org.llmcentral.app.web.DialogWebViewClient;
 import org.llmcentral.app.web.AppBridge;
 import org.llmcentral.app.web.NavigationPolicy;
@@ -61,6 +62,7 @@ import org.llmcentral.app.account.AccountStore;
 import org.llmcentral.app.provider.PromptPrefill;
 import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
+import org.llmcentral.app.ui.AboutWindow;
 import org.llmcentral.app.ui.ProviderBadge;
 import org.llmcentral.app.ui.SwitcherPopup;
 import org.llmcentral.app.account.AccountsBridge;
@@ -99,7 +101,10 @@ public class MainActivity extends Activity {
     // Types shared prompts into ChatGPT/Claude/DeepSeek/Z.ai's message box (web/PromptFiller).
     private PromptFiller promptFiller;
     // The user's accounts (names, which ones show in the menu). See account/AccountStore.
-    private AccountStore accounts;
+    // "volatile": the Settings page's account actions (account/AccountsBridge) run on WebView's bridge
+    // thread and read this field, while onResume may replace it on the main thread; volatile makes
+    // that thread see the new object. AccountStore's own methods are already synchronized.
+    private volatile AccountStore accounts;
     // Account shown last time, reopened on a normal launch. Round 3 saved a provider id under
     // "last_provider"; first accounts use their provider's id, so that old value still works.
     private static final String PREF_LAST_ACCOUNT = "last_account";
@@ -150,6 +155,8 @@ public class MainActivity extends Activity {
     private boolean duckUsedSinceDump = false;
     // Saves files from the websites into Downloads (downloads/Downloader).
     private Downloader downloader;
+    // Microphone for voice chat: asks Android only when a page wants it (web/MicrophoneAccess).
+    private final MicrophoneAccess microphone = new MicrophoneAccess(this);
     private String lastFetchedChatsJson = "{}";
     private android.app.Dialog chatsViewerDialog = null;
     // true while duck.ai failed to load and the saved-chats window stands in for it (showOfflineChats).
@@ -220,9 +227,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        StrictMode.VmPolicy.Builder StrictBuilder = new StrictMode.VmPolicy.Builder();
-        StrictMode.setVmPolicy(StrictBuilder.build());
-
+        // No StrictMode override any more (2026-10-01, VERIFICATION O-H4): until then an empty policy
+        // here switched off Android's check against file:// addresses leaving the app, only so the
+        // Android 7–9 download notification worked. That now uses a content:// address
+        // (downloads/Downloader.sharedAddress), so Android's default check stays on.
         setActivityTheme();
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -261,6 +269,9 @@ public class MainActivity extends Activity {
 
         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
         background.execute(() -> {
+            if (!OfflineChats.isEnabled(MainActivity.this)) {
+                return; // setting "Offline chats" is off: nothing saved to load
+            }
             try {
                 String cached = ChatDatabaseHelper.getInstance(MainActivity.this).getCachedChatsJson();
                 if (cached != null && !cached.equals("{}") && !cached.isEmpty()) {
@@ -293,8 +304,11 @@ public class MainActivity extends Activity {
         // duck.ai's (default) profile gets the same cache cap as the accounts; old temporary files
         // (camera photos, and copies older versions left) are deleted in the background.
         Profiles.limitDefaultCache();
+        long startedAt = System.currentTimeMillis(); // taken now, before the job waits in the queue
         background.execute(() -> {
             AppCache.deleteTempFiles(this, AppCache.TEMP_MAX_AGE_MS, null);
+            // Copies of attached files from earlier runs: no page can still read them (UploadCopies).
+            UploadCopies.cleanUpAtStart(this, startedAt);
             // The offline document converter was removed (shared files are now sent as they are); its
             // 6.7 MB engine, downloaded by older versions, is no longer needed.
             new File(getFilesDir(), "anydoc_wasm_bg.wasm").delete();
@@ -320,11 +334,7 @@ public class MainActivity extends Activity {
         appliedNight = ThemeManager.isNight(this);
         applyTheme();
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[] { Manifest.permission.RECORD_AUDIO }, 123);
-            }
-        }
+        // The microphone is no longer asked for here: web/MicrophoneAccess asks when a page wants it.
 
         boolean restored = false;
         if (savedInstanceState != null) {
@@ -713,6 +723,7 @@ public class MainActivity extends Activity {
                         obj.put("ask_duck_suffix", prefs.getString("ask_duck_suffix", ""));
                         obj.put("shared_doc_suffix", prefs.getString("shared_doc_suffix", ""));
                         obj.put("max_live_tabs", prefs.getInt(PREF_MAX_LIVE_TABS, 3));
+                        obj.put("offline_chats", OfflineChats.isEnabled(MainActivity.this));
                     } catch (Exception e) {
                         Log.e(TAG, "Error generating settings JSON", e);
                     }
@@ -826,12 +837,41 @@ public class MainActivity extends Activity {
                     runOnUiThread(() -> dialog.dismiss());
                 }
 
+                /**
+                 * Settings → Data & tools → "Offline chats (duck.ai)" (storage/OfflineChats). The page
+                 * asks for confirmation before turning it off, because off deletes the saved chats.
+                 */
+                @JavascriptInterface
+                public void setOfflineChats(boolean on) {
+                    OfflineChats.setEnabled(MainActivity.this, on);
+                    if (!on) {
+                        lastFetchedChatsJson = "{}";
+                        // Same single background thread as the chat save: a save already running
+                        // finishes first and is then deleted; a later one sees the setting is off.
+                        background.execute(() -> ChatDatabaseHelper.getInstance(MainActivity.this).deleteAll());
+                    }
+                    runOnUiThread(() -> {
+                        if (chatWebView != null) {
+                            safeEvaluateJavascript(chatWebView, OfflineChats.pageSwitch(on));
+                        }
+                        if (!on) {
+                            retryDuckIfOffline(); // the saved chats were standing in for duck.ai
+                        }
+                    });
+                }
+
                 @JavascriptInterface
                 public void openChatsViewer() {
                     runOnUiThread(() -> {
                         dialog.dismiss();
                         fetchChatsAndShowViewer();
                     });
+                }
+
+                /** Settings → About: opens on top; Settings stays open underneath (ui/AboutWindow). */
+                @JavascriptInterface
+                public void openAbout() {
+                    runOnUiThread(() -> AboutWindow.show(MainActivity.this));
                 }
 
                 @JavascriptInterface
@@ -959,6 +999,10 @@ public class MainActivity extends Activity {
     /** Receives duck.ai's chat dump (from the message bridge), merges it with the saved copy and stores it. */
     private void onChatsFetched(String jsonStr) {
         background.execute(() -> {
+            if (!OfflineChats.isEnabled(MainActivity.this)) {
+                isRequestingViewer = false;
+                return; // setting "Offline chats" is off: never store chats
+            }
             if (jsonStr == null || jsonStr.isEmpty() || jsonStr.equals("{}")) {
                 if (isRequestingViewer) {
                     isRequestingViewer = false;
@@ -1106,6 +1150,10 @@ public class MainActivity extends Activity {
 
     private void fetchChatsAndShowViewer() {
         runOnUiThread(() -> {
+            if (!OfflineChats.isEnabled(this)) {
+                Toast.makeText(this, R.string.offline_chats_off, Toast.LENGTH_SHORT).show();
+                return;
+            }
             isRequestingViewer = true;
             String currentUrl = chatWebView.getUrl();
             if (currentUrl != null && (currentUrl.startsWith("https://duck.ai") || currentUrl.startsWith("https://duckduckgo.com"))) {
@@ -1126,6 +1174,9 @@ public class MainActivity extends Activity {
      * If the duck.ai tab isn't on screen, the window waits until the user switches to it.
      */
     private void showOfflineChats(WebView duckView) {
+        if (!OfflineChats.isEnabled(this)) {
+            return; // setting off: WebView's own error page stays
+        }
         duckOffline = true;
         if (isVisibleTab(duckView) && (chatsViewerDialog == null || !chatsViewerDialog.isShowing())) {
             showChatsViewerDialog();
@@ -1283,11 +1334,13 @@ public class MainActivity extends Activity {
         try {
             org.json.JSONArray array = new org.json.JSONArray();
             org.json.JSONObject script = new org.json.JSONObject();
-            script.put("id", "default_duck_clean");
-            script.put("name", "Duck.ai Ultra Clean Unified");
-            script.put("author", "iJahangard (https://github.com/iJahangard)");
-            script.put("description", "Unified, clean split-screen with centered items and coordinated floating buttons. Created by iJahangard.");
-            script.put("match", "*://*.duck.ai/*, *://*.duckduckgo.com/*");
+            // An example written for LLM Central (GPL-3.0-or-later). Until 2026-10-01 this was a
+            // third-party script without a licence (F-Droid requires every file to be free).
+            script.put("id", "example_larger_text");
+            script.put("name", "Example: larger text on duck.ai");
+            script.put("author", "LLM Central");
+            script.put("description", "Shows how user scripts work: makes duck.ai's text 10 % larger. Edit or delete it as you like.");
+            script.put("match", "*://*.duck.ai/*");
             script.put("enabled", false);
             script.put("code", js(Scripts.USER_SCRIPT_SAMPLE));
             array.put(script);
@@ -1363,6 +1416,8 @@ public class MainActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == Downloader.PERMISSION_REQUEST_CODE) {
             downloader.onPermissionResult(permissions, grantResults);
+        } else if (requestCode == MicrophoneAccess.REQUEST_CODE) {
+            microphone.onAndroidResult(grantResults);
         } else if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 openCamera();
@@ -1453,6 +1508,9 @@ public class MainActivity extends Activity {
             applyTheme();
         }
         refreshAccounts();
+        if (!OfflineChats.isEnabled(this)) {
+            lastFetchedChatsJson = "{}"; // turned off in the other screen: drop the copy in memory too
+        }
         if (tabManager != null) {
             syncDesktopMode(tabManager.current());
             if (tabManager.current().isDuck()) {
@@ -1511,7 +1569,7 @@ public class MainActivity extends Activity {
         // Save duck.ai's chats for offline reading, but only if duck.ai was used since the last save:
         // the dump reads every chat and image, too much work to repeat when only other accounts were
         // used (round 6).
-        if (duckUsedSinceDump && chatWebView != null && chatWebView.getUrl() != null
+        if (duckUsedSinceDump && OfflineChats.isEnabled(this) && chatWebView != null && chatWebView.getUrl() != null
                 && chatWebView.getUrl().startsWith("https://duck")) {
             duckUsedSinceDump = false;
             chatWebView.evaluateJavascript(js(Scripts.DUMP_CHATS), null);
@@ -1890,8 +1948,10 @@ public class MainActivity extends Activity {
             }
 
             if (rendererRecoveryTimes.size() >= MAX_RECOVERIES_PER_MINUTE) {
-                Toast.makeText(MainActivity.this,
-                        "The chat page keeps crashing. Showing saved chats instead.", Toast.LENGTH_LONG).show();
+                Toast.makeText(MainActivity.this, OfflineChats.isEnabled(MainActivity.this)
+                        ? "The chat page keeps crashing. Showing saved chats instead."
+                        : "The chat page keeps crashing. Try \"Reload page\" in the account menu later.",
+                        Toast.LENGTH_LONG).show();
                 chatWebView.loadUrl("about:blank");
                 showOfflineChats(chatWebView);
             } else {
@@ -1922,12 +1982,15 @@ public class MainActivity extends Activity {
                 return false;
             }
 
-            // Redirect all other external links to the default browser
+            // Redirect all other external links to the default browser. CATEGORY_BROWSABLE: only apps
+            // that agree to be opened from web links may answer (what browsers do; a chat page can't
+            // start any other app this way). The address isn't logged: it may contain private text.
             try {
                 Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+                intent.addCategory(Intent.CATEGORY_BROWSABLE);
                 startActivity(intent);
             } catch (Throwable t) {
-                Log.e(TAG, "Error opening external link: " + url, t);
+                Log.e(TAG, "Error opening external link", t);
             }
             return true;
         }
@@ -1959,7 +2022,8 @@ public class MainActivity extends Activity {
                 injectUserScripts(view, url);
                 return;
             }
-            safeEvaluateJavascript(view, js(Scripts.BLOB_DOWNLOAD_PATCH));
+            safeEvaluateJavascript(view, OfflineChats.pageFlag(OfflineChats.isEnabled(MainActivity.this))
+                    + js(Scripts.BLOB_DOWNLOAD_PATCH));
             safeEvaluateJavascript(view, js(Scripts.CLIPBOARD_PATCH));
             safeEvaluateJavascript(view, js(Scripts.IMAGE_ZOOM_MONITOR));
             SharedPreferences prefs = view.getContext().getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
@@ -2021,7 +2085,8 @@ public class MainActivity extends Activity {
             if (isSafeMode || !provider.isDuck()) return; // helper scripts are duck.ai-only
             if (newProgress > 5 && !hasInjectedProgressJs) {
                 hasInjectedProgressJs = true;
-                safeEvaluateJavascript(view, js(Scripts.BLOB_DOWNLOAD_PATCH));
+                safeEvaluateJavascript(view, OfflineChats.pageFlag(OfflineChats.isEnabled(MainActivity.this))
+                        + js(Scripts.BLOB_DOWNLOAD_PATCH));
                 safeEvaluateJavascript(view, js(Scripts.CLIPBOARD_PATCH));
                 safeEvaluateJavascript(view, js(Scripts.SWIPE_SCROLL));
                 SharedPreferences prefs = view.getContext().getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
@@ -2060,22 +2125,14 @@ public class MainActivity extends Activity {
 
         @Override
         public void onPermissionRequest(final PermissionRequest request) {
-            MainActivity.this.runOnUiThread(() -> {
-                // Microphone access (voice chat) only for the provider's own pages, never for
-                // embedded content from other sites (ads, trackers...).
-                Uri origin = request.getOrigin();
-                if (origin == null || !provider.ownsHost(origin.getHost())) {
-                    request.deny();
-                    return;
-                }
-                for (String resource : request.getResources()) {
-                    if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
-                        request.grant(new String[] { resource });
-                        return;
-                    }
-                }
-                request.deny();
-            });
+            // Microphone (voice chat): only for the provider's own pages; Android's permission is
+            // asked at this moment if the app doesn't have it yet (web/MicrophoneAccess).
+            MainActivity.this.runOnUiThread(() -> microphone.onPageRequest(request, provider));
+        }
+
+        @Override
+        public void onPermissionRequestCanceled(PermissionRequest request) {
+            MainActivity.this.runOnUiThread(() -> microphone.onPageRequestCanceled(request));
         }
 
         public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> filePathCallback,

@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-cache-path name="my_images" path="." />
+    <!-- Android 7–9: files the chat pages make are saved to Download/<folder>/ (downloads/Downloader).
+         The "download completed" notification hands them to other apps as content:// addresses from
+         here, because Android forbids file:// addresses between apps (FileUriExposedException). -->
+    <external-path name="downloads" path="Download/" />
     <cache-path name="my_images_cache" path="." />
 </paths>

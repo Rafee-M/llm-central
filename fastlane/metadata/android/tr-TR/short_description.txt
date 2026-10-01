@@ -1,1 +1,0 @@
-Duck.ai için hafif, gizlilik odaklı WebView sarmalayıcı

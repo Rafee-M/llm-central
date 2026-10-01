@@ -34,8 +34,17 @@ import java.util.concurrent.atomic.AtomicLong;
  * ordinary file whose time stays put, so the check passes.</p>
  *
  * <p>Copies live in {@code cache/uploads/<number>/<original name>} (a folder each, so the original
- * name can be kept even when two files share it). {@link AppCache} deletes them after a day, and
- * Settings → Clear cache deletes them at once.</p>
+ * name can be kept even when two files share it).</p>
+ *
+ * <p><b>When copies are deleted.</b> WebView doesn't tell the app when a page has finished reading
+ * (uploading) a file, so a copy can't be deleted "right after the upload". Instead:</p>
+ * <ul>
+ *   <li>at every app start, all copies from earlier runs ({@link #cleanUpAtStart}): after a restart
+ *       no page can still be reading them;</li>
+ *   <li>whenever a file is attached, copies older than {@link #KEEP_MS} (1 hour): sites start
+ *       uploading as soon as a file is attached;</li>
+ *   <li>Settings → Clear cache: all of them.</li>
+ * </ul>
  */
 public final class UploadCopies {
 
@@ -43,7 +52,14 @@ public final class UploadCopies {
     /** Folder inside the app's (internal) cache folder. */
     static final String DIR = "uploads";
 
+    /** Copies older than this are deleted whenever a new file is attached (1 hour). */
+    static final long KEEP_MS = 60L * 60 * 1000;
+
     private static final AtomicLong counter = new AtomicLong();
+    // Start-up clean-up runs once per app process: the screen is rebuilt in the same process (e.g.
+    // light/dark switch) or the assistant drawer opens, and copies made in this run must survive that.
+    private static final java.util.concurrent.atomic.AtomicBoolean startCleanUpDone =
+            new java.util.concurrent.atomic.AtomicBoolean();
     /**
      * Its own threads, not the app's shared background thread: picking a file sends the app to the
      * background, which starts duck.ai's offline-chat save on that thread, and the copy mustn't wait
@@ -68,12 +84,36 @@ public final class UploadCopies {
         Context app = context.getApplicationContext();
         Handler main = new Handler(Looper.getMainLooper());
         copier.execute(() -> {
+            AppCache.deleteOldFolders(new File(app.getCacheDir(), DIR), System.currentTimeMillis() - KEEP_MS);
             Uri[] result = new Uri[files.length];
             for (int i = 0; i < files.length; i++) {
                 result[i] = copy(app, files[i]);
             }
             main.post(() -> done.onDone(result));
         });
+    }
+
+    /**
+     * App start: deletes the copies made before {@code startedAtMillis}, once per app process.
+     * Run it on a background thread; take {@code startedAtMillis} when the app starts (not when the
+     * job runs), so a file attached while the job waits in the queue isn't deleted.
+     *
+     * @return how many copies were deleted (0 if it already ran in this process)
+     */
+    public static int cleanUpAtStart(Context context, long startedAtMillis) {
+        return cleanUpAtStart(new File(context.getCacheDir(), DIR), startedAtMillis);
+    }
+
+    static int cleanUpAtStart(File uploadsDir, long startedAtMillis) {
+        if (!startCleanUpDone.compareAndSet(false, true)) {
+            return 0;
+        }
+        return AppCache.deleteOldFolders(uploadsDir, startedAtMillis);
+    }
+
+    /** For tests: lets {@link #cleanUpAtStart} run again. */
+    static void resetForTest() {
+        startCleanUpDone.set(false);
     }
 
     /** @return a {@code file://} address of the copy, or {@code uri} itself if it isn't copied. */
