@@ -3,7 +3,7 @@
     DeepSeek logo, drawn white on the provider's coloured circle by ui/ProviderBadge.
     Source: Lobe Icons 1.95.1, icons/deepseek.svg (https://github.com/lobehub/lobe-icons), MIT licence,
     Copyright (c) 2023 LobeHub. The logo is a trademark of DeepSeek; it is used only to name the
-    service. Path rewritten with plain absolute commands (svgpath 2: unarc, rel, round 2), because
+    service. Path rewritten without arcs, in relative commands (svgpath 2: unarc, rel, round 2), because
     Android's path reader can misread SVG's compact arc notation. See THIRD_PARTY_NOTICES.md.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"

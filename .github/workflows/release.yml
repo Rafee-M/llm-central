@@ -1,0 +1,205 @@
+name: Release
+
+# Builds, signs and publishes a release APK (RELEASE.md section 4).
+#
+# How a release is signed, and why (tested 2026-09-30, RELEASE.md section 4):
+#   F-Droid rebuilds the same tagged commit itself, copies our signature onto its own build
+#   (apksigcopier) and publishes our APK only if that copy verifies ("reproducible build").
+#   That works only if the APK is built UNSIGNED and signed afterwards with apksigner from
+#   build-tools 34. apksigner 35 and Gradle's own signing put the signature where F-Droid's
+#   copy fails. So: no Gradle signing here, ever.
+#
+# Three ways to run it:
+#   1. Push a tag "v<versionName>" (e.g. v0.1.0)   → real key, creates the GitHub release.
+#      Publishing a release with a new tag on GitHub's Releases page also works (event "release"); if
+#      GitHub fires both events, the runs queue up and the second one re-uploads the same APK.
+#   2. Actions → Release → "Run workflow"           → DRY RUN: builds and signs, publishes nothing.
+#      Choose the key: "test" (a throw-away key made in the run) or "real" (the four secrets,
+#      to rehearse step 9 of VERIFICATION.md §0b and read the real fingerprint).
+#   3. A pull request that changes this file or app/build.gradle → DRY RUN with a test key, so a
+#      broken workflow is noticed before a release depends on it.
+# Only way 1 can publish: the "publish" job runs for tags only (a tag push or a published release).
+
+on:
+  push:
+    tags: [ 'v*' ]
+  release:
+    types: [ published ]
+  workflow_dispatch:
+    inputs:
+      key:
+        description: 'Dry run (publishes nothing). Sign with: test = throw-away key, real = the release secrets'
+        type: choice
+        options: [ test, real ]
+        default: test
+  pull_request:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/release.yml'
+      - 'app/build.gradle'
+
+# Least privilege: read-only everywhere; only the publish job may write (create the release).
+permissions:
+  contents: read
+
+# One run per tag (or per branch for dry runs); a second run for the same tag waits instead of racing.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  BUILD_TOOLS: '34.0.0'        # apksigner version: 34, never 35 (see top)
+  APKSIGCOPIER: '1.1.1'        # the version F-Droid's check was rehearsed with
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.name }}
+      apk: ${{ steps.sign.outputs.apk }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          java-version: 17
+          distribution: temurin
+          cache: gradle
+
+      # Reads versionName/versionCode from app/build.gradle; for a tag, they must match.
+      - name: Check version, tag and changelog
+        id: version
+        run: |
+          NAME=$(sed -n 's/^ *versionName = "\(.*\)"/\1/p' app/build.gradle)
+          CODE=$(sed -n 's/^ *versionCode = \([0-9]*\)/\1/p' app/build.gradle)
+          if [ -z "$NAME" ] || [ -z "$CODE" ]; then
+            echo "::error::Could not read versionName/versionCode from app/build.gradle"; exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match versionName $NAME (expected v$NAME)"; exit 1
+          fi
+          LOG="fastlane/metadata/android/en-US/changelogs/$CODE.txt"
+          if [ ! -s "$LOG" ]; then
+            echo "::error::Missing changelog $LOG (F-Droid's \"What's new\")"; exit 1
+          fi
+          LEN=$(tr -d '\n' < "$LOG" | wc -m)
+          if [ "$LEN" -gt 500 ]; then
+            echo "::error::$LOG has $LEN characters; F-Droid allows 500"; exit 1
+          fi
+          { echo "name=$NAME"; echo "code=$CODE"; echo "changelog=$LOG"; } >> "$GITHUB_OUTPUT"
+          echo "Version $NAME (code $CODE), changelog $LEN characters" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Test, lint and build the unsigned release APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon test lint assembleRelease
+
+      - name: Install apksigner ${{ env.BUILD_TOOLS }} and apksigcopier ${{ env.APKSIGCOPIER }}
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;$BUILD_TOOLS" > /dev/null
+          pip install --quiet "apksigcopier==$APKSIGCOPIER"
+
+      # Key and passwords exist only inside this one step (never in $GITHUB_ENV, so later steps can't see them);
+      # the keystore lives in the runner's temporary folder and is deleted at the end of the step.
+      - name: Sign with apksigner ${{ env.BUILD_TOOLS }}
+        id: sign
+        env:
+          VERSION: ${{ steps.version.outputs.name }}
+          KEY_CHOICE: ${{ github.event_name == 'workflow_dispatch' && inputs.key || ((github.event_name == 'push' || github.event_name == 'release') && 'real' || 'test') }}
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          KS="$RUNNER_TEMP/release.jks"
+          trap 'rm -f "$KS"' EXIT
+          if [ "$KEY_CHOICE" = "real" ]; then
+            if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+              echo "::error::The four RELEASE_* secrets are not all set (RELEASE.md section 3)"; exit 1
+            fi
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$KS"
+            export KS_PASS="$KEYSTORE_PASSWORD" KEY_PASS="$KEY_PASSWORD"
+          else
+            # Throw-away key, made fresh for this run: proves the signing steps work, signs nothing real.
+            PASS=$(openssl rand -hex 16)
+            echo "::add-mask::$PASS"
+            KEY_ALIAS=dryrun
+            keytool -genkeypair -keystore "$KS" -alias "$KEY_ALIAS" -keyalg RSA -keysize 4096 -validity 1 \
+              -storepass "$PASS" -keypass "$PASS" -dname "CN=LLM Central dry run (not a release key)" > /dev/null 2>&1
+            export KS_PASS="$PASS" KEY_PASS="$PASS"
+          fi
+          BT="$ANDROID_HOME/build-tools/$BUILD_TOOLS"
+          UNSIGNED=app/build/outputs/apk/release/app-release-unsigned.apk
+          OUT="LLMCentral-$VERSION.apk"
+          # apksigner needs a 4-byte-aligned APK; AGP's output already is, this only checks it.
+          # Signature schemes: v2 + v3 (apksigner's choice for minSdk 24); v4 off (it would be a separate .idsig file)
+          "$BT/zipalign" -c -p 4 "$UNSIGNED"
+          "$BT/apksigner" sign --ks "$KS" --ks-pass env:KS_PASS --ks-key-alias "$KEY_ALIAS" \
+            --key-pass env:KEY_PASS --v4-signing-enabled false --out "$OUT" "$UNSIGNED"
+          "$BT/apksigner" verify --verbose --print-certs "$OUT" | tee verify.txt
+          echo "apk=$OUT" >> "$GITHUB_OUTPUT"
+          echo "Signing key: **$KEY_CHOICE**" >> "$GITHUB_STEP_SUMMARY"
+
+      # F-Droid's own check: copy our signature onto the unsigned APK and verify it. If this fails, F-Droid
+      # could not publish our APK either.
+      - name: F-Droid signature check (apksigcopier compare)
+        env:
+          APK: ${{ steps.sign.outputs.apk }}
+        run: |
+          BT="$ANDROID_HOME/build-tools/$BUILD_TOOLS"
+          apksigcopier compare --unsigned --verify-cmd "$BT/apksigner verify" \
+            "$APK" app/build/outputs/apk/release/app-release-unsigned.apk
+          echo "apksigcopier compare: **passed**" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Summary (fingerprint for F-Droid's AllowedAPKSigningKeys)
+        env:
+          APK: ${{ steps.sign.outputs.apk }}
+        run: |
+          FP=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' verify.txt)
+          {
+            echo "APK: \`$APK\`, $(stat -c %s "$APK") bytes"
+            echo "APK SHA-256: \`$(sha256sum "$APK" | cut -d' ' -f1)\`"
+            echo "Signer #1 certificate SHA-256 digest: \`$FP\`"
+            echo "(The fingerprint of a test key is meaningless; only a run with the real key gives F-Droid's value.)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the signed APK (kept 7 days; a dry run's only output)
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ steps.version.outputs.name }}-${{ github.sha }}
+          path: ${{ steps.sign.outputs.apk }}
+          retention-days: 7
+          if-no-files-found: error
+
+  # Publishes only for a tag. Dry runs (manual or pull request) never reach this job.
+  publish:
+    needs: build
+    if: (github.event_name == 'push' || github.event_name == 'release') && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: release-${{ needs.build.outputs.version }}-${{ github.sha }}
+
+      - name: Create the GitHub release (or add the APK to an existing one)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+          APK: ${{ needs.build.outputs.apk }}
+        run: |
+          CODE=$(sed -n 's/^ *versionCode = \([0-9]*\)/\1/p' app/build.gradle)
+          {
+            cat "fastlane/metadata/android/en-US/changelogs/$CODE.txt"
+            echo
+            echo "SHA-256 of \`$APK\`: \`$(sha256sum "$APK" | cut -d' ' -f1)\`"
+          } > notes.md
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$APK" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$APK" --title "LLM Central $VERSION" --notes-file notes.md --verify-tag
+          fi

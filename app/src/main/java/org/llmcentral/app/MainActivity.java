@@ -88,7 +88,7 @@ public class MainActivity extends Activity {
     private final static int CAMERA_REQUEST_CODE = 2;
     private final static int CAMERA_PERMISSION_REQUEST_CODE = 124;
     private Uri cameraImageUri = null;
-    private final String TAG = "duckAssist";
+    private final String TAG = "LLMCentral";
     private final boolean restricted = false;
     private boolean pendingVoiceChat = false;
     private boolean pendingAutoFocus = false;
@@ -1334,7 +1334,7 @@ public class MainActivity extends Activity {
         try {
             org.json.JSONArray array = new org.json.JSONArray();
             org.json.JSONObject script = new org.json.JSONObject();
-            // An example written for LLM Central (GPL-3.0-or-later). Until 2026-10-01 this was a
+            // An example written for LLM Central (GPL-3.0-only, like the app). Until 2026-10-01 this was a
             // third-party script without a licence (F-Droid requires every file to be free).
             script.put("id", "example_larger_text");
             script.put("name", "Example: larger text on duck.ai");

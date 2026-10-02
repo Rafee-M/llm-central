@@ -2,7 +2,7 @@
 // @name         Example: larger text on duck.ai
 // @description  Shows how user scripts work: makes duck.ai's text 10 % larger. Edit or delete it as you like.
 // @author       LLM Central
-// @license      GPL-3.0-or-later
+// @license      GPL-3.0-only
 // @match        *://*.duck.ai/*
 // @grant        GM_addStyle
 // ==/UserScript==

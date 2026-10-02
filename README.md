@@ -1,3 +1,5 @@
+<img src="artwork/icon.svg" width="96" height="96" alt="LLM Central app icon: a speech bubble with five pixel sprites on green">
+
 # LLM Central
 
 > **Status: early development.** duck.ai, ChatGPT, Claude, DeepSeek and Z.ai work as switchable tabs, with
@@ -6,7 +8,7 @@
 
 **LLM Central** is a lightweight, privacy-focused Android app that puts several AI chat websites in one
 place: duck.ai, ChatGPT, Claude, DeepSeek, Z.ai and more, with several isolated accounts per provider and
-instant switching between them, while keeping the APK tiny (~276 KB).
+instant switching between them, while keeping the APK tiny (~226 KB).
 
 It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju, which is itself a fork of
 [gptAssist](https://github.com/woheller69/gptAssist) by woheller69.
@@ -77,5 +79,6 @@ GPLv3 (see [LICENSE](LICENSE)). If you distribute the app, you must also offer i
 The app uses:
 - Parts from GMaps WV (https://gitlab.com/divested-mobile/maps), licensed under the GPLv3.
 - Code from duckAssist and gptAssist (GPLv3).
-- Provider logos from Lobe Icons (MIT); the logos are trademarks of their owners. See
+- Provider logos from Lobe Icons (MIT) and, for duck.ai, Simple Icons (CC0); the logos are trademarks of their
+  owners. See
   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

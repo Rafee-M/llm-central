@@ -566,7 +566,8 @@
 
     <script>
         // The example offered when no scripts exist yet; same text as assets/js/user_script_sample.js
-        // (MainActivity.getDefaultScriptsJson). Written for LLM Central, GPL-3.0-or-later like the app.
+        // (MainActivity.getDefaultScriptsJson). Written for LLM Central, GPL-3.0-only like the app
+        // (the app must be GPL-3.0-only: it contains gptAssist code, which is GPL-3.0-only).
         const DEFAULT_SAMPLE_SCRIPT = {
             id: "example_larger_text",
             name: "Example: larger text on duck.ai",
@@ -578,7 +579,7 @@
 // @name         Example: larger text on duck.ai
 // @description  Shows how user scripts work: makes duck.ai's text 10 % larger. Edit or delete it as you like.
 // @author       LLM Central
-// @license      GPL-3.0-or-later
+// @license      GPL-3.0-only
 // @match        *://*.duck.ai/*
 // @grant        GM_addStyle
 // ==/UserScript==
