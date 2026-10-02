@@ -51,27 +51,32 @@ async function readArtwork(page, svgText) {
         const svg = document.querySelector('svg');
         const vb = svg.viewBox.baseVal;
         const shapes = [];
+        // things this reader does not understand: report them instead of drawing something wrong
+        const unsupported = [...svg.querySelectorAll('clipPath, mask, pattern, linearGradient, radialGradient, filter, use, image, text, symbol, marker, foreignObject')]
+            .map(el => el.tagName);
         for (const el of svg.querySelectorAll('*')) {
             const tag = el.tagName.toLowerCase();
             if (!['rect', 'path', 'circle', 'ellipse', 'line', 'polygon', 'polyline', 'text', 'image', 'use'].includes(tag)) continue;
             const cs = getComputedStyle(el);
-            if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+            if (cs.visibility === 'hidden' || cs.display === 'none' || el.closest('defs')) continue;
             const m = el.getCTM();
             shapes.push({
                 tag,
                 ctm: [m.a, m.b, m.c, m.d, m.e, m.f],
                 attr: Object.fromEntries([...el.attributes].map(a => [a.name, a.value])),
-                fill: cs.fill, stroke: cs.stroke, strokeWidth: parseFloat(cs.strokeWidth),
+                fill: cs.fill, fillRule: cs.fillRule, stroke: cs.stroke, strokeWidth: parseFloat(cs.strokeWidth),
                 lineJoin: cs.strokeLinejoin, opacity: [cs.opacity, cs.fillOpacity, cs.strokeOpacity].map(Number),
             });
         }
-        return { viewBox: [vb.x, vb.y, vb.width, vb.height], shapes };
+        return { viewBox: [vb.x, vb.y, vb.width, vb.height], shapes, unsupported };
     });
 }
 
 // ---------- 2. geometry in artwork units ----------
 
 function fail(msg) { throw new Error(msg + '\n(artwork/icon.svg uses something tools/icon/generate.mjs does not support)'); }
+/** Stops for a problem with the drawing itself (e.g. too big), not with the SVG features it uses. */
+function stop(msg) { throw new Error(msg); }
 
 function transformOf(s) {
     const [a, b, c, d, e, f] = s.ctm;
@@ -140,6 +145,7 @@ function toShape(s) {
     const t = transformOf(s);
     const fill = colourOf(s.fill, 'fill'), stroke = colourOf(s.stroke, 'stroke');
     const strokeWidth = stroke ? s.strokeWidth * t.k : 0;
+    const evenOdd = s.fillRule === 'evenodd';
     if (stroke && s.lineJoin !== 'round') fail(`stroke corners must be round (stroke-linejoin: round)`);
     if (s.tag === 'rect') {
         const n = k => Number(s.attr[k] || 0);
@@ -147,11 +153,11 @@ function toShape(s) {
         if (Math.abs(rx - ry) > 1e-6) fail('rect corners must be circular (rx = ry)');
         const [x, y] = t.map(n('x'), n('y'));
         const w = n('width') * t.k, h = n('height') * t.k;
-        return { kind: 'roundRect', x, y, w, h, r: Math.min(rx * t.k, w / 2, h / 2), fill, stroke, strokeWidth };
+        return { kind: 'roundRect', x, y, w, h, r: Math.min(rx * t.k, w / 2, h / 2), fill, stroke, strokeWidth, evenOdd };
     }
     if (s.tag === 'path') {
         const polys = snap(parsePolygons(s.attr.d).map(p => p.map(([x, y]) => t.map(x, y))));
-        return { kind: 'polygons', polys, fill, stroke, strokeWidth };
+        return { kind: 'polygons', polys, fill, stroke, strokeWidth, evenOdd };
     }
     fail(`<${s.tag}> elements`);
 }
@@ -238,9 +244,9 @@ function monochromeShapes(fg) {
     if (!ok) fail('the foreground is expected as: bubble (rect), tail (stroked path), screen (rect), then sprite paths');
     const inside = (outer, inner) => inner.x >= outer.x && inner.y >= outer.y
         && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h;
-    if (!inside(bubble, screen)) fail('the screen must lie inside the bubble');
+    if (!inside(bubble, screen)) stop('the screen must lie inside the bubble');
     for (const s of sprites) for (const [x, y] of s.polys.flat()) {
-        if (x < screen.x || x > screen.x + screen.w || y < screen.y || y > screen.y + screen.h) fail('sprites must lie inside the screen');
+        if (x < screen.x || x > screen.x + screen.w || y < screen.y || y > screen.y + screen.h) stop('sprites must lie inside the screen');
     }
     const screenBottom = screen.y + screen.h, bubbleBottom = bubble.y + bubble.h;
     const yMid = (screenBottom + bubbleBottom) / 2;
@@ -260,7 +266,7 @@ function monochromeShapes(fg) {
         if (moved[i] === pts[i]) continue;
         const [x, y] = moved[i];
         // the moved corner (with its round stroke) must sit in the cream frame: inside the bubble, below the screen
-        if (!(circleInRoundRect(x, y, r, ring) && y - r > screenBottom)) fail('the moved tail corner does not fit in the frame');
+        if (!(circleInRoundRect(x, y, r, ring) && y - r > screenBottom)) stop('the moved tail corner does not fit in the cream frame (is the frame thinner than the tail outline?)');
     }
     return { bubble, screen, tail: { ...tail, polys: [moved] }, sprites, yMid };
 }
@@ -273,6 +279,7 @@ async function main() {
     try {
         const page = await browser.newPage();
         const art = await readArtwork(page, svgText);
+        if (art.unsupported.length) fail(`<${[...new Set(art.unsupported)].join('>, <')}> elements`);
         const [vx, vy, W, H] = art.viewBox;
         if (vx !== 0 || vy !== 0 || W !== H) fail(`the canvas must be square and start at 0 0 (viewBox ${art.viewBox.join(' ')})`);
 
@@ -287,7 +294,7 @@ async function main() {
 
         // safe zone: the foreground must fit in the 66 dp circle
         const far = farthest(fg, W / 2) * out.scale;
-        if (far > SAFE_RADIUS_DP) fail(`the foreground reaches ${far.toFixed(2)} dp from the centre; the safe zone is ${SAFE_RADIUS_DP} dp`);
+        if (far > SAFE_RADIUS_DP) stop(`the foreground reaches ${far.toFixed(2)} dp from the centre; the safe zone is ${SAFE_RADIUS_DP} dp`);
 
         // background colour
         writeFileSync(join(RES, 'values', 'ic_launcher_background.xml'), '<?xml version="1.0" encoding="utf-8"?>\n' + HEADER
@@ -303,14 +310,17 @@ async function main() {
             out.pathXml(out.pathData(mono.bubble) + out.pathData(mono.screen), { ...white, evenOdd: true }),
             out.pathXml(out.pathData(mono.tail), { ...white, stroke: '#FFFFFF', strokeWidth: mono.tail.strokeWidth }),
             // one path per sprite colour, as in the foreground (lint's VectorPath warns about very long paths)
-            ...mono.sprites.map(s => out.pathXml(out.pathData(s), white)),
+            ...mono.sprites.map(s => out.pathXml(out.pathData(s), { ...white, evenOdd: s.evenOdd })),
         ]);
         writeFileSync(join(RES, 'drawable', 'ic_launcher_monochrome.xml'), monoXml);
 
         // PNGs: the artwork itself (with its rounded background), drawn by Chromium straight at each size
         const png = async (px, file) => {
+            // draw the SVG at exactly px x px: replace its own width/height (the viewBox keeps the drawing the same)
+            const open = /<svg\b[^>]*>/.exec(svgText)[0];
+            if (!/\swidth="[^"]*"/.test(open) || !/\sheight="[^"]*"/.test(open)) fail('the <svg> tag needs width and height');
             const sized = svgText.replace(/<\?xml[^>]*>|<!DOCTYPE[^>]*>/g, '')
-                .replace(/(<svg\b[^>]*?)\swidth="[^"]*"\s+height="[^"]*"/, `$1 width="${px}" height="${px}"`);
+                .replace(open, open.replace(/\swidth="[^"]*"/, ` width="${px}"`).replace(/\sheight="[^"]*"/, ` height="${px}"`));
             await page.setViewportSize({ width: px, height: px });
             await page.setContent(`<!doctype html><body style="margin:0;background:transparent">${sized.replace('<svg ', '<svg style="display:block" ')}</body>`);
             mkdirSync(dirname(file), { recursive: true });

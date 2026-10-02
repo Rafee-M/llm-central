@@ -2,6 +2,9 @@
 
 LLM Central is free software (see `LICENSE`). It includes the following material from other projects.
 
+(Not third-party, listed so reviewers don't have to ask: the app icon, `artwork/icon.svg` and every icon file made from
+it by `tools/icon`, is the project owner's own artwork, under the same licence as the app.)
+
 ## Provider logos (ChatGPT, Claude, DeepSeek)
 
 Files: `app/src/main/res/drawable/ic_logo_chatgpt.xml`, `ic_logo_claude.xml`, `ic_logo_deepseek.xml`,
