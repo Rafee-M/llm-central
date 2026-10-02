@@ -5,16 +5,28 @@ LLM Central is free software (see `LICENSE`). It includes the following material
 (Not third-party, listed so reviewers don't have to ask: the app icon, `artwork/icon.svg` and every icon file made from
 it by `tools/icon`, is the project owner's own artwork, under the same licence as the app.)
 
-## Provider logos (ChatGPT, Claude, DeepSeek)
+## Provider logo: duck.ai (DuckDuckGo)
+
+File: `app/src/main/res/drawable/ic_logo_duck.xml`, and the same shape in `app/src/main/assets/settings.html`
+(`LOGOS`, original path).
+
+Source: [Simple Icons](https://simpleicons.org) 16.33.0 (`simple-icons` npm package, file `icons/duckduckgo.svg`),
+released under **CC0 1.0 Universal** (public domain dedication; no attribution required, credited here anyway).
+For Android the path was rewritten without arcs (same shape, 3 decimals) and split into three paths.
+
+The logo is a trademark of DuckDuckGo. LLM Central uses it only to show that an account is duck.ai, DuckDuckGo's
+chat service; it is not affiliated with or endorsed by DuckDuckGo.
+
+## Provider logos (ChatGPT, Claude, DeepSeek, Z.ai)
 
 Files: `app/src/main/res/drawable/ic_logo_chatgpt.xml`, `ic_logo_claude.xml`, `ic_logo_deepseek.xml`,
-and the same shapes in `app/src/main/assets/settings.html` (`LOGOS`).
+`ic_logo_zai.xml`, and the same shapes in `app/src/main/assets/settings.html` (`LOGOS`, original paths).
 
 Source: [Lobe Icons](https://github.com/lobehub/lobe-icons) 1.95.1 (`@lobehub/icons-static-svg`,
-files `icons/openai.svg`, `icons/claude.svg`, `icons/deepseek.svg`). The path data was rewritten with
-plain absolute commands (same shapes) so Android's vector reader handles it.
+files `icons/openai.svg`, `icons/claude.svg`, `icons/deepseek.svg`, `icons/zai.svg`). For Android the path data
+was rewritten without arcs, in relative commands (same shapes), so Android's vector reader handles it.
 
-The logos are trademarks of their owners (OpenAI, Anthropic, DeepSeek). LLM Central uses them only to
+The logos are trademarks of their owners (OpenAI, Anthropic, DeepSeek, Z.ai / Zhipu AI). LLM Central uses them only to
 show which service an account belongs to; it is not affiliated with or endorsed by these companies.
 
 ```
