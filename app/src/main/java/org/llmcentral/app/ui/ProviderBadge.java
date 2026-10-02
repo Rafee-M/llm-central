@@ -12,8 +12,9 @@ import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
 
 /**
- * Draws a provider's "icon": a circle in the provider's colour with its logo in white (ChatGPT,
- * Claude, DeepSeek), or with 1–2 letters for the others (e.g. an orange "D" for duck.ai).
+ * Draws a provider's "icon": a circle in the provider's colour with its logo in white (duck.ai,
+ * ChatGPT, Claude, DeepSeek, Z.ai), or with 1–2 letters if a provider has no logo (its
+ * {@code badgeText}, e.g. "DS").
  *
  * <p><b>How:</b> the circle is a {@link GradientDrawable}, a shape Android draws at runtime. The
  * logos are vector drawables built into the app ({@code res/drawable/ic_logo_*.xml}; nothing is
@@ -69,12 +70,16 @@ public final class ProviderBadge {
 
     /** @return the provider's built-in logo, or 0 if it has none (it then shows its letters). */
     static int logoFor(ProviderSpec provider) {
-        if (provider == Providers.CHATGPT) {
+        if (provider == Providers.DUCK) {
+            return R.drawable.ic_logo_duck;
+        } else if (provider == Providers.CHATGPT) {
             return R.drawable.ic_logo_chatgpt;
         } else if (provider == Providers.CLAUDE) {
             return R.drawable.ic_logo_claude;
         } else if (provider == Providers.DEEPSEEK) {
             return R.drawable.ic_logo_deepseek;
+        } else if (provider == Providers.ZAI) {
+            return R.drawable.ic_logo_zai;
         }
         return 0;
     }

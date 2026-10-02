@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Z.ai logo, drawn white on the provider's coloured circle by ui/ProviderBadge.
+    Source: Lobe Icons 1.95.1, icons/zai.svg (https://github.com/lobehub/lobe-icons), MIT licence,
+    Copyright (c) 2023 LobeHub. The logo is a trademark of Z.ai (Zhipu AI); it is used only to name the
+    service. Path rewritten with plain relative commands, 2 decimals (svgpath 2.6.0: rel, round 2); the
+    source has no arcs. See THIRD_PARTY_NOTICES.md and CHANGES.md (2026-10-02, provider logos).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M12.11 2l-2.18 2.95h-9.28l2.18-2.95h9.28z m11.14 17.05l-2.17 2.95h-9.24l2.17-2.95h9.24z m0.75-17.05l-14.74 20h-9.26l14.74-20h9.26z" />
+</vector>
