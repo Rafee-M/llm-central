@@ -32,6 +32,10 @@ import java.util.Map;
  * (see {@link TabLru}). Hidden tabs are paused and marked "less important", so Android frees their
  * memory first when it runs low. duck.ai is the "home" tab: it's the WebView from the layout, it
  * carries the app's extra features, and it's never closed.</p>
+ *
+ * <p><b>Unloading:</b> the account menu's "Unload tab" button closes the tab on screen to free its
+ * memory but keeps that account selected; a placeholder (ui/UnloadedPlaceholder: black, app icon) is
+ * shown instead until the account is opened again ({@link #unloadCurrent()}).</p>
  */
 public final class TabManager {
 
@@ -61,6 +65,8 @@ public final class TabManager {
     private final ArrayDeque<Long> recoveryTimes = new ArrayDeque<>();
     private Account current;
     private int maxLiveTabs;
+    // Shown instead of a page while the account on screen is unloaded (see unloadCurrent); may be null.
+    private View placeholder;
 
     /**
      * @param duckView    the WebView from the layout, already configured; becomes the duck.ai tab
@@ -110,6 +116,37 @@ public final class TabManager {
             }
         }
         return names;
+    }
+
+    /**
+     * The view to show while the account on screen is unloaded. It must already be in the tab container,
+     * drawn above the WebViews; TabManager only switches it between VISIBLE and GONE.
+     */
+    public void setPlaceholder(View placeholder) {
+        this.placeholder = placeholder;
+        updatePlaceholder();
+    }
+
+    /** @return true if the account on screen has no loaded tab (it was unloaded; the placeholder shows). */
+    public boolean isCurrentUnloaded() {
+        return !liveTabs.containsKey(current.id);
+    }
+
+    /**
+     * The account menu's "Unload tab": closes the tab on screen (its WebView is destroyed and its memory
+     * freed) but keeps the account selected, so the top bar still names it and the placeholder shows.
+     * Opening the account again (account menu, Reload, or a tap on the placeholder) loads its home page.
+     * duck.ai's tab is the pinned home tab and is never unloaded.
+     *
+     * @return true if a tab was unloaded; false for duck.ai or a tab that is already unloaded
+     */
+    public boolean unloadCurrent() {
+        if (current.isDuck() || !liveTabs.containsKey(current.id)) {
+            return false;
+        }
+        closeTab(current.id);
+        updatePlaceholder();
+        return true;
     }
 
     /** @return true if the account's tab is loaded (showing it won't load a page). */
@@ -162,6 +199,7 @@ public final class TabManager {
         target.setVisibility(View.VISIBLE);
         target.onResume();
         current = account;
+        updatePlaceholder();
         lru.touch(account.id);
         if (isNew || startUrl != null) {
             target.loadUrl(startUrl != null ? startUrl : Providers.byId(account.providerId).homeUrl);
@@ -193,10 +231,14 @@ public final class TabManager {
             }
         }
         Account fresh = accounts.find(current.id);
-        current = fresh != null ? fresh : accounts.duck();
-        if (!liveTabs.containsKey(current.id)) {
-            show(current);
-        } else if (listener != null) {
+        if (fresh == null) {
+            // The account on screen was removed (its tab was closed above, or it was unloaded): duck.ai.
+            show(accounts.duck());
+            return;
+        }
+        current = fresh;
+        // An unloaded account stays unloaded (placeholder); a loaded one stays as it is.
+        if (listener != null) {
             listener.onAccountShown(current); // e.g. refresh the top bar after a rename
         }
     }
@@ -325,6 +367,13 @@ public final class TabManager {
     private static void lowerPriorityWhenHidden(WebView webView) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true);
+        }
+    }
+
+    /** The placeholder is visible exactly while the account on screen has no loaded tab. */
+    private void updatePlaceholder() {
+        if (placeholder != null) {
+            placeholder.setVisibility(isCurrentUnloaded() ? View.VISIBLE : View.GONE);
         }
     }
 
