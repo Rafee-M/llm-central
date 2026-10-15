@@ -128,11 +128,12 @@ public final class SwitcherPopup {
         accountsBox.setOrientation(LinearLayout.VERTICAL);
         scroller.addView(accountsBox);
         list.addView(scroller);
+        boolean markLoaded = host.showActiveDot(); // a setting; it can't change while the menu is open
         Runnable fillAccounts = () -> {
             accountsBox.removeAllViews(); // never add rows twice (the switch can be flipped many times)
             for (Account account : SwitcherModel.rows(accounts, host::isLoaded, host.activeOnly(), current.id)) {
                 accountsBox.addView(createAccountRow(context, scheme, account, account.id.equals(current.id),
-                        host.showActiveDot() && host.isLoaded(account.id), v -> {
+                        markLoaded && host.isLoaded(account.id), v -> {
                             popup.dismiss();
                             host.pick(account);
                         }));
