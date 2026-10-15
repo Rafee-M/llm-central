@@ -115,7 +115,8 @@ public final class UserScripts {
      * The code is the user's own, so it isn't escaped: it runs with the page's rights either way.
      */
     public static String invocation(String runner, String id, String code) {
-        return runner + "(" + JSONObject.quote(id) + ",function(GM_addStyle,unsafeWindow){\n" + code + "\n})";
+        // The inner { } lets a script declare its own "const GM_addStyle" without a duplicate-name error.
+        return runner + "(" + JSONObject.quote(id) + ",function(GM_addStyle,unsafeWindow){{\n" + code + "\n}})";
     }
 
     /** The script's id, or "script_&lt;position&gt;" for older entries without one. */

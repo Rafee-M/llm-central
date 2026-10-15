@@ -44,7 +44,7 @@ import android.os.Looper;
 
 
 
-import org.llmcentral.app.scripts.UserScriptMatcher;
+import org.llmcentral.app.scripts.UserScripts;
 import org.llmcentral.app.downloads.Downloader;
 import org.llmcentral.app.storage.AppCache;
 import org.llmcentral.app.storage.BackupImages;
@@ -1480,64 +1480,29 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * Runs the user's own scripts that apply to this page (Settings → Data &amp; tools → User scripts).
+     * Which ones, and how, is decided in scripts/UserScripts; each runs once per page
+     * (assets/js/user_script_run.js), so a second "page finished" for the same page changes nothing.
+     */
     private void injectUserScripts(WebView view, String url) {
         if (isSafeMode || view == null) return;
+        String scriptsJson = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE).getString(UserScripts.PREF, null);
+        if (scriptsJson == null) {
+            return; // never saved: the only script is the switched-off example
+        }
         try {
-            SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-            String scriptsJson = prefs.getString("user_scripts", null);
-            if (scriptsJson == null || scriptsJson.trim().isEmpty()) {
-                scriptsJson = getDefaultScriptsJson();
-                prefs.edit().putString("user_scripts", scriptsJson).apply();
-            }
             org.json.JSONArray array = new org.json.JSONArray(scriptsJson);
             for (int i = 0; i < array.length(); i++) {
                 org.json.JSONObject item = array.getJSONObject(i);
-                if (!item.optBoolean("enabled", false)) {
-                    continue;
+                if (UserScripts.shouldRun(item, url)) {
+                    safeEvaluateJavascript(view,
+                            UserScripts.invocation(js(Scripts.USER_SCRIPT_RUN), UserScripts.idOf(item, i), item.optString("code")));
                 }
-                String code = item.optString("code", "");
-                if (code.trim().isEmpty()) {
-                    continue;
-                }
-
-                String matchPatterns = item.optString("match", "*://*.duck.ai/*");
-                // Only run the script on the sites listed in its "match" setting (see UserScriptMatcher).
-                if (!UserScriptMatcher.matchesAny(url, matchPatterns)) {
-                    continue;
-                }
-
-                String wrapped = wrapUserScriptCode(code);
-                safeEvaluateJavascript(view, wrapped);
             }
         } catch (Exception e) {
             Log.e(TAG, "Error injecting user scripts", e);
         }
-    }
-
-    private String wrapUserScriptCode(String code) {
-        return "(function() {\n" +
-               "  try {\n" +
-               "    if (typeof window.GM_addStyle === 'undefined') {\n" +
-               "      window.GM_addStyle = function(css) {\n" +
-               "        var head = document.getElementsByTagName('head')[0] || document.documentElement;\n" +
-               "        var style = document.createElement('style');\n" +
-               "        style.type = 'text/css';\n" +
-               "        style.appendChild(document.createTextNode(css));\n" +
-               "        head.appendChild(style);\n" +
-               "        return style;\n" +
-               "      };\n" +
-               "    }\n" +
-               "    if (typeof GM_addStyle === 'undefined') {\n" +
-               "      var GM_addStyle = window.GM_addStyle;\n" +
-               "    }\n" +
-               "    if (typeof unsafeWindow === 'undefined') {\n" +
-               "      var unsafeWindow = window;\n" +
-               "    }\n" +
-               code + "\n" +
-               "  } catch (err) {\n" +
-               "    console.error('UserScript execution error:', err);\n" +
-               "  }\n" +
-               "})();";
     }
 
     @Override

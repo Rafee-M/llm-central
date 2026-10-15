@@ -77,7 +77,9 @@ public class UserScriptsTest {
     @Test
     public void invocationQuotesIdAndWrapsCodeInAFunction() {
         String call = UserScripts.invocation("RUN", "a\"b", "go();");
-        assertEquals("RUN(\"a\\\"b\",function(GM_addStyle,unsafeWindow){\ngo();\n})", call);
+        // The inner { } block lets a script declare its own "const GM_addStyle" (it shadows the parameter
+        // instead of being a duplicate declaration, which is a syntax error).
+        assertEquals("RUN(\"a\\\"b\",function(GM_addStyle,unsafeWindow){{\ngo();\n}})", call);
     }
 
     @Test
