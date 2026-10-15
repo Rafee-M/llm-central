@@ -793,7 +793,7 @@ public class MainActivity extends Activity {
                             autoFocus = false;
                         }
                         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                        // "Providers kept loaded" (1–5); anything else from the page is clamped.
+                        // "Accounts kept loaded" (1–10); anything else from the page is clamped.
                         int maxTabs = Math.max(TabLru.MIN_LIVE_TABS,
                                 Math.min(TabLru.MAX_LIVE_TABS, obj.optInt("max_live_tabs", 3)));
                         boolean oldRtl = prefs.getBoolean("rtl_resolver", false);
@@ -846,7 +846,7 @@ public class MainActivity extends Activity {
                             autoFocus = false;
                         }
                         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                        // "Providers kept loaded" (1–5); anything else from the page is clamped.
+                        // "Accounts kept loaded" (1–10); anything else from the page is clamped.
                         int maxTabs = Math.max(TabLru.MIN_LIVE_TABS,
                                 Math.min(TabLru.MAX_LIVE_TABS, obj.optInt("max_live_tabs", 3)));
                         boolean oldRtl = prefs.getBoolean("rtl_resolver", false);
