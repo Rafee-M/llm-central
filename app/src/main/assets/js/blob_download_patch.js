@@ -96,7 +96,7 @@
         IDBDatabase.prototype.transaction = function(storeNames, mode) {
             var names = Array.isArray(storeNames) ? storeNames : [storeNames];
             if (names.indexOf('chat-images') !== -1 && !this.objectStoreNames.contains('chat-images')) {
-                console.warn('[DuckAssist] Providing fallback for missing chat-images store');
+                console.warn('[LLMCentral] Providing fallback for missing chat-images store');
                 var storeMap = window.__duckImgStore;
                 var txListeners = {};
                 var fakeTx = {

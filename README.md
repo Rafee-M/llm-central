@@ -16,7 +16,7 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 ## Features available today
 
 - 🔀 **Several AI providers in one app**: duck.ai, ChatGPT, Claude, DeepSeek and Z.ai. Tap the chip in the
-  top bar to switch; up to 3 accounts (changeable in Settings, 1–5) stay loaded, so switching back is instant.
+  top bar to switch; up to 3 accounts (changeable in Settings, 1–10) stay loaded, so switching back is instant.
 - 👥 **Several accounts per provider** (e.g. ChatGPT "Work" and "Personal"), each in its own container with
   separate logins, cookies and site data. Name them, choose which ones appear in the menu, sign out or remove
   them in Settings → Accounts. (Needs a recent Android System WebView.)
@@ -28,11 +28,13 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 - ✍️ **Prompt pre-fill on every provider**: shared text lands in the chosen chat's message box, ready to edit and send.
 - ↕️ **Re-order accounts** (Settings → Accounts → ⋮ → Move up / Move down).
 - 🔑 **Sign-in pop-ups** (e.g. "Continue with Microsoft/Apple/GitHub") open in the right account.
-- 🖥️ **Desktop site** toggle in the top bar, remembered per account.
+- 🖥️ **Desktop site** toggle in the account menu, remembered per account.
 - ⛶ **Hide status bar** (Settings → Appearance) for more room.
 - 📥 **Downloads on every provider**, including files the chat creates itself (e.g. a CSV), saved to
   `Downloads/<Provider>/`.
-- 🔄 **Reload page** from the account menu, and 🧹 **Clear cache** (Settings → Data & tools; logins stay).
+- 🗂️ **Account menu tools**: Desktop site, 🔄 Reload page, Reset text size, **Unload tab** (frees memory) and Clear cache
+  as one icon row; an **Active accounts** switch lists only the loaded accounts (optional green dot, Settings → Appearance).
+- 🧹 **Clear cache** (Settings → Data & tools; logins stay).
 - ⚙️ **Settings button on every provider** in the top bar; a minimal Material 3 settings screen, with an
   **About** page (version, developer, source code link).
 - 🔒 **Safer by design**: only duck.ai's own page can talk to the app, through a checked message bridge; the

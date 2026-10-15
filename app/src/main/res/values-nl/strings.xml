@@ -1,9 +1,4 @@
 <resources>
-    <string name="error_microsoft_google">Inloggen via een account van Google, Apple of Microsoft wordt niet ondersteund</string>
-    <string name="error_copy">Selecteer de tekst handmatig om deze te kopiëren</string>
-    <!-- StarDialog -->
     <string name="download">Download gestart:</string>
-    <string name="all_urls">Alle URL\'s toegestaan</string>
-    <string name="urls_restricted">Toegestane URL\'s beperkt</string>
     <string name="url_copied">gekopieerd naar klembord</string>
 </resources>

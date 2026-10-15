@@ -13,6 +13,7 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
@@ -66,7 +67,9 @@ import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
 import org.llmcentral.app.ui.AboutWindow;
 import org.llmcentral.app.ui.ProviderBadge;
+import org.llmcentral.app.ui.SwitcherModel;
 import org.llmcentral.app.ui.SwitcherPopup;
+import org.llmcentral.app.ui.UnloadedPlaceholder;
 import org.llmcentral.app.account.AccountsBridge;
 import org.llmcentral.app.account.DefaultAccounts;
 import org.llmcentral.app.theme.AppearanceBridge;
@@ -115,6 +118,8 @@ public class MainActivity extends Activity {
     // (recreate()) so websites and system dialogs switch too. See theme/ThemeManager.
     private boolean appliedNight;
     private static final String PREF_MAX_LIVE_TABS = "max_live_tabs";
+    /** The account menu's "Active accounts" switch: list only loaded accounts (ui/SwitcherModel.rows). */
+    private static final String PREF_SWITCHER_ACTIVE_ONLY = "switcher_active_only";
     // Android's original "uncaught exception" handler (the one that closes a crashed app). See onCreate.
     private static Thread.UncaughtExceptionHandler systemCrashHandler;
     private boolean isImageZoomActive = false;
@@ -333,6 +338,12 @@ public class MainActivity extends Activity {
                         + " keeps crashing and was closed.", Toast.LENGTH_LONG).show();
             }
         }, prefs.getInt(PREF_MAX_LIVE_TABS, 3));
+        // Shown while the account on screen is unloaded (account menu → "Unload tab"); a tap loads it again.
+        // Added last to the tab container, so it is drawn above every tab's WebView.
+        View unloaded = UnloadedPlaceholder.create(this, () -> tabManager.show(tabManager.current()));
+        ((ViewGroup) chatWebView.getParent()).addView(unloaded, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        tabManager.setPlaceholder(unloaded);
         DesktopMode.applySaved(this, prefs, chatWebView, accounts.duck()); // before duck.ai's first page load
         setupTopBar();
         updateTopBar(tabManager.current());
@@ -368,7 +379,8 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Connects the native top bar (layout/top_bar.xml): the chip opens the account switcher, the gear
+     * Connects the native top bar (layout/top_bar.xml): the chip opens the account menu (accounts, the
+     * icon row with Desktop site / Reload / Reset text size / Unload tab, and "Active accounts"), the gear
      * opens settings. Works the same for every provider (PROJECT.md R-SW-1/2), unlike duckAssist's
      * settings button, which was injected into duck.ai's page only.
      */
@@ -376,24 +388,141 @@ public class MainActivity extends Activity {
         View chip = findViewById(R.id.providerChip);
         if (chip != null) {
             chip.setOnClickListener(v -> SwitcherPopup.show(v, accounts.visible(), tabManager.current(),
-                    ThemeManager.scheme(this), account -> tabManager.show(account),
-                    this::reloadCurrentTab, () -> openSettings("accounts")));
+                    ThemeManager.scheme(this), switcherHost));
         }
         View settings = findViewById(R.id.settingsButton);
         if (settings != null) {
             settings.setOnClickListener(v -> openSettings(null));
         }
-        View desktop = findViewById(R.id.desktopButton);
-        if (desktop != null) {
-            desktop.setOnClickListener(v -> toggleDesktopMode());
-        }
     }
 
     /**
+     * What "Clear cache" needs from this screen (storage/StorageBridge): used by Settings → Data &amp; tools
+     * and by the account menu's icon, so both clear exactly the same things.
+     *
+     * @param page the settings page to answer (cache size), or null for the account menu
+     */
+    private StorageBridge.Host storageHost(WebView page) {
+        return new StorageBridge.Host() {
+            @Override
+            public void runOnUiThread(Runnable action) {
+                MainActivity.this.runOnUiThread(action);
+            }
+
+            @Override
+            public void clearWebViewCaches() {
+                for (WebView tab : tabManager.liveWebViews()) {
+                    tab.clearCache(true); // this tab's own account (profile) only
+                }
+                Profiles.clearClosedProfileCaches(MainActivity.this, tabManager.liveProfileNames());
+            }
+
+            @Override
+            public java.util.Set<String> filesInUse() {
+                return sharedFilesInUse();
+            }
+
+            @Override
+            public void sendToPage(String script) {
+                if (page != null) {
+                    page.evaluateJavascript(script, null);
+                }
+            }
+        };
+    }
+
+    /** What the account menu (ui/SwitcherPopup) can ask of this screen; the rules are in ui/SwitcherModel. */
+    private final SwitcherPopup.Host switcherHost = new SwitcherPopup.Host() {
+        @Override
+        public void pick(Account account) {
+            tabManager.show(account);
+        }
+
+        @Override
+        public boolean isLoaded(String accountId) {
+            return tabManager.isLoaded(accountId);
+        }
+
+        @Override
+        public boolean isDesktopOn() {
+            return DesktopMode.isOn(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), tabManager.current().id);
+        }
+
+        @Override
+        public void toggleDesktop() {
+            toggleDesktopMode();
+        }
+
+        @Override
+        public void reload() {
+            reloadCurrentTab();
+        }
+
+        @Override
+        public boolean pinchZoomsPage() {
+            return PageZoom.isOn(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE));
+        }
+
+        @Override
+        public int textZoom() {
+            return getSharedPreferences("duck_assist_prefs", MODE_PRIVATE)
+                    .getInt("text_zoom", SwitcherModel.DEFAULT_TEXT_ZOOM);
+        }
+
+        @Override
+        public void resetTextSize() {
+            int value = SwitcherModel.DEFAULT_TEXT_ZOOM;
+            getSharedPreferences("duck_assist_prefs", MODE_PRIVATE).edit().putInt("text_zoom", value).apply();
+            applyTextZoom(value);
+            Toast.makeText(MainActivity.this, R.string.text_size_reset, Toast.LENGTH_SHORT).show();
+        }
+
+        @Override
+        public boolean canUnload() {
+            Account current = tabManager.current();
+            return SwitcherModel.canUnload(current, tabManager.isLoaded(current.id));
+        }
+
+        @Override
+        public void unload() {
+            if (tabManager.unloadCurrent() && progressBar != null) {
+                progressBar.setVisibility(View.GONE); // the closed tab's loading bar must not stay
+            }
+        }
+
+        @Override
+        public void clearCache() {
+            StorageBridge.clearAll(MainActivity.this, background, storageHost(null));
+            Toast.makeText(MainActivity.this, R.string.cache_cleared, Toast.LENGTH_SHORT).show();
+        }
+
+        @Override
+        public boolean activeOnly() {
+            return getSharedPreferences("duck_assist_prefs", MODE_PRIVATE).getBoolean(PREF_SWITCHER_ACTIVE_ONLY, false);
+        }
+
+        @Override
+        public void setActiveOnly(boolean on) {
+            getSharedPreferences("duck_assist_prefs", MODE_PRIVATE).edit()
+                    .putBoolean(PREF_SWITCHER_ACTIVE_ONLY, on).apply();
+        }
+
+        @Override
+        public boolean showActiveDot() {
+            return ThemeManager.isActiveDotShown(MainActivity.this);
+        }
+    };
+
+    /**
      * The account menu's "Reload page": loads the page on screen again (e.g. when it's stuck). A tab
-     * with no web page yet (blank) opens its provider's home page instead.
+     * with no web page yet (blank) opens its provider's home page instead, and an unloaded account is
+     * loaded again.
      */
     private void reloadCurrentTab() {
+        if (tabManager.isCurrentUnloaded()) {
+            tabManager.show(tabManager.current());
+            return;
+        }
         WebView tab = tabManager.currentWebView();
         if (tab == null) {
             return;
@@ -422,20 +551,19 @@ public class MainActivity extends Activity {
         DesktopMode.applySaved(this, getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), webView, account);
     }
 
-    /** The monitor button: switch the account on screen between the phone and desktop site. */
+    /** The account menu's monitor button: switch the account on screen between the phone and desktop site. */
     private void toggleDesktopMode() {
         DesktopMode.toggle(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), tabManager.current().id);
         syncDesktopMode(tabManager.current());
     }
 
-    /** The tab on screen and the monitor button follow the account's desktop-site choice (web/DesktopMode). */
+    /**
+     * The tab on screen follows the account's desktop-site choice (web/DesktopMode). The account menu
+     * reads the choice each time it opens, so there is no button to update here.
+     */
     private void syncDesktopMode(Account account) {
-        boolean on = DesktopMode.sync(this, getSharedPreferences("duck_assist_prefs", MODE_PRIVATE),
+        DesktopMode.sync(this, getSharedPreferences("duck_assist_prefs", MODE_PRIVATE),
                 tabManager.currentWebView(), account);
-        android.widget.ImageView button = findViewById(R.id.desktopButton);
-        if (button != null) {
-            NativeTheme.styleDesktopButton(button, on, ThemeManager.scheme(this));
-        }
     }
 
     /**
@@ -936,30 +1064,7 @@ public class MainActivity extends Activity {
             // Theme colours for the page (read-only, local page only; see theme/ThemeBridge).
             webView.addJavascriptInterface(new ThemeBridge(this), "AndroidTheme");
             // Data & tools → "Clear cache" (see storage/StorageBridge).
-            webView.addJavascriptInterface(new StorageBridge(this, background, new StorageBridge.Host() {
-                @Override
-                public void runOnUiThread(Runnable action) {
-                    MainActivity.this.runOnUiThread(action);
-                }
-
-                @Override
-                public void clearWebViewCaches() {
-                    for (WebView tab : tabManager.liveWebViews()) {
-                        tab.clearCache(true); // this tab's own account (profile) only
-                    }
-                    Profiles.clearClosedProfileCaches(MainActivity.this, tabManager.liveProfileNames());
-                }
-
-                @Override
-                public java.util.Set<String> filesInUse() {
-                    return sharedFilesInUse();
-                }
-
-                @Override
-                public void sendToPage(String script) {
-                    webView.evaluateJavascript(script, null);
-                }
-            }), "AndroidStorage");
+            webView.addJavascriptInterface(new StorageBridge(this, background, storageHost(webView)), "AndroidStorage");
             // Accounts and Appearance sections (see account/AccountsBridge, theme/AppearanceBridge).
             webView.addJavascriptInterface(new AccountsBridge(new AccountsBridge.Host() {
                 @Override
