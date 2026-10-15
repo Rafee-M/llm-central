@@ -20,6 +20,8 @@
     <!-- Account menu (ui/SwitcherPopup): the icon row and the "Active accounts" switch. -->
     <string name="reset_text_size">Reset text size</string>
     <string name="unload_tab">Unload tab</string>
+    <string name="clear_cache">Clear cache</string>
+    <string name="cache_cleared">Cache cleared. Logins stay.</string>
     <string name="active_accounts">Active accounts</string>
     <string name="active_accounts_off">Show only loaded accounts</string>
     <string name="active_accounts_count">Showing %1$d of %2$d</string>

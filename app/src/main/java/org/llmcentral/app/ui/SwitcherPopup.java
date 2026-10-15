@@ -34,7 +34,7 @@ import java.util.List;
  *       when it's long, so the controls below always stay on screen.</li>
  *   <li><b>Icon row</b> for the account on screen: Desktop site, Reload page, Reset text size (hidden while
  *       "Pinch zooms the page" is on), Unload tab (frees the tab's memory; duck.ai's pinned tab can't be
- *       unloaded).</li>
+ *       unloaded), Clear cache (the same as in Settings; logins stay).</li>
  *   <li><b>Active accounts</b> switch: lists only the loaded accounts ({@link SwitcherModel#rows}).
  *       Flipping it redraws the list right away; the menu stays open.</li>
  * </ol>
@@ -72,6 +72,9 @@ public final class SwitcherPopup {
         boolean canUnload();
 
         void unload();
+
+        /** The same as Settings → Data &amp; tools → Clear cache (storage/StorageBridge.clearAll); logins stay. */
+        void clearCache();
 
         /** The "Active accounts" switch (pref {@code switcher_active_only}). */
         boolean activeOnly();
@@ -161,6 +164,8 @@ public final class SwitcherPopup {
         }
         addEvenly(icons, iconButton(context, scheme, R.drawable.ic_close, R.string.unload_tab,
                 host.canUnload(), popup, host::unload));
+        addEvenly(icons, iconButton(context, scheme, R.drawable.ic_delete_sweep, R.string.clear_cache,
+                true, popup, host::clearCache));
         list.addView(icons);
 
         // 3) "Active accounts": a row with a small Material 3 switch; the menu stays open.

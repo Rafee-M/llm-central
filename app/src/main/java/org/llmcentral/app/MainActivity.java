@@ -396,6 +396,41 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * What "Clear cache" needs from this screen (storage/StorageBridge): used by Settings → Data &amp; tools
+     * and by the account menu's icon, so both clear exactly the same things.
+     *
+     * @param page the settings page to answer (cache size), or null for the account menu
+     */
+    private StorageBridge.Host storageHost(WebView page) {
+        return new StorageBridge.Host() {
+            @Override
+            public void runOnUiThread(Runnable action) {
+                MainActivity.this.runOnUiThread(action);
+            }
+
+            @Override
+            public void clearWebViewCaches() {
+                for (WebView tab : tabManager.liveWebViews()) {
+                    tab.clearCache(true); // this tab's own account (profile) only
+                }
+                Profiles.clearClosedProfileCaches(MainActivity.this, tabManager.liveProfileNames());
+            }
+
+            @Override
+            public java.util.Set<String> filesInUse() {
+                return sharedFilesInUse();
+            }
+
+            @Override
+            public void sendToPage(String script) {
+                if (page != null) {
+                    page.evaluateJavascript(script, null);
+                }
+            }
+        };
+    }
+
     /** What the account menu (ui/SwitcherPopup) can ask of this screen; the rules are in ui/SwitcherModel. */
     private final SwitcherPopup.Host switcherHost = new SwitcherPopup.Host() {
         @Override
@@ -453,6 +488,12 @@ public class MainActivity extends Activity {
             if (tabManager.unloadCurrent() && progressBar != null) {
                 progressBar.setVisibility(View.GONE); // the closed tab's loading bar must not stay
             }
+        }
+
+        @Override
+        public void clearCache() {
+            StorageBridge.clearAll(MainActivity.this, background, storageHost(null));
+            Toast.makeText(MainActivity.this, R.string.cache_cleared, Toast.LENGTH_SHORT).show();
         }
 
         @Override
@@ -1023,30 +1064,7 @@ public class MainActivity extends Activity {
             // Theme colours for the page (read-only, local page only; see theme/ThemeBridge).
             webView.addJavascriptInterface(new ThemeBridge(this), "AndroidTheme");
             // Data & tools → "Clear cache" (see storage/StorageBridge).
-            webView.addJavascriptInterface(new StorageBridge(this, background, new StorageBridge.Host() {
-                @Override
-                public void runOnUiThread(Runnable action) {
-                    MainActivity.this.runOnUiThread(action);
-                }
-
-                @Override
-                public void clearWebViewCaches() {
-                    for (WebView tab : tabManager.liveWebViews()) {
-                        tab.clearCache(true); // this tab's own account (profile) only
-                    }
-                    Profiles.clearClosedProfileCaches(MainActivity.this, tabManager.liveProfileNames());
-                }
-
-                @Override
-                public java.util.Set<String> filesInUse() {
-                    return sharedFilesInUse();
-                }
-
-                @Override
-                public void sendToPage(String script) {
-                    webView.evaluateJavascript(script, null);
-                }
-            }), "AndroidStorage");
+            webView.addJavascriptInterface(new StorageBridge(this, background, storageHost(webView)), "AndroidStorage");
             // Accounts and Appearance sections (see account/AccountsBridge, theme/AppearanceBridge).
             webView.addJavascriptInterface(new AccountsBridge(new AccountsBridge.Host() {
                 @Override

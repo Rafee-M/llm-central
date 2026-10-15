@@ -62,10 +62,21 @@ public final class StorageBridge {
     @JavascriptInterface
     public void clearCache() {
         host.runOnUiThread(() -> {
-            host.clearWebViewCaches();
-            Set<String> keep = host.filesInUse();
-            background.execute(() -> AppCache.deleteTempFiles(context, 0, keep));
+            clearAll(context, background, host);
             main.postDelayed(this::measureCache, MEASURE_AFTER_CLEAR_MS);
         });
+    }
+
+    /**
+     * The clearing itself, shared by this Settings row and the account menu's "Clear cache" icon
+     * (ui/SwitcherPopup), so both always do exactly the same: every account's website cache (open
+     * tabs and closed accounts), then the app's temporary files on a background thread, keeping the
+     * ones still in use (e.g. a file being uploaded). Call on the main thread.
+     */
+    public static void clearAll(Context context, Executor background, Host host) {
+        host.clearWebViewCaches();
+        Set<String> keep = host.filesInUse();
+        Context app = context.getApplicationContext();
+        background.execute(() -> AppCache.deleteTempFiles(app, 0, keep));
     }
 }
