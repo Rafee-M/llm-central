@@ -32,8 +32,8 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 - ⛶ **Hide status bar** (Settings → Appearance) for more room.
 - 📥 **Downloads on every provider**, including files the chat creates itself (e.g. a CSV), saved to
   `Downloads/<Provider>/`.
-- 🗂️ **Account menu tools**: Desktop site, 🔄 Reload page, Reset text size and **Unload tab** (frees memory) as one
-  icon row; an **Active accounts** switch lists only the loaded accounts (optional green dot, Settings → Appearance).
+- 🗂️ **Account menu tools**: Desktop site, 🔄 Reload page, Reset text size, **Unload tab** (frees memory) and Clear cache
+  as one icon row; an **Active accounts** switch lists only the loaded accounts (optional green dot, Settings → Appearance).
 - 🧹 **Clear cache** (Settings → Data & tools; logins stay).
 - ⚙️ **Settings button on every provider** in the top bar; a minimal Material 3 settings screen, with an
   **About** page (version, developer, source code link).
