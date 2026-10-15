@@ -32,8 +32,9 @@ import java.util.List;
  *       it differs, e.g. "Work / ChatGPT"); the current account is highlighted. Optional green dot at the
  *       right end of loaded accounts (Settings → Appearance → "Mark active accounts"). The list scrolls
  *       when it's long, so the controls below always stay on screen.</li>
- *   <li><b>Icon row</b> for the account on screen: Desktop site, Reload page, Reset text size, Unload tab
- *       (frees the tab's memory; duck.ai's pinned tab can't be unloaded).</li>
+ *   <li><b>Icon row</b> for the account on screen: Desktop site, Reload page, Reset text size (hidden while
+ *       "Pinch zooms the page" is on), Unload tab (frees the tab's memory; duck.ai's pinned tab can't be
+ *       unloaded).</li>
  *   <li><b>Active accounts</b> switch: lists only the loaded accounts ({@link SwitcherModel#rows}).
  *       Flipping it redraws the list right away; the menu stays open.</li>
  * </ol>
@@ -58,6 +59,9 @@ public final class SwitcherPopup {
         void toggleDesktop();
 
         void reload();
+
+        /** Settings → Behaviour → "Pinch zooms the page" (pref {@code pinch_zoom_page}). */
+        boolean pinchZoomsPage();
 
         /** The current text size in percent (pref {@code text_zoom}). */
         int textZoom();
@@ -151,8 +155,10 @@ public final class SwitcherPopup {
         addEvenly(icons, desktop);
         addEvenly(icons, iconButton(context, scheme, R.drawable.ic_refresh, R.string.reload_page, true,
                 popup, host::reload));
-        addEvenly(icons, iconButton(context, scheme, R.drawable.ic_format_size, R.string.reset_text_size,
-                SwitcherModel.canResetTextSize(host.textZoom()), popup, host::resetTextSize));
+        if (SwitcherModel.showsResetTextSize(host.pinchZoomsPage())) {
+            addEvenly(icons, iconButton(context, scheme, R.drawable.ic_format_size, R.string.reset_text_size,
+                    SwitcherModel.canResetTextSize(host.textZoom()), popup, host::resetTextSize));
+        }
         addEvenly(icons, iconButton(context, scheme, R.drawable.ic_close, R.string.unload_tab,
                 host.canUnload(), popup, host::unload));
         list.addView(icons);

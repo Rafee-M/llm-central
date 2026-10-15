@@ -424,6 +424,11 @@ public class MainActivity extends Activity {
         }
 
         @Override
+        public boolean pinchZoomsPage() {
+            return PageZoom.isOn(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE));
+        }
+
+        @Override
         public int textZoom() {
             return getSharedPreferences("duck_assist_prefs", MODE_PRIVATE)
                     .getInt("text_zoom", SwitcherModel.DEFAULT_TEXT_ZOOM);

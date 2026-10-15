@@ -55,6 +55,15 @@ public final class SwitcherModel {
         return currentLoaded && !current.isDuck();
     }
 
+    /**
+     * "Reset text size" is shown only while pinching changes the text size. With Settings → Behaviour →
+     * "Pinch zooms the page" on, a pinch magnifies the page instead (web/PageZoom), so the button would
+     * reset something the pinch no longer sets; it is hidden then (the Text size slider stays in Settings).
+     */
+    public static boolean showsResetTextSize(boolean pinchZoomsPage) {
+        return !pinchZoomsPage;
+    }
+
     /** "Reset text size" only does something when the text size isn't the default already. */
     public static boolean canResetTextSize(int textZoom) {
         return textZoom != DEFAULT_TEXT_ZOOM;

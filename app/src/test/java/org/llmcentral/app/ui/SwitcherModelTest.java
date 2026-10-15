@@ -96,6 +96,13 @@ public class SwitcherModelTest {
     }
 
     @Test
+    public void resetTextSizeHiddenWhilePinchZoomsPage() {
+        // "Pinch zooms the page" on: pinching no longer changes the text size, so the reset button is hidden.
+        assertFalse(SwitcherModel.showsResetTextSize(true));
+        assertTrue(SwitcherModel.showsResetTextSize(false));
+    }
+
+    @Test
     public void resetTextSizeOnlyWhenNotDefault() {
         assertFalse(SwitcherModel.canResetTextSize(100));
         assertTrue(SwitcherModel.canResetTextSize(120));
