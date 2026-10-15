@@ -193,11 +193,10 @@ public final class ThemeManager {
      *
      * <ul>
      *   <li><b>Android 11+:</b> {@link WindowInsetsController#hide} with the status-bar type. The
-     *       window may also use the area around a camera cut-out; the layout's
-     *       {@code fitsSystemWindows} still keeps the top bar clear of the cut-out (its padding counts
-     *       the cut-out too, verified in the Android source, {@code InsetsState}), and that strip
-     *       shows the window's background, which has the top bar's colour. So it looks seamless.
-     *       Android 15 already allows the cut-out area for apps targeting it.</li>
+     *       window may also use the area around a camera cut-out (Android 15 already allows it for
+     *       apps targeting it). Until 2026-10-15 the layout's {@code fitsSystemWindows} still padded
+     *       the top by the cut-out, so an empty strip stayed where the status bar had been; now
+     *       {@link #fitContent} moves the content up into it.</li>
      *   <li><b>Android 7–10:</b> the older {@code FLAG_FULLSCREEN} window flag. On phones with a notch
      *       (Android 9–10) the notch area then stays black: Android's default, left as it is.</li>
      * </ul>
@@ -231,6 +230,39 @@ public final class ThemeManager {
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         }
+    }
+
+    /**
+     * Keeps the main screen's content clear of the system bars, the keyboard and the camera cut-out,
+     * and lets it use the top strip while the status bar is hidden ("Hide status bar", 2026-10-15).
+     * The rule itself is in {@link ContentInsets}.
+     *
+     * <p>How: a "window insets" listener on the layout's root view. Android calls it with the space
+     * each edge loses whenever that changes (status bar hidden or shown, keyboard opened, phone turned),
+     * and while a listener is set Android doesn't apply {@code fitsSystemWindows} to that view. The
+     * listener sets the padding itself and reports the space as used ({@code CONSUMED}), as
+     * {@code fitsSystemWindows} did, so nothing inside adds it a second time.
+     * Docs: https://developer.android.com/develop/ui/views/layout/display-cutout</p>
+     *
+     * <p>Android 11+ only: the per-type inset API it needs starts there. Android 7–10 keep the
+     * layout's {@code fitsSystemWindows} (the notch area stays black while the bar is hidden there).</p>
+     */
+    public static void fitContent(View root) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return;
+        }
+        root.setOnApplyWindowInsetsListener((view, insets) -> {
+            // The same kinds fitsSystemWindows used (Android's InsetsState: system bars, keyboard for an
+            // "adjustResize" screen, cut-out), read separately so the cut-out can be left out at the top.
+            android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.ime());
+            android.graphics.Insets cutout = insets.getInsets(WindowInsets.Type.displayCutout());
+            int[] padding = ContentInsets.padding(insets.isVisible(WindowInsets.Type.statusBars()),
+                    new int[]{bars.left, bars.top, bars.right, bars.bottom},
+                    new int[]{cutout.left, cutout.top, cutout.right, cutout.bottom});
+            view.setPadding(padding[0], padding[1], padding[2], padding[3]);
+            return WindowInsets.CONSUMED;
+        });
+        root.requestApplyInsets();
     }
 
     /**

@@ -265,6 +265,10 @@ public class MainActivity extends Activity {
         });
 
         setContentView(getLayoutResourceId());
+        if (!isDrawerLayout()) {
+            // Content clear of the bars and the keyboard; with "Hide status bar" it uses the top strip too.
+            ThemeManager.fitContent(findViewById(R.id.mainRoot));
+        }
 
         progressBar = findViewById(R.id.progressBar);
         chatWebView = findViewById(R.id.chatWebView);
