@@ -52,6 +52,8 @@ public final class Scripts {
     public static final String DOWNLOAD_NAME = "download_name.js";
     /** "Desktop site": widens the page's viewport (web/DesktopMode). */
     public static final String DESKTOP_VIEWPORT = "desktop_viewport.js";
+    /** "Pinch zooms the page": lifts the sites' zoom ban in their viewport (web/PageZoom). */
+    public static final String ZOOM_VIEWPORT = "zoom_viewport.js";
     /** A function expression: the app appends "(prompt)". Run by PromptFiller on other providers. */
     public static final String PREFILL_PROMPT = "prefill_prompt.js";
     /** Not injected automatically: the example shown in the user-script manager (off by default). */
@@ -61,7 +63,7 @@ public final class Scripts {
     public static final String[] ALL = {
             BLOB_DOWNLOAD_PATCH, IMAGE_ZOOM_MONITOR, AUTO_FOCUS, CLIPBOARD_PATCH, SWIPE_SCROLL,
             RTL_RESOLVER, RTL_CLEANUP, VOICE_CHAT, CONTINUE_LAST_CHAT, DUMP_CHATS, BLOB_FETCH, BLOB_CAPTURE, DOWNLOAD_NAME,
-            PREFILL_PROMPT, DESKTOP_VIEWPORT, USER_SCRIPT_SAMPLE
+            PREFILL_PROMPT, DESKTOP_VIEWPORT, ZOOM_VIEWPORT, USER_SCRIPT_SAMPLE
     };
 
     /** Folder inside assets/ that holds the scripts. */
