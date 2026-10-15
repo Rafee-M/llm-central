@@ -244,6 +244,25 @@
         .tile[aria-checked="true"] .swatch svg { width: 20px; height: 20px; padding: 2px; border-radius: 50%;
             background: var(--md-primary); color: var(--md-on-primary); }
 
+        /* ---------- Sub-screens (Manage accounts, Re-order accounts): a full page inside Settings ---------- */
+        .appbar .chevron { margin-left: auto; }
+        .row .chevron { color: var(--md-on-surface-variant); }
+        .row > svg { color: var(--md-on-surface-variant); }
+        .hint.lead { margin: 0 16px 16px; }
+        /* Re-order: one line per account; the handle is the only place a drag starts (the rest scrolls). */
+        .reorder-row { gap: 16px; padding-right: 4px; user-select: none; -webkit-user-select: none; }
+        .reorder-row .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .reorder-row .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .drag-handle { touch-action: none; cursor: grab; color: var(--md-on-surface-variant); }
+        .sorting .reorder-row { transition: transform .15s cubic-bezier(.2, 0, 0, 1); }
+        .sorting .reorder-row.dragging {
+            transition: none; z-index: 2; position: relative; border-radius: 16px;
+            background: var(--md-surface-container-highest);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, .3), 0 4px 8px 3px rgba(0, 0, 0, .15);
+        }
+        .sorting .drag-handle { cursor: grabbing; }
+        .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
         /* Snackbar */
         #snackbar {
             position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 20; max-width: 600px; margin: 0 auto;
@@ -262,6 +281,7 @@
     <script>if (window.AndroidTheme) { document.write('<style id="app-theme">' + AndroidTheme.css() + '</style>'); }</script>
 </head>
 <body>
+    <div id="mainView">
     <header class="appbar" id="appbar">
         <button type="button" class="icon-btn" onclick="closeSettings()" aria-label="Close settings">
             <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
@@ -273,9 +293,21 @@
         <!-- ================= Accounts (PROJECT.md R-ACC-4) ================= -->
         <section id="accounts" aria-labelledby="accountsLabel">
             <h2 class="section-label" id="accountsLabel">Accounts</h2>
-            <div id="accountGroups"></div>
-            <p class="hint">Each account keeps its own logins and site data, separate from all others.</p>
-            <p class="hint" id="singleAccountHint" hidden>Several accounts per provider need a newer “Android System WebView”. Update it from the Play Store.</p>
+            <!-- Each opens its own screen inside Settings (Back returns here): the full list got too long. -->
+            <div class="group">
+                <button type="button" class="row clickable" id="manageRow" onclick="openSubView('manage')">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+                    <div class="text"><div class="title">Manage accounts</div>
+                        <div class="sub" id="manageSub">Add, rename, show or hide, sign out, remove</div></div>
+                    <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                </button>
+                <button type="button" class="row clickable" id="reorderRow" onclick="openSubView('reorder')">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15h18v-2H3v2zm0 4h18v-2H3v2zm0-8h18V9H3v2zm0-6v2h18V5H3z"/></svg>
+                    <div class="text"><div class="title">Re-order accounts</div>
+                        <div class="sub">The order of the account menu</div></div>
+                    <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                </button>
+            </div>
         </section>
 
         <!-- ================= Assistant & sharing ================= -->
@@ -449,6 +481,37 @@
             </div>
         </section>
     </main>
+    </div>
+
+    <!-- ================= Settings → Manage accounts (same actions as before; order is set in Re-order) ================= -->
+    <div id="manageView" hidden>
+        <header class="appbar">
+            <button type="button" class="icon-btn" onclick="closeSubView()" aria-label="Back to settings">
+                <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+            </button>
+            <h1>Manage accounts</h1>
+        </header>
+        <main>
+            <div id="accountGroups"></div>
+            <p class="hint">Each account keeps its own logins and site data, separate from all others.</p>
+            <p class="hint" id="singleAccountHint" hidden>Several accounts per provider need a newer “Android System WebView”. Update it from the Play Store.</p>
+        </main>
+    </div>
+
+    <!-- ================= Settings → Re-order accounts (the account menu's order) ================= -->
+    <div id="reorderView" hidden>
+        <header class="appbar">
+            <button type="button" class="icon-btn" onclick="closeSubView()" aria-label="Back to settings">
+                <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+            </button>
+            <h1>Re-order accounts</h1>
+        </header>
+        <main>
+            <p class="hint lead">Hold the handle on the right and drag an account up or down. Only accounts shown in the menu are listed; one you add or show again goes to the bottom.</p>
+            <div class="group" id="reorderList" role="list" aria-label="Account menu order"></div>
+            <div class="visually-hidden" id="reorderStatus" aria-live="polite"></div>
+        </main>
+    </div>
 
     <div id="snackbar" role="status" aria-live="polite"><span id="snackText"></span></div>
 
@@ -467,7 +530,8 @@
             remove: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
             check: 'M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z',
             history: 'M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z',
-            eye: 'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z'
+            eye: 'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',
+            drag: 'M20 9H4v2h16V9zM4 15h16v-2H4v2z'
         };
         const MODE_NAMES = { system: 'System default', light: 'Light', dark: 'Dark', oled: 'Black (OLED)' };
 
@@ -577,9 +641,32 @@
         // Called by the app when Back is pressed: close the top pop-up if there is one.
         window.handleBack = function () {
             if (overlays.length) { closeOverlay(); return true; }
+            if (drag) { endDrag(false); return true; }
+            if (subView) { closeSubView(); return true; }
             autoSave();
             return false;
         };
+
+        // ------------------------------------------------------------ sub-screens (Manage / Re-order accounts)
+        let subView = null;      // 'manage' | 'reorder' | null
+        let mainScroll = 0;      // where Settings was scrolled, restored on the way back
+        function openSubView(name) {
+            if (!ACC) return;
+            mainScroll = window.scrollY;
+            document.getElementById('mainView').hidden = true;
+            document.getElementById(name + 'View').hidden = false;
+            subView = name;
+            if (name === 'reorder') renderReorder();
+            window.scrollTo(0, 0);
+        }
+        function closeSubView() {
+            if (!subView) return;
+            if (drag) endDrag(false);
+            document.getElementById(subView + 'View').hidden = true;
+            document.getElementById('mainView').hidden = false;
+            subView = null;
+            window.scrollTo(0, mainScroll);
+        }
 
         // ------------------------------------------------------------ Accounts section
         let accountsData = { providers: [] };
@@ -632,7 +719,140 @@
                 for (const a of p.accounts) group.append(accountRow(p, a, false));
                 root.append(group);
             }
+            const all = accountsData.providers.reduce((n, p) => n + p.accounts.length, 0);
+            const shown = (accountsData.order || []).length;
+            document.getElementById('manageSub').textContent = all === 1 ? '1 account'
+                : all + ' accounts' + (shown < all ? ' · ' + shown + ' in the menu' : '');
+            if (subView === 'reorder' && !drag) renderReorder();
             renderDefaults();
+        }
+
+        // ------------------------------------------------------------ Re-order accounts
+        // One row per account shown in the menu, in menu order ("order" from AndroidAccounts). A drag starts
+        // only on the handle (touch-action: none there, so the rest of the list still scrolls); the other rows
+        // slide out of the way while dragging; dropping sends the whole new order once (reorderAccounts), and
+        // the app's answer redraws the list, so the screen always shows what was really saved.
+        function renderReorder() {
+            const list = document.getElementById('reorderList');
+            list.replaceChildren();
+            for (const id of accountsData.order || []) {
+                const found = findAccount(id);
+                if (found) list.append(reorderRow(found));
+            }
+        }
+        function reorderRow(found) {
+            const { account: a, provider: p } = found;
+            const handle = el('button', { type: 'button', class: 'icon-btn drag-handle',
+                'aria-label': 'Move ' + a.name + ': drag, or use the arrow keys' }, icon('drag'));
+            const row = el('div', { class: 'row reorder-row', role: 'listitem', 'data-id': a.id },
+                providerBadge(p),
+                el('div', { class: 'text' },
+                    el('div', { class: 'title' }, a.name),
+                    a.name === p.name ? null : el('div', { class: 'sub' }, p.name)),
+                handle);
+            handle.addEventListener('pointerdown', (e) => startDrag(e, row));
+            handle.addEventListener('keydown', (e) => {
+                if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); moveByKey(row, e.key === 'ArrowUp' ? -1 : 1); }
+            });
+            return row;
+        }
+        function reorderIds() {
+            return [...document.getElementById('reorderList').children].map(r => r.dataset.id);
+        }
+        // Sends the new order; the answer (the saved list, or an error and the real order) redraws everything.
+        function saveOrder(ids, focusId) {
+            applyAccounts(ACC.reorderAccounts(JSON.stringify(ids)));
+            const index = (accountsData.order || []).indexOf(focusId);
+            if (index >= 0) {
+                const found = findAccount(focusId);
+                document.getElementById('reorderStatus').textContent =
+                    (found ? found.account.name : '') + ': position ' + (index + 1) + ' of ' + accountsData.order.length;
+                const row = document.querySelector('#reorderList [data-id="' + CSS.escape(focusId) + '"] .drag-handle');
+                if (row) row.focus();
+            }
+        }
+        function moveByKey(row, delta) {
+            const ids = reorderIds();
+            const from = ids.indexOf(row.dataset.id), to = from + delta;
+            if (from < 0 || to < 0 || to >= ids.length) return;
+            ids.splice(to, 0, ids.splice(from, 1)[0]);
+            saveOrder(ids, row.dataset.id);
+        }
+
+        let drag = null;
+        function startDrag(e, row) {
+            if (drag || (e.pointerType === 'mouse' && e.button !== 0)) return;
+            e.preventDefault();
+            const list = document.getElementById('reorderList');
+            const rows = [...list.children];
+            const from = rows.indexOf(row);
+            if (from < 0 || rows.length < 2) return;
+            const handle = e.currentTarget;
+            drag = { list, row, rows, from, to: from, handle, pointerId: e.pointerId,
+                     rects: rows.map(r => r.getBoundingClientRect()), startY: e.clientY, lastY: e.clientY,
+                     startScroll: window.scrollY, frame: 0 };
+            try { handle.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ }
+            handle.addEventListener('pointermove', onDragMove);
+            handle.addEventListener('pointerup', onDragUp);
+            handle.addEventListener('pointercancel', onDragCancel);
+            list.classList.add('sorting');
+            row.classList.add('dragging');
+            drag.frame = requestAnimationFrame(autoScroll);
+        }
+        function onDragMove(e) {
+            if (!drag || e.pointerId !== drag.pointerId) return;
+            drag.lastY = e.clientY;
+            layoutDrag();
+        }
+        function onDragUp(e) { if (drag && e.pointerId === drag.pointerId) endDrag(true); }
+        function onDragCancel(e) { if (drag && e.pointerId === drag.pointerId) endDrag(false); }
+        // Moves the dragged row with the finger (kept inside the list) and slides the others into the gap.
+        function layoutDrag() {
+            const d = drag, r = d.rects, last = r.length - 1;
+            const moved = d.lastY - d.startY + (window.scrollY - d.startScroll);
+            const y = Math.max(r[0].top - r[d.from].top, Math.min(r[last].bottom - r[d.from].bottom, moved));
+            d.row.style.transform = 'translateY(' + y + 'px)';
+            const centre = r[d.from].top + r[d.from].height / 2 + y;
+            // The new place: the furthest row whose middle the dragged row has reached (ties count, so a row
+            // dragged to the very end, where it is held at the last row's middle, takes the last place).
+            const mid = (i) => r[i].top + r[i].height / 2;
+            let to = d.from;
+            for (let i = d.from + 1; i < r.length && mid(i) <= centre; i++) to = i;
+            for (let i = d.from - 1; i >= 0 && mid(i) >= centre; i--) to = i;
+            d.to = to;
+            const gap = Math.max(0, r[1].top - r[0].bottom);   // the list's spacing between rows (≥ 2 rows while dragging)
+            const shift = r[d.from].height + gap;
+            d.rows.forEach((other, i) => {
+                if (other === d.row) return;
+                const offset = (d.from < i && i <= to) ? -shift : (to <= i && i < d.from) ? shift : 0;
+                other.style.transform = offset ? 'translateY(' + offset + 'px)' : '';
+            });
+        }
+        // Near the top or bottom edge, the page scrolls so an account can be dragged past the screen.
+        function autoScroll() {
+            if (!drag) return;
+            const edge = 72, h = window.innerHeight;
+            const speed = drag.lastY < edge ? -Math.ceil((edge - drag.lastY) / 6)
+                : drag.lastY > h - edge ? Math.ceil((drag.lastY - (h - edge)) / 6) : 0;
+            if (speed) { window.scrollBy(0, speed); layoutDrag(); }
+            drag.frame = requestAnimationFrame(autoScroll);
+        }
+        function endDrag(commit) {
+            const d = drag;
+            if (!d) return;
+            drag = null;
+            cancelAnimationFrame(d.frame);
+            d.handle.removeEventListener('pointermove', onDragMove);
+            d.handle.removeEventListener('pointerup', onDragUp);
+            d.handle.removeEventListener('pointercancel', onDragCancel);
+            try { d.handle.releasePointerCapture(d.pointerId); } catch (err) { /* already released */ }
+            d.list.classList.remove('sorting');
+            d.row.classList.remove('dragging');
+            for (const r of d.rows) r.style.transform = '';
+            if (!commit || d.to === d.from) return;
+            const ids = d.rows.map(r => r.dataset.id);
+            ids.splice(d.to, 0, ids.splice(d.from, 1)[0]);
+            saveOrder(ids, d.row.dataset.id);
         }
 
         // ------------------------------------------------------------ Default accounts (assistant, share, start)
@@ -1082,9 +1302,9 @@
             });
             // The app bar gets a tinted background once the page scrolls under it (Material 3).
             window.addEventListener('scroll', () => {
-                document.getElementById('appbar').classList.toggle('scrolled', window.scrollY > 4);
+                for (const bar of document.querySelectorAll('.appbar')) bar.classList.toggle('scrolled', window.scrollY > 4);
             }, { passive: true });
-            // Opened from the switcher's "Manage accounts": jump to that section.
+            // Opened at a section (openSettings("<id>")): jump to it.
             if (location.hash) {
                 const target = document.getElementById(location.hash.slice(1));
                 if (target) target.scrollIntoView();
