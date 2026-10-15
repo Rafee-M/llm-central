@@ -48,19 +48,24 @@ public final class UserScripts {
      * @return true if the script should run on that page
      */
     public static boolean shouldRun(JSONObject script, String url) {
-        if (url == null || !script.optBoolean("enabled", false)) {
+        // Only the value true counts as "on" (the editor's switch shows exactly that), not "true" as text or 1.
+        if (url == null || !Boolean.TRUE.equals(script.opt("enabled"))) {
             return false;
         }
         String code = script.optString("code", "");
         if (code.trim().isEmpty()) {
             return false;
         }
-        String match = script.has("match") ? script.optString("match", "") : LEGACY_MATCH;
+        // Only text counts as a sites setting; anything else (missing, null, false…) is the old default, which
+        // is also what the editor shows for it.
+        Object raw = script.opt("match");
+        String match = raw instanceof String ? (String) raw : LEGACY_MATCH;
         if (!UserScriptMatcher.matchesAny(url, match)) {
             return false;
         }
         for (String exclude : excludes(code)) {
-            if (UserScriptMatcher.matchesAny(url, exclude)) {
+            // One pattern per @exclude line (Tampermonkey's rule): a comma is part of it, never a separator.
+            if (UserScriptMatcher.matches(url, exclude)) {
                 return false;
             }
         }
@@ -70,7 +75,8 @@ public final class UserScripts {
     /**
      * The {@code @exclude} and {@code @exclude-match} values of the script's {@code ==UserScript==}
      * header (Tampermonkey's way to say "not on these pages"). Lines outside the header are ignored,
-     * so code that merely mentions "@exclude" changes nothing.
+     * so code that merely mentions "@exclude" changes nothing, and a header without its
+     * {@code ==/UserScript==} end line counts as no header (the editor's notes use the same rule).
      */
     public static List<String> excludes(String code) {
         if (code == null) {
@@ -81,7 +87,7 @@ public final class UserScripts {
         for (String raw : code.split("\r?\n")) {
             String line = raw.trim();
             if (line.contains(HEADER_END)) {
-                break;
+                return result;
             }
             if (line.contains(HEADER_START)) {
                 inHeader = true;
@@ -106,7 +112,7 @@ public final class UserScripts {
                 result.add(value);
             }
         }
-        return result;
+        return Collections.emptyList(); // no end line: not a complete header
     }
 
     /**
@@ -119,10 +125,12 @@ public final class UserScripts {
         return runner + "(" + JSONObject.quote(id) + ",function(GM_addStyle,unsafeWindow){{\n" + code + "\n}})";
     }
 
-    /** The script's id, or "script_&lt;position&gt;" for older entries without one. */
-    public static String idOf(JSONObject script, int position) {
-        String id = script.optString("id", "").trim();
-        return id.isEmpty() ? "script_" + position : id;
+    /**
+     * The key the runner uses to remember "already ran in this page": the script's place in the list plus
+     * its id, so two entries can never block each other (even hand-made ones with the same id or none).
+     */
+    public static String runKey(JSONObject script, int position) {
+        return position + ":" + script.optString("id", "").trim();
     }
 
     /**

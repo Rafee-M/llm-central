@@ -104,9 +104,40 @@ public class UserScriptsTest {
     }
 
     @Test
-    public void idFallsBackToTheListPosition() throws Exception {
-        assertEquals("s1", UserScripts.idOf(script("", true, "x()"), 3));
-        assertEquals("script_3", UserScripts.idOf(new JSONObject(), 3));
-        assertEquals("script_3", UserScripts.idOf(new JSONObject().put("id", " "), 3));
+    public void runKeyIsUniquePerListPosition() throws Exception {
+        // Two entries with the same id (hand-made data) must not stop each other: the key includes the position.
+        assertEquals("3:s1", UserScripts.runKey(script("", true, "x()"), 3));
+        assertEquals("4:s1", UserScripts.runKey(script("", true, "x()"), 4));
+        assertEquals("3:", UserScripts.runKey(new JSONObject(), 3));
+    }
+
+    @Test
+    public void excludeIsOnePatternPerLine() throws Exception {
+        // A comma is part of an @exclude value (Tampermonkey: one pattern per line), never "no pattern = everything".
+        String code = "// ==UserScript==\n// @exclude ,\n// ==/UserScript==\nx();";
+        assertTrue(UserScripts.shouldRun(script("", true, code), "https://duck.ai/"));
+    }
+
+    @Test
+    public void headerWithoutEndLineHasNoExcludes() {
+        // Same rule as the editor's notes (scripts_manager.html): a header counts only with its end line.
+        assertEquals(Collections.emptyList(), UserScripts.excludes("// ==UserScript==\n// @exclude *\nx();"));
+    }
+
+    @Test
+    public void onlyAStringMatchCountsElseTheOldDefault() throws Exception {
+        // The editor shows the old duck.ai default for anything that isn't text, so that's what must run.
+        JSONObject nullMatch = script(null, true, "x()").put("match", JSONObject.NULL);
+        JSONObject boolMatch = script(null, true, "x()").put("match", false);
+        assertTrue(UserScripts.shouldRun(nullMatch, "https://duck.ai/"));
+        assertFalse(UserScripts.shouldRun(nullMatch, "https://chatgpt.com/"));
+        assertFalse(UserScripts.shouldRun(boolMatch, "https://chatgpt.com/"));
+    }
+
+    @Test
+    public void onlyRealTrueEnables() throws Exception {
+        // The editor shows a switch on only for the value true; "true" as text or 1 are off on both sides.
+        assertFalse(UserScripts.shouldRun(script("", true, "x()").put("enabled", "true"), "https://duck.ai/"));
+        assertFalse(UserScripts.shouldRun(script("", true, "x()").put("enabled", 1), "https://duck.ai/"));
     }
 }

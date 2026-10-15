@@ -7,11 +7,14 @@
 // a repeated navigation), so without the mark below a script would run twice in the same page and
 // add its styles, buttons or listeners a second time. A new page starts with no marks.
 //
+// The marks live in an object without a prototype, so a key like "toString" isn't mistaken for a mark.
+// The page itself can see (and could block) them: it can interfere with anything injected into it anyway.
+//
 // GM_addStyle and unsafeWindow are the two Tampermonkey helpers we offer. GM_addStyle is also put
 // on window, for older scripts that call window.GM_addStyle.
 (function (id, body) {
-    var ran = window.__llmcUserScriptsRun || (window.__llmcUserScriptsRun = {});
-    if (ran[id]) return;
+    var ran = window.__llmcUserScriptsRun || (window.__llmcUserScriptsRun = Object.create(null));
+    if (Object.prototype.hasOwnProperty.call(ran, id)) return;
     ran[id] = true;
     function GM_addStyle(css) {
         var style = document.createElement('style');

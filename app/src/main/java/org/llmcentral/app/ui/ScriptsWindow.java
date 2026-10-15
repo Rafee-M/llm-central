@@ -47,9 +47,10 @@ public final class ScriptsWindow {
      * browser, file access is off), so lint's warning is switched off for this method only.</p>
      *
      * @param reloadPage reloads the tab on screen (the account menu's "Reload page")
+     * @return the window, so the caller can avoid opening a second one while it is showing
      */
     @SuppressLint("SetJavaScriptEnabled")
-    public static void show(Activity activity, Runnable reloadPage) {
+    public static Dialog show(Activity activity, Runnable reloadPage) {
         Dialog dialog = new Dialog(activity);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
@@ -124,5 +125,6 @@ public final class ScriptsWindow {
             window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
             window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         }
+        return dialog;
     }
 }

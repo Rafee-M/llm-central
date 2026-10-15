@@ -170,6 +170,8 @@ public class MainActivity extends Activity {
     private android.app.Dialog chatsViewerDialog = null;
     // true while duck.ai failed to load and the saved-chats window stands in for it (showOfflineChats).
     private boolean duckOffline = false;
+    // The open user-scripts window (Settings → User scripts), so a double tap can't open a second one.
+    private android.app.Dialog scriptsWindow = null;
     private boolean isRequestingViewer = false;
 
     /** Paths of shared files still waiting for the page's 📎 button (not to be deleted as "cache"). */
@@ -1050,7 +1052,13 @@ public class MainActivity extends Activity {
                 /** Settings → User scripts: opens on top; Settings stays open underneath, so Back returns to it. */
                 @JavascriptInterface
                 public void openScriptsManager() {
-                    runOnUiThread(() -> ScriptsWindow.show(MainActivity.this, MainActivity.this::reloadCurrentTab));
+                    runOnUiThread(() -> {
+                        // One window at a time: a second copy would still show the old list and could save it
+                        // back over changes made in the first (e.g. a deleted script returning).
+                        if (scriptsWindow == null || !scriptsWindow.isShowing()) {
+                            scriptsWindow = ScriptsWindow.show(MainActivity.this, MainActivity.this::reloadCurrentTab);
+                        }
+                    });
                 }
             }, "AndroidSettings");
 
@@ -1403,10 +1411,10 @@ public class MainActivity extends Activity {
         try {
             org.json.JSONArray array = new org.json.JSONArray(scriptsJson);
             for (int i = 0; i < array.length(); i++) {
-                org.json.JSONObject item = array.getJSONObject(i);
-                if (UserScripts.shouldRun(item, url)) {
+                org.json.JSONObject item = array.optJSONObject(i);
+                if (item != null && UserScripts.shouldRun(item, url)) {
                     safeEvaluateJavascript(view,
-                            UserScripts.invocation(js(Scripts.USER_SCRIPT_RUN), UserScripts.idOf(item, i), item.optString("code")));
+                            UserScripts.invocation(js(Scripts.USER_SCRIPT_RUN), UserScripts.runKey(item, i), item.optString("code")));
                 }
             }
         } catch (Exception e) {

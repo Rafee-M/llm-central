@@ -220,6 +220,13 @@
             <h1>User scripts</h1>
         </header>
         <main>
+            <!-- Only when the saved list can't be read: nothing is changed until the user chooses to start over. -->
+            <div class="group">
+                <button type="button" class="row clickable" id="startOver" onclick="askStartOver()" hidden>
+                    <div class="text"><div class="title">Your saved scripts can’t be read</div>
+                        <div class="sub">Nothing is changed. Tap to start over with an empty list.</div></div>
+                </button>
+            </div>
             <div class="group" id="scriptList"></div>
             <div class="empty" id="emptyState" hidden>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.4 16.6 4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0 4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg>
@@ -365,8 +372,13 @@
         function normalizeMatch(text) {
             return String(text || '').split(',').map(s => s.trim()).filter(Boolean).join(', ');
         }
+        // Same rules as the app (scripts/UserScripts.shouldRun): only text is a sites setting, anything else
+        // (missing, null, false…) is the old duck.ai default; only the value true is "on".
         function matchOf(script) {
-            return (script.match === undefined || script.match === null) ? LEGACY_MATCH : normalizeMatch(script.match);
+            return typeof script.match === 'string' ? normalizeMatch(script.match) : LEGACY_MATCH;
+        }
+        function isOn(script) {
+            return script.enabled === true;
         }
         function sitesText(match) {
             return match === '' ? 'All websites' : match;
@@ -398,14 +410,15 @@
         function renderList() {
             const list = $('scriptList');
             list.replaceChildren();
-            $('emptyState').hidden = scripts.length > 0;
+            $('emptyState').hidden = scripts.length > 0 || readOnly;
+            $('startOver').hidden = !readOnly;
             list.hidden = scripts.length === 0;
             scripts.forEach((script, index) => {
                 const name = script.name || 'Untitled script';
                 const idTitle = 'st_' + index;
                 const sw = el('input', { type: 'checkbox', role: 'switch', 'aria-labelledby': idTitle, onchange: (e) => setEnabled(index, e.target.checked) });
-                sw.checked = !!script.enabled;
-                list.append(el('div', { class: 'row script' + (script.enabled ? '' : ' off') },
+                sw.checked = isOn(script);
+                list.append(el('div', { class: 'row script' + (isOn(script) ? '' : ' off') },
                     el('button', { type: 'button', class: 'open clickable', onclick: () => openEditor(index), 'aria-label': 'Edit ' + name },
                         el('div', { class: 'text' },
                             el('div', { class: 'title', id: idTitle }, name),
@@ -455,7 +468,7 @@
             $('f_author').value = s.author || '';
             $('f_match').value = matchOf(s);
             $('f_code').value = s.code || '';
-            $('f_enabled').checked = !!s.enabled;
+            $('f_enabled').checked = isOn(s);
             $('deleteButton').hidden = index < 0;
             editing = { index, snapshot: JSON.stringify(fields()) };
             updateNotes();
@@ -497,7 +510,7 @@
                 if (persist()) { closeEditor(); return; }
                 if (index >= 0) scripts[index] = previous; else scripts.pop();   // not saved: keep the old list
             };
-            const runsNewCode = script.enabled && (!previous || !previous.enabled
+            const runsNewCode = script.enabled && (!previous || !isOn(previous)
                 || previous.code !== script.code || matchOf(previous) !== script.match);
             if (!runsNewCode) { store(); return; }
             warnBeforeRunning(script.name, script.match, (accepted) => { if (accepted) store(); });
@@ -511,6 +524,17 @@
                      closeOverlay();
                      const removed = scripts.splice(index, 1);
                      if (persist()) closeEditor(); else scripts.splice(index, 0, ...removed);
+                 } }]);
+        }
+
+        function askStartOver() {
+            dialog('Start over?', ['Your saved scripts can’t be read. Starting over deletes them and gives you an empty list.'],
+                [{ label: 'Cancel', onclick: closeOverlay },
+                 { label: 'Start over', danger: true, onclick: () => {
+                     closeOverlay();
+                     readOnly = false;
+                     scripts = [];
+                     if (persist()) renderList(); else readOnly = true;
                  } }]);
         }
 
