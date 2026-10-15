@@ -40,4 +40,17 @@ public class UploadCopiesTest {
         assertEquals(0, UploadCopies.cleanUpAtStart(uploads, start + 60_000));
         assertTrue(thisRun.exists());
     }
+
+    @Test
+    public void inTheBackgroundOnlyCopiesOlderThanAnHourGo() throws Exception {
+        File uploads = tmp.newFolder("uploads");
+        long now = System.currentTimeMillis();
+        File old = copy(uploads, "1_1", now - UploadCopies.KEEP_MS - 1_000);   // attached over an hour ago
+        File recent = copy(uploads, "2_2", now - UploadCopies.KEEP_MS + 60_000); // may still be uploading
+
+        assertEquals(1, UploadCopies.deleteExpired(uploads, now));
+        assertFalse(old.exists());
+        assertTrue(recent.exists());
+        assertEquals(0, UploadCopies.deleteExpired(new File(uploads, "missing"), now)); // no folder: no error
+    }
 }

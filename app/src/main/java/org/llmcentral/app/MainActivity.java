@@ -1541,6 +1541,8 @@ public class MainActivity extends Activity {
         if (tabManager != null) {
             tabManager.flushCookies();
         }
+        // Copies of attached files older than an hour (storage/UploadCopies): the process may live for days.
+        UploadCopies.cleanUpExpired(this);
         // Save duck.ai's chats for offline reading, but only if duck.ai was used since the last save:
         // the dump reads every chat and image, too much work to repeat when only other accounts were
         // used (round 6).

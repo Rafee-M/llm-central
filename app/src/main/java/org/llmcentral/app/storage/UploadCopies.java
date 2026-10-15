@@ -41,8 +41,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * <ul>
  *   <li>at every app start, all copies from earlier runs ({@link #cleanUpAtStart}): after a restart
  *       no page can still be reading them;</li>
- *   <li>whenever a file is attached, copies older than {@link #KEEP_MS} (1 hour): sites start
- *       uploading as soon as a file is attached;</li>
+ *   <li>whenever a file is attached, and whenever the app goes to the background
+ *       ({@link #cleanUpExpired}), copies older than {@link #KEEP_MS} (1 hour): sites start uploading
+ *       as soon as a file is attached;</li>
  *   <li>Settings → Clear cache: all of them.</li>
  * </ul>
  */
@@ -84,7 +85,7 @@ public final class UploadCopies {
         Context app = context.getApplicationContext();
         Handler main = new Handler(Looper.getMainLooper());
         copier.execute(() -> {
-            AppCache.deleteOldFolders(new File(app.getCacheDir(), DIR), System.currentTimeMillis() - KEEP_MS);
+            deleteExpired(new File(app.getCacheDir(), DIR), System.currentTimeMillis());
             Uri[] result = new Uri[files.length];
             for (int i = 0; i < files.length; i++) {
                 result[i] = copy(app, files[i]);
@@ -109,6 +110,21 @@ public final class UploadCopies {
             return 0;
         }
         return AppCache.deleteOldFolders(uploadsDir, startedAtMillis);
+    }
+
+    /**
+     * When the app goes to the background (MainActivity.onStop): deletes copies older than
+     * {@link #KEEP_MS}, on this class's own thread. Added 2026-10-15: Android can keep the app's process
+     * alive for days, and until then a big copy (a video, say) stayed until the next attach or app start.
+     */
+    public static void cleanUpExpired(Context context) {
+        Context app = context.getApplicationContext();
+        copier.execute(() -> deleteExpired(new File(app.getCacheDir(), DIR), System.currentTimeMillis()));
+    }
+
+    /** Deletes the copies made more than {@link #KEEP_MS} before {@code nowMillis}; @return how many. */
+    static int deleteExpired(File uploadsDir, long nowMillis) {
+        return AppCache.deleteOldFolders(uploadsDir, nowMillis - KEEP_MS);
     }
 
     /** For tests: lets {@link #cleanUpAtStart} run again. */
