@@ -32,7 +32,8 @@ android {
         // Only package translations the app actually has (en = default "values/").
         // Libraries ship strings for ~90 languages; dropping unused ones saved ~113 KB (see CHANGES.md).
         // Add the locale here when a new translation folder (values-xx) is added.
-        resourceConfigurations += ['en', 'de', 'nl', 'pt-rBR', 'tr', 'zh-rCN', 'zh-rTW']
+        // (German 'de' was listed until 2026-10-15 without a values-de folder; it kept nothing, VERIFICATION O-L1.)
+        resourceConfigurations += ['en', 'nl', 'pt-rBR', 'tr', 'zh-rCN', 'zh-rTW']
     }
 
     signingConfigs {
