@@ -55,6 +55,7 @@ import org.llmcentral.app.web.MicrophoneAccess;
 import org.llmcentral.app.web.DialogWebViewClient;
 import org.llmcentral.app.web.AppBridge;
 import org.llmcentral.app.web.NavigationPolicy;
+import org.llmcentral.app.web.PageZoom;
 import org.llmcentral.app.web.Scripts;
 import org.llmcentral.app.web.TabLru;
 import org.llmcentral.app.web.TabManager;
@@ -437,6 +438,31 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * Makes every open tab follow "Pinch zooms the page" (web/PageZoom). A tab whose mode changes reloads
+     * once; nothing happens when they already match (e.g. on every return to the app).
+     */
+    private void syncPageZoom() {
+        if (tabManager == null) {
+            return;
+        }
+        boolean on = PageZoom.isOn(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE));
+        for (WebView tab : tabManager.liveWebViews()) {
+            Account account = tabManager.accountOf(tab);
+            PageZoom.sync(this, tab, account != null ? Providers.byId(account.providerId) : Providers.DUCK, on);
+        }
+    }
+
+    /** Text size for every open tab (Settings → Appearance → Text size, or the other screen changed it). */
+    private void applyTextZoom(int percent) {
+        currentZoomLevel = percent;
+        if (tabManager != null) {
+            for (WebView tab : tabManager.liveWebViews()) {
+                tab.getSettings().setTextZoom(percent);
+            }
+        }
+    }
+
     /** Shows the current account's provider badge and name in the top bar chip. */
     private void updateTopBar(Account account) {
         TextView badge = findViewById(R.id.providerBadge);
@@ -519,8 +545,11 @@ public class MainActivity extends Activity {
         webSettings.setSaveFormData(false);
         webSettings.setGeolocationEnabled(false);
 
-        // Text size chosen by the user (pinch gesture), see currentZoomLevel.
+        // Text size chosen by the user (pinch gesture or Settings → Appearance → Text size), see currentZoomLevel.
         webSettings.setTextZoom(Math.round(currentZoomLevel));
+        // "Pinch zooms the page" (web/PageZoom): set up before the tab loads its first page.
+        PageZoom.apply(this, webView, provider,
+                PageZoom.isOn(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE)));
 
         // The app draws its own provider icons, so the sites' favicons (tab icons) are never needed:
         // skipping their download saves data and a little time (PROJECT.md R-PERF-4).
@@ -612,9 +641,10 @@ public class MainActivity extends Activity {
             @SuppressLint("ClickableViewAccessibility")
             @Override
             public boolean onTouch(View v, MotionEvent event) {
-                // duck.ai's image viewer, or the desktop site: pinching zooms the page itself (WebView
-                // handles it) instead of changing the text size.
-                if (isImageZoomActive || DesktopMode.isActive(webView)) {
+                // duck.ai's image viewer, the desktop site, or the setting "Pinch zooms the page"
+                // (web/PageZoom): pinching zooms the page itself (WebView handles it) instead of
+                // changing the text size.
+                if (isImageZoomActive || DesktopMode.isActive(webView) || PageZoom.isActive(webView)) {
                     return false;
                 }
                 scaleGestureDetector.onTouchEvent(event);
@@ -728,10 +758,27 @@ public class MainActivity extends Activity {
                         obj.put("shared_doc_suffix", prefs.getString("shared_doc_suffix", ""));
                         obj.put("max_live_tabs", prefs.getInt(PREF_MAX_LIVE_TABS, 3));
                         obj.put("offline_chats", OfflineChats.isEnabled(MainActivity.this));
+                        obj.put(PageZoom.PREF, PageZoom.isOn(prefs));
+                        obj.put("text_zoom", prefs.getInt("text_zoom", 100));
                     } catch (Exception e) {
                         Log.e(TAG, "Error generating settings JSON", e);
                     }
                     return obj.toString();
+                }
+
+                /** Settings → Behaviour → "Pinch zooms the page" (web/PageZoom): open tabs reload once. */
+                @JavascriptInterface
+                public void setPinchZoomPage(boolean on) {
+                    PageZoom.setOn(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), on);
+                    runOnUiThread(MainActivity.this::syncPageZoom);
+                }
+
+                /** Settings → Appearance → Text size (50–300 %, the same value the text-size pinch sets). */
+                @JavascriptInterface
+                public void setTextZoom(int percent) {
+                    int value = Math.max(50, Math.min(300, percent));
+                    getSharedPreferences("duck_assist_prefs", MODE_PRIVATE).edit().putInt("text_zoom", value).apply();
+                    runOnUiThread(() -> applyTextZoom(value));
                 }
 
                 @JavascriptInterface
@@ -1491,6 +1538,12 @@ public class MainActivity extends Activity {
         }
         refreshAccounts();
         if (tabManager != null) {
+            // Settings changed in the app's other screen (assistant drawer): text size and pinch mode.
+            int textZoom = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE).getInt("text_zoom", 100);
+            if (textZoom != Math.round(currentZoomLevel)) {
+                applyTextZoom(textZoom);
+            }
+            syncPageZoom();
             syncDesktopMode(tabManager.current());
             if (tabManager.current().isDuck()) {
                 duckUsedSinceDump = true;
@@ -1993,6 +2046,7 @@ public class MainActivity extends Activity {
             }
             if (isSafeMode) return;
             DesktopMode.onPageFinished(MainActivity.this, view); // wide page in desktop mode
+            PageZoom.onPageFinished(MainActivity.this, view);    // fallback for old WebViews
             if (!provider.isDuck()) {
                 // Other providers: no duck.ai helper scripts (they target duck.ai's page and need the
                 // bridge). Files the page makes become downloadable (blob_capture.js); a shared prompt

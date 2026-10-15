@@ -95,6 +95,10 @@
         .row.off .title, .row.off .sub:not(.note) { opacity: .38; }
         .sub.note { color: var(--md-primary); }
         .row.block { flex-direction: column; align-items: stretch; gap: 8px; }
+        /* Text size slider (Appearance): the browser's own slider in the theme colour; 48 px tall touch area. */
+        .slider-line { display: flex; align-items: center; gap: 12px; }
+        .slider-line input[type=range] { flex: 1; height: 48px; margin: 0; accent-color: var(--md-primary); }
+        .slider-line .value { min-width: 48px; text-align: right; font-variant-numeric: tabular-nums; color: var(--md-on-surface-variant); }
 
         /* Touch feedback ("state layer"): a see-through layer in the text colour. */
         .clickable, .icon-btn, .text-btn, .tonal-btn, .seg button, .tile { cursor: pointer; }
@@ -350,6 +354,12 @@
                         <div class="sub">Align Persian, Arabic and Urdu text correctly (duck.ai)</div></div>
                     <label class="switch"><input type="checkbox" role="switch" id="rtl_resolver" aria-labelledby="l_rtl"><span class="track"><span class="thumb"></span></span></label>
                 </div>
+                <!-- Free zoom like a phone browser instead of the text-size pinch (web/PageZoom, 2026-10-15). -->
+                <div class="row">
+                    <div class="text"><div class="title" id="l_pz">Pinch zooms the page</div>
+                        <div class="sub">Like a browser: two fingers magnify the whole page. Off: they change the text size. Open pages reload once.</div></div>
+                    <label class="switch"><input type="checkbox" role="switch" id="pinch_zoom_page" aria-labelledby="l_pz"><span class="track"><span class="thumb"></span></span></label>
+                </div>
                 <!-- "Prompt dialog on launch" (prompt_on_launch) stays hidden, as in duckAssist. -->
             </div>
         </section>
@@ -408,6 +418,15 @@
                     <div class="text"><div class="title" id="l_hsb">Hide status bar</div>
                         <div class="sub">More room for chats. Swipe down from the top edge to see it for a moment.</div></div>
                     <label class="switch"><input type="checkbox" role="switch" id="hide_status_bar" aria-labelledby="l_hsb"><span class="track"><span class="thumb"></span></span></label>
+                </div>
+                <!-- Text size of the chat pages (pref text_zoom, the same value the text-size pinch sets). -->
+                <div class="row block">
+                    <div class="text"><div class="title" id="l_tz">Text size</div>
+                        <div class="sub">Text in the chat pages. Also set by pinching when "Pinch zooms the page" is off.</div></div>
+                    <div class="slider-line">
+                        <input type="range" id="text_zoom" min="50" max="300" step="10" value="100" aria-labelledby="l_tz">
+                        <span class="value" id="text_zoom_value" aria-hidden="true">100 %</span>
+                    </div>
                 </div>
             </div>
         </section>
@@ -928,6 +947,16 @@
             document.getElementById('shared_doc_suffix').value = settings.shared_doc_suffix || '';
             setMaxLiveTabs(settings.max_live_tabs || 3);
             showOfflineChats(settings.offline_chats !== false);
+            document.getElementById('pinch_zoom_page').checked = !!settings.pinch_zoom_page;
+            // A pinch can leave values between the slider's 10 % steps (e.g. 137): shown as they are.
+            showTextZoom(settings.text_zoom || 100);
+        }
+
+        function showTextZoom(value) {
+            const slider = document.getElementById('text_zoom');
+            slider.value = String(value);
+            document.getElementById('text_zoom_value').textContent = value + ' %';
+            slider.setAttribute('aria-valuetext', value + ' percent');
         }
 
         // "Offline chats (duck.ai)": turning on saves at once; turning off asks first, because the app
@@ -1033,6 +1062,13 @@
                 t.addEventListener('focus', () => setTimeout(() => t.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300));
             }
             document.getElementById('offline_chats').addEventListener('change', onOfflineChatsChange);
+            // Separate calls (not autoSave): each applies itself to the open tabs right away.
+            document.getElementById('pinch_zoom_page').addEventListener('change', (e) => {
+                if (S && S.setPinchZoomPage) S.setPinchZoomPage(e.target.checked);
+            });
+            const textZoom = document.getElementById('text_zoom');
+            textZoom.addEventListener('input', () => showTextZoom(parseInt(textZoom.value, 10)));
+            textZoom.addEventListener('change', () => { if (S && S.setTextZoom) S.setTextZoom(parseInt(textZoom.value, 10)); });
             document.getElementById('material_you').addEventListener('change', (e) => {
                 if (AP) renderAppearance(parse(AP.setMaterialYou(e.target.checked)));
             });
