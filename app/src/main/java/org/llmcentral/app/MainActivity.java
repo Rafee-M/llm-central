@@ -66,6 +66,7 @@ import org.llmcentral.app.provider.PromptPrefill;
 import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
 import org.llmcentral.app.ui.AboutWindow;
+import org.llmcentral.app.ui.ScriptsWindow;
 import org.llmcentral.app.ui.ProviderBadge;
 import org.llmcentral.app.ui.SwitcherModel;
 import org.llmcentral.app.ui.SwitcherPopup;
@@ -169,7 +170,6 @@ public class MainActivity extends Activity {
     private android.app.Dialog chatsViewerDialog = null;
     // true while duck.ai failed to load and the saved-chats window stands in for it (showOfflineChats).
     private boolean duckOffline = false;
-    private android.app.Dialog scriptsManagerDialog = null;
     private boolean isRequestingViewer = false;
 
     /** Paths of shared files still waiting for the page's 📎 button (not to be deleted as "cache"). */
@@ -1047,12 +1047,10 @@ public class MainActivity extends Activity {
                     runOnUiThread(() -> AboutWindow.show(MainActivity.this));
                 }
 
+                /** Settings → User scripts: opens on top; Settings stays open underneath, so Back returns to it. */
                 @JavascriptInterface
                 public void openScriptsManager() {
-                    runOnUiThread(() -> {
-                        dialog.dismiss();
-                        showScriptsManagerDialog();
-                    });
+                    runOnUiThread(() -> ScriptsWindow.show(MainActivity.this, MainActivity.this::reloadCurrentTab));
                 }
             }, "AndroidSettings");
 
@@ -1389,95 +1387,6 @@ public class MainActivity extends Activity {
                 window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
             }
         });
-    }
-
-    private void showScriptsManagerDialog() {
-        runOnUiThread(() -> {
-            if (scriptsManagerDialog != null && scriptsManagerDialog.isShowing()) {
-                scriptsManagerDialog.dismiss();
-            }
-            scriptsManagerDialog = new android.app.Dialog(MainActivity.this);
-            scriptsManagerDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-
-            WebView webView = new WebView(MainActivity.this);
-            // Handles "renderer died" (closes this dialog instead of the app crashing) and keeps
-            // web links opening in the browser. See web/DialogWebViewClient.java.
-            final android.app.Dialog thisDialog = scriptsManagerDialog;
-            webView.setWebViewClient(new DialogWebViewClient(thisDialog::dismiss));
-            WebSettings ws = webView.getSettings();
-            ws.setJavaScriptEnabled(true);
-            ws.setDomStorageEnabled(true);
-            ws.setAllowFileAccess(false);
-            ws.setAllowContentAccess(false);
-            webView.setWebChromeClient(new WebChromeClient());
-
-            webView.addJavascriptInterface(new Object() {
-                @JavascriptInterface
-                public String getScriptsJson() {
-                    SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                    String json = prefs.getString("user_scripts", null);
-                    if (json == null || json.trim().isEmpty()) {
-                        json = getDefaultScriptsJson();
-                        prefs.edit().putString("user_scripts", json).apply();
-                    }
-                    return json;
-                }
-
-                @JavascriptInterface
-                public void saveScriptsJson(String json) {
-                    SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                    prefs.edit().putString("user_scripts", json).apply();
-                    if (chatWebView != null) {
-                        runOnUiThread(() -> {
-                            String currentUrl = chatWebView.getUrl();
-                            injectUserScripts(chatWebView, currentUrl);
-                        });
-                    }
-                }
-
-                @JavascriptInterface
-                public void dismissScriptsManager() {
-                    runOnUiThread(() -> {
-                        if (scriptsManagerDialog != null) {
-                            scriptsManagerDialog.dismiss();
-                        }
-                    });
-                }
-            }, "AndroidScripts");
-
-            // Theme colours for the page (read-only, local page only; see theme/ThemeBridge).
-            webView.addJavascriptInterface(new ThemeBridge(this), "AndroidTheme");
-            webView.loadUrl("file:///android_asset/scripts_manager.html");
-            scriptsManagerDialog.setContentView(webView);
-            scriptsManagerDialog.show();
-
-            Window window = scriptsManagerDialog.getWindow();
-            if (window != null) {
-                window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
-                window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
-            }
-        });
-    }
-
-    private String getDefaultScriptsJson() {
-        try {
-            org.json.JSONArray array = new org.json.JSONArray();
-            org.json.JSONObject script = new org.json.JSONObject();
-            // An example written for LLM Central (GPL-3.0-only, like the app). Until 2026-10-01 this was a
-            // third-party script without a licence (F-Droid requires every file to be free).
-            script.put("id", "example_larger_text");
-            script.put("name", "Example: larger text on duck.ai");
-            script.put("author", "LLM Central");
-            script.put("description", "Shows how user scripts work: makes duck.ai's text 10 % larger. Edit or delete it as you like.");
-            script.put("match", "*://*.duck.ai/*");
-            script.put("enabled", false);
-            script.put("code", js(Scripts.USER_SCRIPT_SAMPLE));
-            array.put(script);
-            return array.toString();
-        } catch (Exception e) {
-            Log.e(TAG, "Error building default scripts JSON", e);
-            return "[]";
-        }
     }
 
     /**

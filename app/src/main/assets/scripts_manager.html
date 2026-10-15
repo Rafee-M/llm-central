@@ -3,885 +3,582 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>User Scripts</title>
+    <title>User scripts</title>
+    <!--
+        Settings → Data & tools → User scripts. Material 3 in plain CSS, built from the same components as
+        settings.html (top app bar, list groups, switches, outlined fields, dialogs, snackbar) and the same
+        colour roles (--md-*). Inside the app the colours come from the user's theme through
+        <style id="app-theme"> at the end of <head> (theme/ThemeBridge).
+
+        Bridge (local page only, ui/ScriptsWindow.java):
+          AndroidScripts.getScriptsJson()      the saved list (JSON)
+          AndroidScripts.saveScriptsJson(json) stores it; false if the app refused it (not a list)
+          AndroidScripts.reloadPage()          reloads the account on screen, so changes apply
+          AndroidScripts.close()               closes this window (Settings is underneath)
+        The app calls handleBack() for the phone's Back button: dialog → editor → close.
+
+        Each script: { id, name, description, author, match, enabled, code }. "match" = the sites, comma-
+        separated; EMPTY = every website opened in the app (scripts/UserScripts). User text is always
+        inserted with textContent, never as HTML.
+    -->
     <style>
         :root {
-            --bg-color: #16171a;
-            --card-bg: #212226;
-            --card-hover: #292a2f;
-            --accent-color: #de5833;
-            --accent-hover: #e06948;
-            --text-primary: #f5f6f7;
-            --text-secondary: #9fa2a6;
-            --border-color: #2c2d30;
-            --input-bg: #191a1d;
-            --toggle-bg: #3e4045;
-            --badge-bg: #2c2e35;
-            --badge-text: #e06948;
-            --danger-color: #ef4444;
-            --danger-hover: #dc2626;
+            --md-primary: #65558F; --md-on-primary: #FFFFFF;
+            --md-primary-container: #EADDFF; --md-on-primary-container: #4F378B;
+            --md-secondary-container: #E8DEF8; --md-on-secondary-container: #4A4458;
+            --md-error: #BA1A1A;
+            --md-surface: #FDF7FF; --md-on-surface: #1D1B20; --md-on-surface-variant: #49454F;
+            --md-surface-container-low: #F7F2FA; --md-surface-container: #F3EDF7;
+            --md-surface-container-high: #ECE6F0; --md-surface-container-highest: #E6E0E9;
+            --md-inverse-surface: #322F35; --md-inverse-on-surface: #F5EFF7; --md-inverse-primary: #D0BCFE;
+            --md-outline: #79747E; --md-outline-variant: #CAC4D0;
+            color-scheme: light;
         }
-
-        @media (prefers-color-scheme: light) {
+        @media (prefers-color-scheme: dark) {
             :root {
-                --bg-color: #f7f7f7;
-                --card-bg: #ffffff;
-                --card-hover: #f0f0f0;
-                --accent-color: #de5833;
-                --accent-hover: #e06948;
-                --text-primary: #222222;
-                --text-secondary: #656565;
-                --border-color: #e5e5e5;
-                --input-bg: #fdfdfd;
-                --toggle-bg: #d5d5d5;
-                --badge-bg: #ffece5;
-                --badge-text: #de5833;
-                --danger-color: #ef4444;
-                --danger-hover: #dc2626;
+                --md-primary: #D0BCFE; --md-on-primary: #381E72;
+                --md-primary-container: #4F378B; --md-on-primary-container: #EADDFF;
+                --md-secondary-container: #4A4458; --md-on-secondary-container: #E8DEF8;
+                --md-error: #FFB4AB;
+                --md-surface: #141218; --md-on-surface: #E6E0E9; --md-on-surface-variant: #CAC4D0;
+                --md-surface-container-low: #1D1B20; --md-surface-container: #211F26;
+                --md-surface-container-high: #2B2930; --md-surface-container-highest: #36343B;
+                --md-inverse-surface: #E6E0E9; --md-inverse-on-surface: #322F35; --md-inverse-primary: #65558F;
+                --md-outline: #938F99; --md-outline-variant: #49454F;
+                color-scheme: dark;
             }
         }
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            -webkit-tap-highlight-color: transparent;
-        }
-
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        html { background: var(--md-surface); }
         body {
-            background-color: var(--bg-color);
-            color: var(--text-primary);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
-            padding: 16px;
+            font-family: "Google Sans Text", "Google Sans", Roboto, system-ui, sans-serif;
+            background: var(--md-surface); color: var(--md-on-surface);
+            font-size: 16px; line-height: 1.4; min-height: 100vh;
         }
+        button, input, textarea { font: inherit; color: inherit; }
+        svg { width: 24px; height: 24px; fill: currentColor; flex-shrink: 0; }
+        [hidden] { display: none !important; }
 
-        .container {
-            width: 100%;
-            max-width: 600px;
-            background-color: var(--card-bg);
-            border-radius: 16px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-            border: 1px solid var(--border-color);
-            animation: slideUp 0.3s ease-out;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            min-height: 85vh;
+        /* ---------- Top app bar ---------- */
+        .appbar {
+            position: sticky; top: 0; z-index: 5;
+            display: flex; align-items: center; gap: 4px;
+            height: 64px; padding: 0 4px;
+            background: var(--md-surface);
         }
+        .appbar.scrolled { background: var(--md-surface-container); }
+        .appbar h1 { flex: 1; font-size: 22px; font-weight: 400; margin-left: 4px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .appbar .text-btn { margin-right: 8px; }
 
-        @keyframes slideUp {
-            from { transform: translateY(12px); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
-        }
+        main { max-width: 640px; margin: 0 auto; padding: 8px 16px 112px; }
 
-        header {
-            padding: 18px 20px;
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            background-color: var(--card-bg);
-            position: sticky;
-            top: 0;
-            z-index: 10;
+        /* ---------- List groups (as in Settings) ---------- */
+        .group { display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px; }
+        .row {
+            position: relative; overflow: hidden;
+            display: flex; align-items: center; gap: 16px;
+            min-height: 64px; padding: 12px 16px;
+            background: var(--md-surface-container);
+            border-radius: 4px; border: 0; width: 100%; text-align: start;
         }
+        .group > .row:first-child { border-top-left-radius: 24px; border-top-right-radius: 24px; }
+        .group > .row:last-child { border-bottom-left-radius: 24px; border-bottom-right-radius: 24px; }
+        .row .text { flex: 1; min-width: 0; }
+        .title { font-size: 16px; color: var(--md-on-surface); overflow-wrap: anywhere; }
+        .sub { font-size: 14px; color: var(--md-on-surface-variant); margin-top: 2px; overflow-wrap: anywhere; }
+        .row.block { flex-direction: column; align-items: stretch; gap: 8px; }
+        .hint { font-size: 14px; color: var(--md-on-surface-variant); margin: 4px 16px 0; }
+        .hint + .hint { margin-top: 8px; }
 
-        .header-left {
-            display: flex;
-            align-items: center;
-            gap: 12px;
+        /* A script: the text part opens the editor, the switch turns it on or off (two separate controls). */
+        .script { padding: 0 16px 0 0; gap: 8px; }
+        .script .open {
+            position: relative; flex: 1; min-width: 0; align-self: stretch;
+            display: flex; align-items: center; gap: 16px; padding: 12px 0 12px 16px;
+            border: 0; background: transparent; text-align: start; border-radius: inherit;
         }
+        .script .open svg { color: var(--md-on-surface-variant); }
+        .script .desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .sites { font-size: 12px; font-weight: 500; letter-spacing: .4px; color: var(--md-primary); margin-top: 6px; overflow-wrap: anywhere; }
+        .script.off .title, .script.off .desc { color: var(--md-on-surface-variant); }
+
+        /* Touch feedback ("state layer"): a see-through layer in the text colour. */
+        .clickable, .icon-btn, .text-btn, .tonal-btn, .fab { cursor: pointer; }
+        .clickable::after, .icon-btn::after, .text-btn::after, .tonal-btn::after, .fab::after {
+            content: ""; position: absolute; inset: 0; border-radius: inherit;
+            background: currentColor; opacity: 0; transition: opacity .15s; pointer-events: none;
+        }
+        .clickable:active::after, .icon-btn:active::after, .text-btn:active::after,
+        .tonal-btn:active::after, .fab:active::after { opacity: .1; }
+        :focus-visible { outline: 2px solid var(--md-primary); outline-offset: 2px; }
 
         .icon-btn {
-            background: none;
-            border: none;
-            color: var(--text-secondary);
-            cursor: pointer;
-            padding: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 50%;
-            transition: background-color 0.2s, color 0.2s;
-            width: 36px;
-            height: 36px;
+            position: relative; display: inline-flex; align-items: center; justify-content: center;
+            width: 48px; height: 48px; border-radius: 50%; border: 0; background: transparent;
+            color: var(--md-on-surface-variant); flex-shrink: 0;
+        }
+        .text-btn, .tonal-btn {
+            position: relative; overflow: hidden; border: 0; border-radius: 20px;
+            height: 40px; padding: 0 16px; font-size: 14px; font-weight: 500; background: transparent;
+            color: var(--md-primary); display: inline-flex; align-items: center; gap: 8px;
+        }
+        .tonal-btn { background: var(--md-secondary-container); color: var(--md-on-secondary-container); padding: 0 20px; }
+        .tonal-btn svg { width: 18px; height: 18px; }
+        .text-btn[disabled] { opacity: .38; pointer-events: none; }
+        .danger { color: var(--md-error) !important; }
+
+        /* Extended floating action button ("New script"). */
+        .fab {
+            position: fixed; right: 16px; bottom: 16px; z-index: 6; overflow: hidden;
+            display: inline-flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px 0 16px;
+            border: 0; border-radius: 16px; font-size: 16px; font-weight: 500;
+            background: var(--md-primary-container); color: var(--md-on-primary-container);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, .3), 0 4px 8px 3px rgba(0, 0, 0, .15);
         }
 
-        .icon-btn:hover {
-            background-color: var(--border-color);
-            color: var(--text-primary);
-        }
+        /* Empty list */
+        .empty { text-align: center; padding: 72px 24px 24px; color: var(--md-on-surface-variant); }
+        .empty svg { width: 48px; height: 48px; margin-bottom: 16px; color: var(--md-primary); }
+        .empty h2 { font-size: 22px; font-weight: 400; color: var(--md-on-surface); margin-bottom: 8px; }
+        .empty p { font-size: 14px; max-width: 320px; margin: 0 auto; }
 
-        .icon-btn:active {
-            transform: scale(0.95);
+        /* ---------- Material 3 switch (as in Settings) ---------- */
+        .switch { position: relative; display: inline-flex; flex-shrink: 0; }
+        .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; z-index: 1; }
+        .track {
+            width: 52px; height: 32px; border-radius: 16px; display: flex; align-items: center;
+            background: var(--md-surface-container-highest); border: 2px solid var(--md-outline);
+            transition: background .2s, border-color .2s;
         }
+        .thumb { width: 16px; height: 16px; border-radius: 50%; margin-left: 6px; background: var(--md-outline); transition: all .2s; }
+        .switch input:checked + .track { background: var(--md-primary); border-color: var(--md-primary); }
+        .switch input:checked + .track .thumb { width: 24px; height: 24px; margin-left: 22px; background: var(--md-on-primary); }
+        .switch input:focus-visible + .track { outline: 2px solid var(--md-primary); outline-offset: 2px; }
 
-        h1 {
-            font-size: 19px;
-            font-weight: 700;
-            color: var(--text-primary);
+        /* ---------- Outlined text fields (as in Settings) ---------- */
+        textarea, .field {
+            width: 100%; border: 1px solid var(--md-outline); border-radius: 12px;
+            background: transparent; color: var(--md-on-surface); padding: 12px 14px; font-size: 16px;
         }
+        textarea:focus, .field:focus { outline: none; border: 2px solid var(--md-primary); padding: 11px 13px; }
+        .field-label { font-size: 14px; color: var(--md-on-surface-variant); }
+        .helper { font-size: 12px; color: var(--md-on-surface-variant); padding: 0 4px; }
+        /* The code: monospace, no wrapping (code lines keep their shape), on the highest surface. */
+        textarea.code {
+            min-height: 280px; resize: vertical; white-space: pre; overflow-x: auto; tab-size: 4;
+            font-family: "Roboto Mono", ui-monospace, "Droid Sans Mono", monospace; font-size: 13px; line-height: 1.5;
+            background: var(--md-surface-container-highest); border-color: transparent;
+        }
+        .label-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+        /* Notes about the code (syntax error, header lines we can't follow): shown under the code field. */
+        .notes { display: flex; flex-direction: column; gap: 6px; }
+        .note { font-size: 13px; color: var(--md-on-surface-variant); padding-left: 4px; }
+        .note.error { color: var(--md-error); }
 
-        .btn-primary {
-            background-color: var(--accent-color);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            padding: 8px 16px;
-            font-size: 13.5px;
-            font-weight: 600;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            transition: background-color 0.2s, transform 0.1s;
+        /* ---------- Dialogs ---------- */
+        .scrim {
+            position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, .32);
+            display: flex; align-items: center; justify-content: center; padding: 24px;
+            animation: fade .15s ease-out;
         }
+        .dialog {
+            width: 100%; max-width: 400px; max-height: 90vh; overflow-y: auto;
+            background: var(--md-surface-container-high); border-radius: 28px; padding: 24px;
+            animation: pop .2s cubic-bezier(.2, 0, 0, 1);
+        }
+        .dialog h2 { font-size: 24px; font-weight: 400; margin-bottom: 16px; }
+        .dialog p { font-size: 14px; color: var(--md-on-surface-variant); margin-bottom: 12px; overflow-wrap: anywhere; }
+        .dialog p:last-of-type { margin-bottom: 0; }
+        .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
 
-        .btn-primary:hover {
-            background-color: var(--accent-hover);
+        /* Snackbar */
+        #snackbar {
+            position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 20; max-width: 600px; margin: 0 auto;
+            display: none; align-items: center; gap: 8px; min-height: 48px; padding: 6px 8px 6px 16px;
+            border-radius: 8px; background: var(--md-inverse-surface); color: var(--md-inverse-on-surface); font-size: 14px;
         }
+        #snackbar.show { display: flex; animation: rise .2s ease-out; }
+        #snackbar .text-btn { color: var(--md-inverse-primary); margin-left: auto; flex-shrink: 0; }
 
-        .btn-primary:active {
-            transform: scale(0.97);
-        }
-
-        .btn-secondary {
-            background-color: transparent;
-            color: var(--text-primary);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 8px 16px;
-            font-size: 13.5px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-
-        .btn-secondary:hover {
-            background-color: var(--card-hover);
-        }
-
-        .btn-danger {
-            background-color: var(--danger-color);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            padding: 8px 14px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-
-        .btn-danger:hover {
-            background-color: var(--danger-hover);
-        }
-
-        .content {
-            padding: 20px;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-
-        /* Script Card */
-        .script-card {
-            background-color: var(--input-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 16px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-
-        .script-card:hover {
-            border-color: rgba(222, 88, 51, 0.4);
-        }
-
-        .script-card-header {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 12px;
-        }
-
-        .script-title {
-            font-size: 15px;
-            font-weight: 700;
-            color: var(--text-primary);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-
-        .script-author {
-            font-size: 12px;
-            color: var(--text-secondary);
-            font-weight: normal;
-        }
-
-        .script-author a {
-            color: var(--accent-color);
-            text-decoration: none;
-        }
-
-        .script-desc {
-            font-size: 13px;
-            color: var(--text-secondary);
-            line-height: 1.4;
-        }
-
-        .badges-row {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-            margin-top: 2px;
-        }
-
-        .badge {
-            font-size: 11px;
-            padding: 2px 8px;
-            border-radius: 6px;
-            background-color: var(--badge-bg);
-            color: var(--badge-text);
-            font-weight: 600;
-            font-family: monospace;
-        }
-
-        .script-card-footer {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding-top: 10px;
-            border-top: 1px solid var(--border-color);
-            margin-top: 4px;
-        }
-
-        .card-actions {
-            display: flex;
-            gap: 8px;
-        }
-
-        .btn-card-action {
-            background: none;
-            border: 1px solid var(--border-color);
-            color: var(--text-primary);
-            border-radius: 6px;
-            padding: 5px 10px;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            transition: background-color 0.2s;
-        }
-
-        .btn-card-action:hover {
-            background-color: var(--border-color);
-        }
-
-        .btn-card-action.delete {
-            color: var(--danger-color);
-            border-color: rgba(239, 68, 68, 0.3);
-        }
-
-        .btn-card-action.delete:hover {
-            background-color: rgba(239, 68, 68, 0.1);
-        }
-
-        /* Toggle switch */
-        .switch {
-            position: relative;
-            display: inline-block;
-            width: 44px;
-            height: 24px;
-            flex-shrink: 0;
-        }
-
-        .switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        .slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: var(--toggle-bg);
-            transition: .2s ease;
-            border-radius: 24px;
-        }
-
-        .slider:before {
-            position: absolute;
-            content: "";
-            height: 18px;
-            width: 18px;
-            left: 3px;
-            bottom: 3px;
-            background-color: white;
-            transition: .2s ease;
-            border-radius: 50%;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.25);
-        }
-
-        input:checked + .slider {
-            background-color: var(--accent-color);
-        }
-
-        input:checked + .slider:before {
-            transform: translateX(20px);
-        }
-
-        /* Empty State */
-        .empty-state {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 48px 16px;
-            text-align: center;
-            gap: 12px;
-            color: var(--text-secondary);
-        }
-
-        .empty-icon {
-            width: 56px;
-            height: 56px;
-            color: var(--accent-color);
-            opacity: 0.8;
-            margin-bottom: 8px;
-        }
-
-        .empty-state h3 {
-            color: var(--text-primary);
-            font-size: 16px;
-        }
-
-        /* Editor Modal */
-        #editorView {
-            display: none;
-            flex-direction: column;
-            height: 100%;
-        }
-
-        .form-group {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            margin-bottom: 14px;
-        }
-
-        .form-label {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .form-input {
-            width: 100%;
-            background-color: var(--input-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 10px 12px;
-            color: var(--text-primary);
-            font-size: 13.5px;
-            transition: border-color 0.2s;
-        }
-
-        .form-input:focus {
-            outline: none;
-            border-color: var(--accent-color);
-        }
-
-        .code-editor {
-            width: 100%;
-            min-height: 280px;
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-            font-size: 12.5px;
-            line-height: 1.5;
-            background-color: var(--input-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 12px;
-            color: var(--text-primary);
-            resize: vertical;
-            white-space: pre;
-            tab-size: 4;
-        }
-
-        .code-editor:focus {
-            outline: none;
-            border-color: var(--accent-color);
-            box-shadow: 0 0 0 2px rgba(222, 88, 51, 0.2);
-        }
-
-        .editor-footer {
-            display: flex;
-            justify-content: flex-end;
-            gap: 10px;
-            margin-top: 10px;
-            padding-top: 14px;
-            border-top: 1px solid var(--border-color);
-        }
+        @keyframes fade { from { opacity: 0; } }
+        @keyframes pop { from { opacity: 0; transform: scale(.94); } }
+        @keyframes rise { from { transform: translateY(24px); opacity: 0; } }
+        @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
     </style>
-    <!-- App theme (palette / Material You / dark mode) as CSS variables, from theme/ThemeBridge.
-         Must stay the last thing in <head> so these colours win over the defaults above.
-         Without the app (e.g. opened in a browser) the page keeps its own colours. -->
+    <!-- App theme (palette / Material You / dark mode) from theme/ThemeBridge; must stay last in <head>. -->
     <script>if (window.AndroidTheme) { document.write('<style id="app-theme">' + AndroidTheme.css() + '</style>'); }</script>
 </head>
 <body>
-    <div class="container">
-        <!-- List View -->
-        <div id="listView" style="display: flex; flex-direction: column; height: 100%;">
-            <header>
-                <div class="header-left">
-                    <button class="icon-btn" onclick="dismiss()" aria-label="Back to Settings">
-                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                            <line x1="19" y1="12" x2="5" y2="12"></line>
-                            <polyline points="12 19 5 12 12 5"></polyline>
-                        </svg>
-                    </button>
-                    <h1>User Scripts</h1>
-                </div>
-                <button class="btn-primary" onclick="openNewScriptEditor()">
-                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="12" y1="5" x2="12" y2="19"></line>
-                        <line x1="5" y1="12" x2="19" y2="12"></line>
-                    </svg>
-                    New Script
-                </button>
-            </header>
-
-            <div class="content" id="scriptsContainer">
-                <!-- Dynamically filled -->
+    <!-- ================= The list ================= -->
+    <div id="listView">
+        <header class="appbar">
+            <button type="button" class="icon-btn" onclick="closeWindow()" aria-label="Back to settings">
+                <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+            </button>
+            <h1>User scripts</h1>
+        </header>
+        <main>
+            <div class="group" id="scriptList"></div>
+            <div class="empty" id="emptyState" hidden>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.4 16.6 4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0 4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg>
+                <h2>No scripts yet</h2>
+                <p>Scripts change how the chat sites look or work. Tap New script to write one or paste one you trust.</p>
             </div>
-        </div>
-
-        <!-- Editor View -->
-        <div id="editorView">
-            <header>
-                <div class="header-left">
-                    <button class="icon-btn" onclick="closeEditor()" aria-label="Back">
-                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                            <line x1="19" y1="12" x2="5" y2="12"></line>
-                            <polyline points="12 19 5 12 12 5"></polyline>
-                        </svg>
-                    </button>
-                    <h1 id="editorTitle">Edit Script</h1>
-                </div>
-                <button class="btn-primary" onclick="saveCurrentScript()">Save</button>
-            </header>
-
-            <div class="content">
-                <input type="hidden" id="editScriptId">
-
-                <div class="form-group">
-                    <label class="form-label" for="editScriptName">Script Name</label>
-                    <input type="text" id="editScriptName" class="form-input" placeholder="e.g. My Custom Script">
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label" for="editScriptDesc">Description</label>
-                    <input type="text" id="editScriptDesc" class="form-input" placeholder="Short description of what the script does">
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label" for="editScriptAuthor">Author</label>
-                    <input type="text" id="editScriptAuthor" class="form-input" placeholder="e.g. Your name">
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label" for="editScriptMatch">URL Match Patterns (comma-separated)</label>
-                    <input type="text" id="editScriptMatch" class="form-input" placeholder="*://*.duck.ai/*, *://*.duckduckgo.com/*">
-                </div>
-
-                <div class="form-group">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <label class="form-label" for="editScriptCode">JavaScript Code</label>
-                        <button type="button" class="btn-card-action" onclick="parseMetadataFromCode()" style="margin-bottom: 4px;">Extract Header Info</button>
-                    </div>
-                    <textarea id="editScriptCode" class="code-editor" placeholder="// Type or paste your JavaScript code here..."></textarea>
-                </div>
-
-                <div class="setting-row" style="display: flex; align-items: center; justify-content: space-between; padding: 6px 0;">
-                    <span class="form-label">Enable this script</span>
-                    <label class="switch">
-                        <input type="checkbox" id="editScriptEnabled">
-                        <span class="slider"></span>
-                    </label>
-                </div>
-
-                <div class="editor-footer">
-                    <button class="btn-secondary" onclick="closeEditor()">Cancel</button>
-                    <button class="btn-primary" onclick="saveCurrentScript()">Save Script</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Delete Confirmation Modal -->
-        <div id="confirmModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.65); z-index:100; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(3px);">
-            <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:16px; padding:22px; max-width:340px; width:100%; box-shadow:0 12px 32px rgba(0,0,0,0.5); display:flex; flex-direction:column; gap:12px;">
-                <h3 style="font-size:17px; font-weight:700; color:var(--text-primary); margin:0;">Delete Script</h3>
-                <p id="confirmModalMsg" style="font-size:13.5px; color:var(--text-secondary); line-height:1.4; margin:0;">Are you sure you want to delete this script?</p>
-                <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:10px;">
-                    <button type="button" class="btn-secondary" onclick="closeConfirmModal()">Cancel</button>
-                    <button type="button" class="btn-danger" onclick="confirmDelete()">Delete</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Enable Warning Modal: shown every time a script is switched on (or saved enabled with new code).
-             User scripts run inside the chat website with the same power as the site itself, so the user
-             must knowingly accept that risk. -->
-        <div id="enableWarnModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.65); z-index:101; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(3px);">
-            <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:16px; padding:22px; max-width:360px; width:100%; box-shadow:0 12px 32px rgba(0,0,0,0.5); display:flex; flex-direction:column; gap:12px;">
-                <h3 style="font-size:17px; font-weight:700; color:var(--text-primary); margin:0;">⚠️ Enable this script?</h3>
-                <p id="enableWarnMsg" style="font-size:13.5px; color:var(--text-secondary); line-height:1.45; margin:0;"></p>
-                <p style="font-size:13.5px; color:var(--text-secondary); line-height:1.45; margin:0;">
-                    A script can <b>read your chats</b>, <b>act as your logged-in account</b> and send data anywhere.
-                    Only enable scripts you wrote yourself or fully trust.
-                </p>
-                <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:10px;">
-                    <button type="button" class="btn-secondary" onclick="resolveEnableWarning(false)">Cancel</button>
-                    <button type="button" class="btn-danger" onclick="resolveEnableWarning(true)">Enable</button>
-                </div>
-            </div>
-        </div>
+            <p class="hint" id="listHint">Scripts run inside the chat sites, signed in as you, after a page has loaded. Only turn on scripts you wrote yourself or fully trust.</p>
+        </main>
+        <button type="button" class="fab" id="newScriptButton" onclick="openEditor(-1)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+            New script
+        </button>
     </div>
 
+    <!-- ================= The editor ================= -->
+    <div id="editorView" hidden>
+        <header class="appbar">
+            <button type="button" class="icon-btn" onclick="leaveEditor()" aria-label="Close without saving">
+                <svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+            </button>
+            <h1 id="editorTitle">New script</h1>
+            <button type="button" class="text-btn" onclick="saveEditor()">Save</button>
+        </header>
+        <main>
+            <div class="group">
+                <div class="row block">
+                    <label class="field-label" for="f_name">Name</label>
+                    <input class="field" id="f_name" type="text" autocomplete="off" placeholder="Untitled script">
+                </div>
+                <div class="row block">
+                    <label class="field-label" for="f_desc">Description</label>
+                    <input class="field" id="f_desc" type="text" autocomplete="off" placeholder="Optional">
+                </div>
+                <div class="row block">
+                    <label class="field-label" for="f_author">Author</label>
+                    <input class="field" id="f_author" type="text" autocomplete="off" placeholder="Optional">
+                </div>
+                <div class="row block">
+                    <label class="field-label" for="f_match">Sites</label>
+                    <input class="field" id="f_match" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
+                           placeholder="All websites" aria-describedby="matchHelp">
+                    <div class="helper" id="matchHelp">Patterns separated by commas, e.g. *://chatgpt.com/*. Leave empty to run on every website opened in the app.</div>
+                </div>
+            </div>
+            <div class="group">
+                <div class="row block">
+                    <div class="label-line">
+                        <label class="field-label" for="f_code">Code (JavaScript)</label>
+                        <button type="button" class="tonal-btn" onclick="fillFromHeader()" id="fillButton">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/></svg>
+                            Fill from header
+                        </button>
+                    </div>
+                    <textarea class="code" id="f_code" spellcheck="false" autocapitalize="off" autocomplete="off"
+                              placeholder="// Paste or type your script here"></textarea>
+                    <div class="notes" id="codeNotes" aria-live="polite"></div>
+                </div>
+                <div class="row">
+                    <div class="text"><div class="title" id="l_enabled">Turned on</div>
+                        <div class="sub">Runs when a matching page loads</div></div>
+                    <label class="switch"><input type="checkbox" role="switch" id="f_enabled" aria-labelledby="l_enabled"><span class="track"><span class="thumb"></span></span></label>
+                </div>
+            </div>
+            <button type="button" class="text-btn danger" id="deleteButton" onclick="askDelete()">Delete script</button>
+        </main>
+    </div>
+
+    <div id="snackbar" role="status" aria-live="polite"></div>
+
     <script>
-        // The example offered when no scripts exist yet; same text as assets/js/user_script_sample.js
-        // (MainActivity.getDefaultScriptsJson). Written for LLM Central, GPL-3.0-only like the app
-        // (the app must be GPL-3.0-only: it contains gptAssist code, which is GPL-3.0-only).
-        const DEFAULT_SAMPLE_SCRIPT = {
-            id: "example_larger_text",
-            name: "Example: larger text on duck.ai",
-            author: "LLM Central",
-            description: "Shows how user scripts work: makes duck.ai's text 10 % larger. Edit or delete it as you like.",
-            match: "*://*.duck.ai/*",
-            enabled: false,
-            code: `// ==UserScript==
-// @name         Example: larger text on duck.ai
-// @description  Shows how user scripts work: makes duck.ai's text 10 % larger. Edit or delete it as you like.
-// @author       LLM Central
-// @license      GPL-3.0-only
-// @match        *://*.duck.ai/*
-// @grant        GM_addStyle
-// ==/UserScript==
+        const BRIDGE = window.AndroidScripts || null;
+        // Sites of a script saved without any "match" value (very old or hand-made data); scripts/UserScripts.LEGACY_MATCH.
+        const LEGACY_MATCH = '*://*.duck.ai/*';
+        const NEW_SCRIPT_MATCH = '*://*.duck.ai/*';
+        const NEW_SCRIPT_CODE = '// ==UserScript==\n// @name         My script\n// @match        ' + NEW_SCRIPT_MATCH +
+            '\n// ==/UserScript==\n\n// Your code runs after the page has loaded. Example:\n// GM_addStyle(\'body { letter-spacing: .2px; }\');\n';
 
-// GM_addStyle adds CSS (style rules) to the page. 110 % makes the page's base text size 10 % larger;
-// sites that size their text in "rem" units follow it.
-GM_addStyle('html { font-size: 110% !important; }');`
-        };
+        let scripts = [];
+        let readOnly = false;   // the saved list couldn't be read: never overwrite it
+        let editing = null;     // { index, snapshot } while the editor is open; index -1 = new script
 
-        let scriptsList = [];
+        // ------------------------------------------------------------ helpers (as in settings.html)
+        function el(tag, attrs, ...children) {
+            const node = document.createElement(tag);
+            for (const [k, v] of Object.entries(attrs || {})) {
+                if (v === null || v === undefined || v === false) continue;
+                if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
+                else node.setAttribute(k, v === true ? '' : v);
+            }
+            for (const c of children) {
+                if (c === null || c === undefined || c === false) continue;
+                node.append(c instanceof Node ? c : document.createTextNode(String(c)));
+            }
+            return node;
+        }
+        const $ = (id) => document.getElementById(id);
 
-        function init() {
-            loadScripts();
+        // Open dialogs, newest last. Each may have an onCancel, run when Back or a tap outside closes it
+        // (the dialog's own buttons close it with closeOverlay and do their own thing).
+        const overlays = [];
+        function openOverlay(content, onCancel) {
+            const scrim = el('div', { class: 'scrim' });
+            scrim.addEventListener('click', (e) => { if (e.target === scrim) cancelOverlay(); });
+            scrim.append(content);
+            document.body.append(scrim);
+            overlays.push({ scrim, onCancel });
+            const focusable = content.querySelector('button');
+            if (focusable) setTimeout(() => focusable.focus(), 50);
+        }
+        function closeOverlay() {
+            const top = overlays.pop();
+            if (top) top.scrim.remove();
+        }
+        function cancelOverlay() {
+            const top = overlays[overlays.length - 1];
+            closeOverlay();
+            if (top && top.onCancel) top.onCancel();
+        }
+        // paragraphs: array of strings; actions: [{ label, onclick, danger }]
+        function dialog(title, paragraphs, actions, onCancel) {
+            const box = el('div', { class: 'dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
+                el('h2', {}, title), ...paragraphs.map(p => el('p', {}, p)),
+                el('div', { class: 'actions' }, ...actions.map(a =>
+                    el('button', { type: 'button', class: 'text-btn' + (a.danger ? ' danger' : ''), onclick: a.onclick }, a.label))));
+            openOverlay(box, onCancel);
+        }
+
+        let snackTimer = 0;
+        function snack(text, actionLabel, action) {
+            const bar = $('snackbar');
+            bar.replaceChildren(el('span', {}, text));
+            if (actionLabel) {
+                bar.append(el('button', { type: 'button', class: 'text-btn', onclick: () => { hideSnack(); action(); } }, actionLabel));
+            }
+            bar.classList.add('show');
+            clearTimeout(snackTimer);
+            snackTimer = setTimeout(hideSnack, actionLabel ? 6000 : 3000);
+        }
+        function hideSnack() { $('snackbar').classList.remove('show'); }
+
+        // ------------------------------------------------------------ sites ("match")
+        // "a , ,b" → "a, b"; only commas/spaces → "" (= every website).
+        function normalizeMatch(text) {
+            return String(text || '').split(',').map(s => s.trim()).filter(Boolean).join(', ');
+        }
+        function matchOf(script) {
+            return (script.match === undefined || script.match === null) ? LEGACY_MATCH : normalizeMatch(script.match);
+        }
+        function sitesText(match) {
+            return match === '' ? 'All websites' : match;
+        }
+
+        // ------------------------------------------------------------ load / save
+        function load() {
+            if (!BRIDGE) { scripts = []; return; }   // opened outside the app (browser preview)
+            try {
+                const list = JSON.parse(BRIDGE.getScriptsJson());
+                if (!Array.isArray(list)) throw new Error('not a list');
+                scripts = list.filter(s => s && typeof s === 'object');
+            } catch (e) {
+                scripts = [];
+                readOnly = true;
+                snack('Your saved scripts couldn’t be read, so nothing will be changed.');
+            }
+        }
+        // @return true if stored
+        function persist() {
+            if (readOnly) { snack('Not saved: your saved scripts couldn’t be read.'); return false; }
+            if (!BRIDGE) return true;
+            if (!BRIDGE.saveScriptsJson(JSON.stringify(scripts))) { snack('Couldn’t save the scripts.'); return false; }
+            snack('Saved. Applies when the page reloads.', 'Reload page', () => BRIDGE.reloadPage());
+            return true;
+        }
+
+        // ------------------------------------------------------------ list
+        function renderList() {
+            const list = $('scriptList');
+            list.replaceChildren();
+            $('emptyState').hidden = scripts.length > 0;
+            list.hidden = scripts.length === 0;
+            scripts.forEach((script, index) => {
+                const name = script.name || 'Untitled script';
+                const idTitle = 'st_' + index;
+                const sw = el('input', { type: 'checkbox', role: 'switch', 'aria-labelledby': idTitle, onchange: (e) => setEnabled(index, e.target.checked) });
+                sw.checked = !!script.enabled;
+                list.append(el('div', { class: 'row script' + (script.enabled ? '' : ' off') },
+                    el('button', { type: 'button', class: 'open clickable', onclick: () => openEditor(index), 'aria-label': 'Edit ' + name },
+                        el('div', { class: 'text' },
+                            el('div', { class: 'title', id: idTitle }, name),
+                            script.description ? el('div', { class: 'sub desc' }, script.description) : null,
+                            el('div', { class: 'sites' }, sitesText(matchOf(script))))),
+                    el('label', { class: 'switch' }, sw, el('span', { class: 'track' }, el('span', { class: 'thumb' })))));
+            });
+        }
+
+        function setEnabled(index, on) {
+            const script = scripts[index];
+            if (!script) return;
+            if (!on) {                       // turning off never needs a warning
+                script.enabled = false;
+                persist();
+                renderList();
+                return;
+            }
+            warnBeforeRunning(script.name, matchOf(script), (accepted) => {
+                if (accepted) { script.enabled = true; persist(); }
+                renderList();                // on Cancel the switch flips back
+            });
+        }
+
+        // The warning shown whenever a save would (newly) run code.
+        function warnBeforeRunning(name, match, decide) {
+            const where = match === ''
+                ? '“' + (name || 'Untitled script') + '” will run on every website opened in the app, including sign-in pages.'
+                : '“' + (name || 'Untitled script') + '” will run on: ' + match;
+            dialog('Turn on this script?', [where,
+                'A script can read your chats, act as your signed-in account and send data anywhere. Only turn on scripts you wrote yourself or fully trust.'],
+                [{ label: 'Cancel', onclick: () => { closeOverlay(); decide(false); } },
+                 { label: 'Turn on', danger: true, onclick: () => { closeOverlay(); decide(true); } }],
+                () => decide(false));   // Back or a tap outside = Cancel
+        }
+
+        // ------------------------------------------------------------ editor
+        function fields() {
+            return { name: $('f_name').value, description: $('f_desc').value, author: $('f_author').value,
+                     match: $('f_match').value, code: $('f_code').value, enabled: $('f_enabled').checked };
+        }
+        function openEditor(index) {
+            const s = index >= 0 ? scripts[index] : { name: '', description: '', author: '', match: NEW_SCRIPT_MATCH, code: NEW_SCRIPT_CODE, enabled: true };
+            $('editorTitle').textContent = index >= 0 ? 'Edit script' : 'New script';
+            $('f_name').value = s.name || '';
+            $('f_desc').value = s.description || '';
+            $('f_author').value = s.author || '';
+            $('f_match').value = matchOf(s);
+            $('f_code').value = s.code || '';
+            $('f_enabled').checked = !!s.enabled;
+            $('deleteButton').hidden = index < 0;
+            editing = { index, snapshot: JSON.stringify(fields()) };
+            updateNotes();
+            hideSnack();
+            $('listView').hidden = true;
+            $('editorView').hidden = false;
+            window.scrollTo(0, 0);
+        }
+        function closeEditor() {
+            editing = null;
+            $('editorView').hidden = true;
+            $('listView').hidden = false;
             renderList();
         }
-
-        function loadScripts() {
-            if (typeof AndroidScripts !== 'undefined' && AndroidScripts.getScriptsJson) {
-                try {
-                    const json = AndroidScripts.getScriptsJson();
-                    if (json && json.trim() !== "" && json !== "[]") {
-                        scriptsList = JSON.parse(json);
-                    } else {
-                        scriptsList = [ DEFAULT_SAMPLE_SCRIPT ];
-                        saveToAndroid();
-                    }
-                } catch (e) {
-                    console.error("Error loading scripts:", e);
-                    scriptsList = [ DEFAULT_SAMPLE_SCRIPT ];
-                }
-            } else {
-                scriptsList = [ DEFAULT_SAMPLE_SCRIPT ];
-            }
+        function isDirty() {
+            return editing && JSON.stringify(fields()) !== editing.snapshot;
         }
-
-        function saveToAndroid() {
-            const json = JSON.stringify(scriptsList);
-            if (typeof AndroidScripts !== 'undefined' && AndroidScripts.saveScriptsJson) {
-                AndroidScripts.saveScriptsJson(json);
-            }
+        function leaveEditor() {
+            if (!isDirty()) { closeEditor(); return; }
+            dialog('Discard changes?', ['What you changed in this script will be lost.'],
+                [{ label: 'Keep editing', onclick: closeOverlay },
+                 { label: 'Discard', danger: true, onclick: () => { closeOverlay(); closeEditor(); } }]);
         }
-
-        function renderList() {
-            const container = document.getElementById('scriptsContainer');
-            container.innerHTML = '';
-
-            if (scriptsList.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="16 18 22 12 16 6"></polyline>
-                            <polyline points="8 6 2 12 8 18"></polyline>
-                        </svg>
-                        <h3>No User Scripts Yet</h3>
-                        <p>Add custom JavaScript or UserScripts to customize Duck.ai.</p>
-                        <button class="btn-primary" onclick="openNewScriptEditor()" style="margin-top: 8px;">+ Add New Script</button>
-                    </div>
-                `;
-                return;
-            }
-
-            scriptsList.forEach((script, index) => {
-                const card = document.createElement('div');
-                card.className = 'script-card';
-
-                const matches = (script.match || '*://*.duck.ai/*').split(',').map(m => m.trim());
-                const badgesHtml = matches.map(m => `<span class="badge">${escapeHtml(m)}</span>`).join('');
-
-                let authorHtml = '';
-                if (script.author) {
-                    if (script.author.includes('github.com')) {
-                        authorHtml = `by <a href="#" onclick="event.preventDefault();">${escapeHtml(script.author)}</a>`;
-                    } else {
-                        authorHtml = `by ${escapeHtml(script.author)}`;
-                    }
-                }
-
-                card.innerHTML = `
-                    <div class="script-card-header">
-                        <div>
-                            <div class="script-title">
-                                <span>${escapeHtml(script.name || 'Untitled Script')}</span>
-                                ${authorHtml ? `<span class="script-author">${authorHtml}</span>` : ''}
-                            </div>
-                            <div class="script-desc">${escapeHtml(script.description || 'No description provided')}</div>
-                        </div>
-                        <label class="switch">
-                            <input type="checkbox" ${script.enabled ? 'checked' : ''} onchange="toggleScript(${index}, this.checked)">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-
-                    <div class="badges-row">
-                        ${badgesHtml}
-                    </div>
-
-                    <div class="script-card-footer">
-                        <div class="card-actions">
-                            <button class="btn-card-action" onclick="editScript(${index})">
-                                <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                </svg>
-                                Edit
-                            </button>
-                            <button class="btn-card-action delete" onclick="deleteScript(${index})">
-                                <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                                    <polyline points="3 6 5 6 21 6"></polyline>
-                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                </svg>
-                                Delete
-                            </button>
-                        </div>
-                        <span style="font-size: 11px; color: var(--text-secondary);">${script.enabled ? 'Active' : 'Disabled'}</span>
-                    </div>
-                `;
-                container.appendChild(card);
+        function saveEditor() {
+            const f = fields();
+            const index = editing.index;
+            const previous = index >= 0 ? scripts[index] : null;
+            const script = Object.assign({}, previous || {}, {
+                id: previous && previous.id ? previous.id : 'script_' + Date.now(),
+                name: f.name.trim() || 'Untitled script',
+                description: f.description.trim(),
+                author: f.author.trim(),
+                match: normalizeMatch(f.match),   // "" = every website
+                enabled: f.enabled,
+                code: f.code
             });
+            const store = () => {
+                if (index >= 0) scripts[index] = script; else scripts.push(script);
+                if (persist()) { closeEditor(); return; }
+                if (index >= 0) scripts[index] = previous; else scripts.pop();   // not saved: keep the old list
+            };
+            const runsNewCode = script.enabled && (!previous || !previous.enabled
+                || previous.code !== script.code || matchOf(previous) !== script.match);
+            if (!runsNewCode) { store(); return; }
+            warnBeforeRunning(script.name, script.match, (accepted) => { if (accepted) store(); });
+        }
+        function askDelete() {
+            const index = editing ? editing.index : -1;
+            if (index < 0) return;
+            dialog('Delete script?', ['“' + (scripts[index].name || 'Untitled script') + '” will be removed. This can’t be undone.'],
+                [{ label: 'Cancel', onclick: closeOverlay },
+                 { label: 'Delete', danger: true, onclick: () => {
+                     closeOverlay();
+                     const removed = scripts.splice(index, 1);
+                     if (persist()) closeEditor(); else scripts.splice(index, 0, ...removed);
+                 } }]);
         }
 
-        // Callback waiting for the user's answer in the enable-warning modal (null when no modal is open).
-        let pendingEnableDecision = null;
-
-        // Shows the warning modal; calls onDecision(true) if the user taps "Enable", onDecision(false) otherwise.
-        function askBeforeEnabling(script, onDecision) {
-            const sites = (script.match || '').trim() || 'ALL websites';
-            document.getElementById('enableWarnMsg').textContent =
-                `"${script.name || 'Untitled Script'}" will run on: ${sites}`;
-            pendingEnableDecision = onDecision;
-            document.getElementById('enableWarnModal').style.display = 'flex';
-        }
-
-        function resolveEnableWarning(accepted) {
-            document.getElementById('enableWarnModal').style.display = 'none';
-            const decide = pendingEnableDecision;
-            pendingEnableDecision = null;
-            if (decide) decide(accepted);
-        }
-
-        function toggleScript(index, isEnabled) {
-            const script = scriptsList[index];
-            if (!script) return;
-            if (!isEnabled) {
-                // Turning a script OFF is always safe: no warning needed.
-                script.enabled = false;
-                saveToAndroid();
-                renderList();
-                return;
+        // ------------------------------------------------------------ the script's header and code checks
+        // The "==UserScript==" block at the top of pasted scripts: [[key, value], ...]
+        function headerEntries(code) {
+            const m = /==UserScript==([\s\S]*?)==\/UserScript==/.exec(code || '');
+            if (!m) return [];
+            const out = [];
+            for (const line of m[1].split(/\r?\n/)) {
+                const h = /^\s*\/\/\s*@([\w:-]+)\s+(.+?)\s*$/.exec(line);
+                if (h) out.push([h[1].toLowerCase(), h[2]]);
             }
-            askBeforeEnabling(script, function (accepted) {
-                if (accepted) {
-                    script.enabled = true;
-                    saveToAndroid();
-                }
-                // Re-render in both cases so the switch shows the real state (it flips back on Cancel).
-                renderList();
-            });
+            return out;
         }
-
-        let scriptToDeleteIndex = -1;
-
-        function deleteScript(index) {
-            const script = scriptsList[index];
-            if (!script) return;
-            scriptToDeleteIndex = index;
-            const msgEl = document.getElementById('confirmModalMsg');
-            if (msgEl) {
-                msgEl.textContent = `Are you sure you want to delete "${script.name || 'Untitled Script'}"?`;
-            }
-            const modal = document.getElementById('confirmModal');
-            if (modal) {
-                modal.style.display = 'flex';
-            }
+        function fillFromHeader() {
+            const entries = headerEntries($('f_code').value);
+            if (!entries.length) { snack('This code has no ==UserScript== header.'); return; }
+            const first = (k) => { const e = entries.find(x => x[0] === k); return e ? e[1] : null; };
+            if (first('name')) $('f_name').value = first('name');
+            if (first('description')) $('f_desc').value = first('description');
+            if (first('author')) $('f_author').value = first('author');
+            const sites = entries.filter(e => e[0] === 'match' || e[0] === 'include').map(e => e[1]);
+            if (sites.length) $('f_match').value = sites.join(', ');
+            updateNotes();
+            snack('Filled in from the header.');
         }
-
-        function closeConfirmModal() {
-            scriptToDeleteIndex = -1;
-            const modal = document.getElementById('confirmModal');
-            if (modal) {
-                modal.style.display = 'none';
+        const SUPPORTED_GRANTS = ['none', 'GM_addStyle', 'unsafeWindow'];
+        function updateNotes() {
+            const code = $('f_code').value;
+            const notes = [];
+            try {
+                // Compiles without running (the same function shape the app uses).
+                new Function('GM_addStyle', 'unsafeWindow', '{\n' + code + '\n}');
+            } catch (e) {
+                notes.push(['error', 'The code has an error and won’t run: ' + e.message]);
             }
-        }
-
-        function confirmDelete() {
-            if (scriptToDeleteIndex >= 0 && scriptToDeleteIndex < scriptsList.length) {
-                scriptsList.splice(scriptToDeleteIndex, 1);
-                saveToAndroid();
-                renderList();
+            const entries = headerEntries(code);
+            const excludes = entries.filter(e => e[0] === 'exclude' || e[0] === 'exclude-match').map(e => e[1]);
+            if (excludes.length) notes.push(['', 'Skipped on: ' + excludes.join(', ') + ' (from the header).']);
+            if (entries.some(e => e[0] === 'run-at' && /document-start/i.test(e[1]))) {
+                notes.push(['', 'Asks to run before the page loads; here it runs after the page has loaded.']);
             }
-            closeConfirmModal();
+            const missing = entries.filter(e => e[0] === 'grant' && !SUPPORTED_GRANTS.includes(e[1])).map(e => e[1]);
+            if (missing.length) notes.push(['', 'Not available here: ' + missing.join(', ') + '. Only GM_addStyle and unsafeWindow are.']);
+            $('codeNotes').replaceChildren(...notes.map(n => el('div', { class: 'note' + (n[0] ? ' ' + n[0] : '') }, n[1])));
         }
+        let notesTimer = 0;
+        $('f_code').addEventListener('input', () => { clearTimeout(notesTimer); notesTimer = setTimeout(updateNotes, 400); });
 
-        function openNewScriptEditor() {
-            document.getElementById('editorTitle').innerText = 'New Script';
-            document.getElementById('editScriptId').value = 'script_' + Date.now();
-            document.getElementById('editScriptName').value = '';
-            document.getElementById('editScriptDesc').value = '';
-            document.getElementById('editScriptAuthor').value = '';
-            document.getElementById('editScriptMatch').value = '*://*.duck.ai/*, *://*.duckduckgo.com/*';
-            document.getElementById('editScriptEnabled').checked = true;
-            document.getElementById('editScriptCode').value = `// ==UserScript==\n// @name         New Custom Script\n// @match        *://*.duck.ai/*\n// @run-at       document-idle\n// ==/UserScript==\n\n(function() {\n    'use strict';\n\n    console.log('Custom script running on duck.ai!');\n})();`;
-            
-            document.getElementById('listView').style.display = 'none';
-            document.getElementById('editorView').style.display = 'flex';
+        // ------------------------------------------------------------ Back and closing
+        function closeWindow() {
+            if (BRIDGE) BRIDGE.close();
         }
+        // Called by the app for the phone's Back button. true = handled here; false = close the window.
+        window.handleBack = function () {
+            if (overlays.length) { cancelOverlay(); return true; }
+            if (editing) { leaveEditor(); return true; }
+            return false;
+        };
 
-        function editScript(index) {
-            const script = scriptsList[index];
-            document.getElementById('editorTitle').innerText = 'Edit Script';
-            document.getElementById('editScriptId').value = script.id || ('script_' + index);
-            document.getElementById('editScriptName').value = script.name || '';
-            document.getElementById('editScriptDesc').value = script.description || '';
-            document.getElementById('editScriptAuthor').value = script.author || '';
-            document.getElementById('editScriptMatch').value = script.match || '*://*.duck.ai/*';
-            document.getElementById('editScriptEnabled').checked = script.enabled !== undefined ? script.enabled : true;
-            document.getElementById('editScriptCode').value = script.code || '';
+        // The app bar gets the "scrolled" colour once the content moves under it (as in Settings).
+        window.addEventListener('scroll', () => {
+            for (const bar of document.querySelectorAll('.appbar')) bar.classList.toggle('scrolled', window.scrollY > 0);
+        }, { passive: true });
 
-            document.getElementById('listView').style.display = 'none';
-            document.getElementById('editorView').style.display = 'flex';
-        }
-
-        function closeEditor() {
-            document.getElementById('editorView').style.display = 'none';
-            document.getElementById('listView').style.display = 'flex';
-        }
-
-        function parseMetadataFromCode() {
-            const code = document.getElementById('editScriptCode').value;
-            const nameMatch = code.match(/@name\s+(.+)/);
-            const descMatch = code.match(/@description\s+(.+)/);
-            const authorMatch = code.match(/@author\s+(.+)/);
-            const matchMatches = [...code.matchAll(/@match\s+(.+)/g)].map(m => m[1].trim());
-
-            if (nameMatch && nameMatch[1]) {
-                document.getElementById('editScriptName').value = nameMatch[1].trim();
-            }
-            if (descMatch && descMatch[1]) {
-                document.getElementById('editScriptDesc').value = descMatch[1].trim();
-            }
-            if (authorMatch && authorMatch[1]) {
-                document.getElementById('editScriptAuthor').value = authorMatch[1].trim();
-            }
-            if (matchMatches.length > 0) {
-                document.getElementById('editScriptMatch').value = matchMatches.join(', ');
-            }
-        }
-
-        function saveCurrentScript() {
-            const id = document.getElementById('editScriptId').value || ('script_' + Date.now());
-            const name = document.getElementById('editScriptName').value.trim() || 'Untitled Script';
-            const description = document.getElementById('editScriptDesc').value.trim();
-            const author = document.getElementById('editScriptAuthor').value.trim();
-            const match = document.getElementById('editScriptMatch').value.trim() || '*://*.duck.ai/*';
-            const enabled = document.getElementById('editScriptEnabled').checked;
-            const code = document.getElementById('editScriptCode').value;
-
-            const existingIdx = scriptsList.findIndex(s => s.id === id);
-            const scriptData = { id, name, description, author, match, enabled, code };
-
-            function store() {
-                if (existingIdx >= 0) {
-                    scriptsList[existingIdx] = scriptData;
-                } else {
-                    scriptsList.push(scriptData);
-                }
-                saveToAndroid();
-                closeEditor();
-                renderList();
-            }
-
-            // Warn when this save would (newly) run code: a new enabled script, a script being switched on,
-            // or an enabled script whose code or target sites changed.
-            const previous = existingIdx >= 0 ? scriptsList[existingIdx] : null;
-            const needsWarning = enabled && (!previous || !previous.enabled
-                    || previous.code !== code || previous.match !== match);
-            if (!needsWarning) {
-                store();
-                return;
-            }
-            askBeforeEnabling(scriptData, function (accepted) {
-                if (!accepted) return; // stay in the editor so nothing typed is lost
-                store();
-            });
-        }
-
-        function dismiss() {
-            if (typeof AndroidScripts !== 'undefined' && AndroidScripts.dismissScriptsManager) {
-                AndroidScripts.dismissScriptsManager();
-            }
-        }
-
-        function escapeHtml(str) {
-            if (!str) return '';
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
-        }
-
-        document.addEventListener('DOMContentLoaded', init);
+        load();
+        renderList();
     </script>
 </body>
 </html>
