@@ -350,9 +350,7 @@ public final class Downloader {
             // The app that opens it gets read access to this one content:// address only.
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
             int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                flags |= PendingIntent.FLAG_IMMUTABLE;
-            }
+            flags |= PendingIntent.FLAG_IMMUTABLE;
             builder.setContentIntent(PendingIntent.getActivity(appContext, 0, intent, flags));
         }
         manager.notify((int) System.currentTimeMillis(), builder.build());

@@ -650,11 +650,13 @@ public class MainActivity extends Activity {
      * chats and save files, so it must never be reachable by other websites (PROJECT.md P1).
      * Other providers get a plain, secure browser tab.</p>
      */
+    // Lint's ClickableViewAccessibility points at setOnTouchListener below. Safe: single taps return
+    // false there, so WebView's own click and accessibility (TalkBack) handling still runs; only
+    // multi-finger gestures (the text-size pinch) are taken.
+    @SuppressLint("ClickableViewAccessibility")
     private void configureWebView(WebView webView, ProviderSpec provider) {
         WebSettings webSettings = webView.getSettings();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
-        }
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
         webSettings.setJavaScriptEnabled(true);
         webSettings.setDomStorageEnabled(true);
         webSettings.setLoadWithOverviewMode(true);
@@ -664,12 +666,8 @@ public class MainActivity extends Activity {
         webSettings.setDisplayZoomControls(false);
         webSettings.setAllowFileAccess(true);
         webSettings.setAllowContentAccess(true);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            webSettings.setMediaPlaybackRequiresUserGesture(false);
-        }
+        webSettings.setMediaPlaybackRequiresUserGesture(false);
         webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        webSettings.setDatabaseEnabled(true);
-        webSettings.setDomStorageEnabled(true);
         webSettings.setSaveFormData(false);
         webSettings.setGeolocationEnabled(false);
 
@@ -761,12 +759,9 @@ public class MainActivity extends Activity {
                 return true;
             }
         });
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            scaleGestureDetector.setQuickScaleEnabled(false);
-        }
+        scaleGestureDetector.setQuickScaleEnabled(false);
 
         webView.setOnTouchListener(new View.OnTouchListener() {
-            @SuppressLint("ClickableViewAccessibility")
             @Override
             public boolean onTouch(View v, MotionEvent event) {
                 // duck.ai's image viewer, the desktop site, or the setting "Pinch zooms the page"
@@ -1586,9 +1581,7 @@ public class MainActivity extends Activity {
                 shape.setCornerRadius(12 * getResources().getDisplayMetrics().density);
                 bannerCard.setBackground(shape);
                 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    bannerCard.setElevation(16 * getResources().getDisplayMetrics().density);
-                }
+                bannerCard.setElevation(16 * getResources().getDisplayMetrics().density);
                 
                 android.widget.TextView textView = new android.widget.TextView(this);
                 textView.setText(message);
@@ -2191,24 +2184,12 @@ public class MainActivity extends Activity {
 
         @Override
         public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                if (request.isForMainFrame() && provider.isDuck()) {
-                    Log.d(TAG, "Connection failed for duck.ai, showing saved chats: " + error.getDescription());
-                    runOnUiThread(() -> showOfflineChats(view));
-                    return; // the saved chats are shown instead
-                }
+            if (request.isForMainFrame() && provider.isDuck()) {
+                Log.d(TAG, "Connection failed for duck.ai, showing saved chats: " + error.getDescription());
+                runOnUiThread(() -> showOfflineChats(view));
+                return; // the saved chats are shown instead
             }
             super.onReceivedError(view, request, error);
-        }
-
-        @Override
-        public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-            if (provider.isDuck()) {
-                Log.d(TAG, "Connection failed (legacy), showing saved chats: " + description);
-                runOnUiThread(() -> showOfflineChats(view));
-                return;
-            }
-            super.onReceivedError(view, errorCode, description, failingUrl);
         }
     }
 
