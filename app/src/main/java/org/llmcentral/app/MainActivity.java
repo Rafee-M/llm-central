@@ -46,6 +46,7 @@ import android.os.Looper;
 import org.llmcentral.app.scripts.UserScriptMatcher;
 import org.llmcentral.app.downloads.Downloader;
 import org.llmcentral.app.storage.AppCache;
+import org.llmcentral.app.storage.BackupImages;
 import org.llmcentral.app.storage.OfflineChats;
 import org.llmcentral.app.storage.StorageBridge;
 import org.llmcentral.app.storage.UploadCopies;
@@ -1034,48 +1035,19 @@ public class MainActivity extends Activity {
                     try {
                         org.json.JSONObject oldObj = new org.json.JSONObject(oldJson);
                         
-                        // Merge blobMap
-                        org.json.JSONObject oldBlobMap = oldObj.optJSONObject("blobMap");
-                        org.json.JSONObject newBlobMap = newObj.optJSONObject("blobMap");
-                        if (oldBlobMap != null) {
-                            if (newBlobMap == null) {
-                                newObj.put("blobMap", oldBlobMap);
-                            } else {
-                                java.util.Iterator<String> keys = oldBlobMap.keys();
-                                while (keys.hasNext()) {
-                                    String k = keys.next();
-                                    if (!newBlobMap.has(k)) {
-                                        newBlobMap.put(k, oldBlobMap.get(k));
-                                    }
-                                }
-                            }
+                        // Pictures only the older saved copy has: kept newest first, up to a budget
+                        // (storage/BackupImages). They used to be kept forever, and duck.ai's own pictures
+                        // get a new blob: address on every visit, so the saved file only ever grew.
+                        BackupImages oldPictures = new BackupImages(BackupImages.OLD_BUDGET_CHARS);
+                        org.json.JSONObject blobMap = oldPictures.mergeMap(
+                                newObj.optJSONObject("blobMap"), oldObj.optJSONObject("blobMap"));
+                        if (blobMap != null) {
+                            newObj.put("blobMap", blobMap);
                         }
-
-                        // Merge domImages
-                        org.json.JSONArray oldDomImgs = oldObj.optJSONArray("domImages");
-                        org.json.JSONArray newDomImgs = newObj.optJSONArray("domImages");
-                        if (oldDomImgs != null && oldDomImgs.length() > 0) {
-                            if (newDomImgs == null) {
-                                newObj.put("domImages", oldDomImgs);
-                            } else {
-                                java.util.Set<String> existingSrcs = new java.util.HashSet<>();
-                                for (int i = 0; i < newDomImgs.length(); i++) {
-                                    org.json.JSONObject item = newDomImgs.optJSONObject(i);
-                                    if (item != null && item.has("src")) {
-                                        existingSrcs.add(item.optString("src"));
-                                    }
-                                }
-                                for (int i = 0; i < oldDomImgs.length(); i++) {
-                                    org.json.JSONObject item = oldDomImgs.optJSONObject(i);
-                                    if (item != null) {
-                                        String src = item.optString("src");
-                                        if (src == null || !existingSrcs.contains(src)) {
-                                            newDomImgs.put(item);
-                                            if (src != null) existingSrcs.add(src);
-                                        }
-                                    }
-                                }
-                            }
+                        org.json.JSONArray domImages = oldPictures.mergeList(
+                                newObj.optJSONArray("domImages"), oldObj.optJSONArray("domImages"));
+                        if (domImages != null) {
+                            newObj.put("domImages", domImages);
                         }
 
                         // Merge indexedDB (never lose previous chats or images on partial dumps)
