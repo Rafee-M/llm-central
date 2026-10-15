@@ -465,8 +465,6 @@
             edit: 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z',
             logout: 'M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5-5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z',
             remove: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
-            up: 'M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z',
-            down: 'M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z',
             check: 'M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z',
             history: 'M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z',
             eye: 'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z'
@@ -777,19 +775,6 @@
             });
             const item = (iconName, label, onclick, danger) =>
                 el('button', { type: 'button', class: 'item clickable' + (danger ? ' danger' : ''), onclick }, icon(iconName), el('span', {}, label));
-            // Move up / down among this provider's accounts (the switcher menu uses the same order).
-            // The sheet stays open, so an account can be moved several places in a row.
-            const moveUp = item('up', 'Move up', () => move(-1));
-            const moveDown = item('down', 'Move down', () => move(1));
-            const updateMoves = () => {
-                const list = (findAccount(id) || found).provider.accounts;
-                const index = list.findIndex(x => x.id === id);
-                moveUp.disabled = index <= 0;
-                moveDown.disabled = index < 0 || index >= list.length - 1;
-            };
-            const move = (delta) => { applyAccounts(ACC.moveAccount(id, delta)); updateMoves(); };
-            updateMoves();
-            const canReorder = p.accounts.length > 1;
             const sheet = el('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': a.name },
                 el('div', { class: 'handle' }),
                 el('div', { class: 'sheet-head' },
@@ -799,8 +784,6 @@
                 item('edit', 'Rename', () => { closeOverlay(); openRenameDialog(id); }),
                 el('label', { class: 'item' }, icon('eye'), el('span', { style: { flex: '1' } }, 'Show in the switcher menu'),
                     el('span', { class: 'switch' }, visibleInput, el('span', { class: 'track' }, el('span', { class: 'thumb' })))),
-                canReorder ? moveUp : null,
-                canReorder ? moveDown : null,
                 isDuck ? null : el('hr', {}),
                 isDuck || accountsData.multiAccount === false ? null : item('logout', 'Sign out', () => { closeOverlay(); confirmSignOut(a, p); }),
                 isDuck ? null : item('remove', 'Remove account', () => { closeOverlay(); confirmRemove(a, p); }, true));
