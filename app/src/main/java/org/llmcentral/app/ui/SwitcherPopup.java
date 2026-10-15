@@ -1,15 +1,20 @@
 package org.llmcentral.app.ui;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
+import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupWindow;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import org.llmcentral.app.R;
@@ -21,44 +26,81 @@ import org.llmcentral.app.theme.Scheme;
 import java.util.List;
 
 /**
- * The drop-down list that opens when the chip in the top bar is tapped (PROJECT.md R-SW-2).
- * One row per <b>visible account</b>: provider badge + the name the user gave it (and the provider's
- * name underneath when it differs, e.g. "Work / ChatGPT"). The current account is highlighted.
- * Below a divider: "Reload page" (round 6: reloads the account on screen, e.g. when a page is stuck;
- * the app has no pull-to-refresh) and "Manage accounts" (opens the Accounts part of the settings).
+ * The drop-down list that opens when the chip in the top bar is tapped (PROJECT.md R-SW-2):
+ * <ol>
+ *   <li><b>Accounts:</b> one row per visible account (provider badge + name, the provider underneath when
+ *       it differs, e.g. "Work / ChatGPT"); the current account is highlighted. Optional green dot at the
+ *       right end of loaded accounts (Settings → Appearance → "Mark active accounts"). The list scrolls
+ *       when it's long, so the controls below always stay on screen.</li>
+ *   <li><b>Icon row</b> for the account on screen: Desktop site, Reload page, Reset text size, Unload tab
+ *       (frees the tab's memory; duck.ai's pinned tab can't be unloaded).</li>
+ *   <li><b>Active accounts</b> switch: lists only the loaded accounts ({@link SwitcherModel#rows}).
+ *       Flipping it redraws the list right away; the menu stays open.</li>
+ * </ol>
  *
- * <p>Built with plain Android views ({@link PopupWindow} + {@link LinearLayout}), without any UI
- * library, to keep the app small (decision D1). The rounded Material 3-style look comes from
- * {@link GradientDrawable}s; the colours come from the current theme ({@link Scheme}), so the menu
- * follows the palette, Material You and dark mode.</p>
+ * <p>Built with plain Android views ({@link PopupWindow} + {@link LinearLayout}), without any UI library,
+ * to keep the app small (decision D1). Colours come from the current theme ({@link Scheme}), so the
+ * menu follows the palette, Material You and dark mode. The decisions (which rows, which buttons are
+ * usable) live in {@link SwitcherModel}, which is unit-tested; this class only draws.</p>
  */
 public final class SwitcherPopup {
 
-    /** Called with the account the user picked. */
-    public interface OnPick {
-        void onPick(Account account);
+    /** What the menu needs from the app (implemented by MainActivity). */
+    public interface Host {
+        /** The user picked an account in the list. */
+        void pick(Account account);
+
+        /** Does this account have a loaded tab (web/TabManager.isLoaded)? */
+        boolean isLoaded(String accountId);
+
+        boolean isDesktopOn();
+
+        void toggleDesktop();
+
+        void reload();
+
+        /** The current text size in percent (pref {@code text_zoom}). */
+        int textZoom();
+
+        void resetTextSize();
+
+        /** May the tab on screen be unloaded now (see {@link SwitcherModel#canUnload})? */
+        boolean canUnload();
+
+        void unload();
+
+        /** The "Active accounts" switch (pref {@code switcher_active_only}). */
+        boolean activeOnly();
+
+        void setActiveOnly(boolean on);
+
+        /** Settings → Appearance → "Mark active accounts" (pref {@code switcher_active_dot}). */
+        boolean showActiveDot();
     }
+
+    /** Material 3's "disabled" look: content at 38 % opacity. */
+    private static final float DISABLED_ALPHA = 0.38f;
+    /** The green of the "loaded" dot: Google green 600 on light surfaces, green 200 on dark ones. */
+    private static final int DOT_LIGHT = 0xFF1E8E3E;
+    private static final int DOT_DARK = 0xFF81C995;
 
     private SwitcherPopup() {
         // Only static methods.
     }
 
     /**
-     * Shows the list just below {@code anchor} (the chip).
+     * Shows the menu just below {@code anchor} (the chip).
      *
-     * @param accounts accounts to list, in order (the visible ones)
-     * @param current  the account on screen (highlighted)
-     * @param onReload runs when "Reload page" is tapped
-     * @param onManage runs when "Manage accounts" is tapped
+     * @param accounts the visible accounts, in order
+     * @param current  the account on screen (highlighted, and the one the icon row acts on)
      */
-    public static void show(View anchor, List<Account> accounts, Account current, Scheme scheme,
-                            OnPick onPick, Runnable onReload, Runnable onManage) {
+    public static void show(View anchor, List<Account> accounts, Account current, Scheme scheme, Host host) {
         Context context = anchor.getContext();
+        int pad = ProviderBadge.dp(context, 8);
+
         LinearLayout list = new LinearLayout(context);
         list.setOrientation(LinearLayout.VERTICAL);
-        int pad = ProviderBadge.dp(context, 8);
         list.setPadding(pad, pad, pad, pad);
-
         // Rounded "card" background, like a Material 3 menu.
         GradientDrawable background = new GradientDrawable();
         background.setColor(scheme.get(Scheme.SURFACE_CONTAINER));
@@ -71,36 +113,95 @@ public final class SwitcherPopup {
         popup.setElevation(ProviderBadge.dp(context, 6)); // soft shadow
         popup.setOutsideTouchable(true);
 
-        for (Account account : accounts) {
-            boolean isCurrent = account.id.equals(current.id);
-            list.addView(createAccountRow(context, scheme, account, isCurrent, v -> {
-                popup.dismiss();
-                onPick.onPick(account);
-            }));
-        }
+        // 1) The accounts, in a list that scrolls once it would take more than half the screen.
+        int maxListHeight = context.getResources().getDisplayMetrics().heightPixels / 2;
+        ScrollView scroller = new ScrollView(context) {
+            @Override
+            protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+                // At most half the screen, and never more than the menu window allows (e.g. landscape).
+                int limit = MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED ? maxListHeight
+                        : Math.min(maxListHeight, MeasureSpec.getSize(heightMeasureSpec));
+                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(limit, MeasureSpec.AT_MOST));
+            }
+        };
+        LinearLayout accountsBox = new LinearLayout(context);
+        accountsBox.setOrientation(LinearLayout.VERTICAL);
+        scroller.addView(accountsBox);
+        list.addView(scroller);
+        Runnable fillAccounts = () -> {
+            accountsBox.removeAllViews(); // never add rows twice (the switch can be flipped many times)
+            for (Account account : SwitcherModel.rows(accounts, host::isLoaded, host.activeOnly(), current.id)) {
+                accountsBox.addView(createAccountRow(context, scheme, account, account.id.equals(current.id),
+                        host.showActiveDot() && host.isLoaded(account.id), v -> {
+                            popup.dismiss();
+                            host.pick(account);
+                        }));
+            }
+        };
+        fillAccounts.run();
 
-        // Thin divider, then "Reload page" and "Manage accounts".
-        View divider = new View(context);
-        divider.setBackgroundColor(scheme.get(Scheme.OUTLINE_VARIANT));
-        LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, ProviderBadge.dp(context, 1)));
-        dividerParams.setMargins(pad, pad, pad, pad);
-        list.addView(divider, dividerParams);
-        list.addView(createActionRow(context, scheme, R.drawable.ic_refresh, R.string.reload_page, v -> {
-            popup.dismiss();
-            onReload.run();
-        }));
-        list.addView(createActionRow(context, scheme, R.drawable.ic_settings, R.string.manage_accounts, v -> {
-            popup.dismiss();
-            onManage.run();
-        }));
+        // 2) Icon row for the account on screen.
+        list.addView(divider(context, scheme, pad));
+        LinearLayout icons = new LinearLayout(context);
+        icons.setOrientation(LinearLayout.HORIZONTAL);
+        ImageButton desktop = iconButton(context, scheme, R.drawable.ic_desktop, R.string.desktop_site, true,
+                popup, host::toggleDesktop);
+        NativeTheme.styleDesktopButton(desktop, host.isDesktopOn(), scheme); // outlined = off, filled = on
+        addEvenly(icons, desktop);
+        addEvenly(icons, iconButton(context, scheme, R.drawable.ic_refresh, R.string.reload_page, true,
+                popup, host::reload));
+        addEvenly(icons, iconButton(context, scheme, R.drawable.ic_format_size, R.string.reset_text_size,
+                SwitcherModel.canResetTextSize(host.textZoom()), popup, host::resetTextSize));
+        addEvenly(icons, iconButton(context, scheme, R.drawable.ic_close, R.string.unload_tab,
+                host.canUnload(), popup, host::unload));
+        list.addView(icons);
+
+        // 3) "Active accounts": a row with a small Material 3 switch; the menu stays open.
+        list.addView(divider(context, scheme, pad));
+        LinearLayout activeRow = baseRow(context, null);
+        ImageView filterIcon = rowIcon(context, scheme, R.drawable.ic_filter_list);
+        activeRow.addView(filterIcon, new LinearLayout.LayoutParams(ProviderBadge.dp(context, 32),
+                ProviderBadge.dp(context, 32)));
+        LinearLayout texts = new LinearLayout(context);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams textParams =
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        textParams.setMarginStart(ProviderBadge.dp(context, 14));
+        activeRow.addView(texts, textParams);
+        texts.addView(text(context, context.getString(R.string.active_accounts), 16, scheme.get(Scheme.ON_SURFACE)));
+        TextView activeSub = text(context, "", 13, scheme.get(Scheme.ON_SURFACE_VARIANT));
+        texts.addView(activeSub);
+        M3Switch toggle = new M3Switch(context);
+        toggle.setScheme(scheme);
+        toggle.setChecked(host.activeOnly(), false);
+        LinearLayout.LayoutParams toggleParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        toggleParams.setMarginStart(ProviderBadge.dp(context, 12));
+        activeRow.addView(toggle, toggleParams);
+        M3Switch.describeRowAsSwitch(activeRow, toggle);
+        Runnable showCount = () -> activeSub.setText(host.activeOnly()
+                ? context.getString(R.string.active_accounts_count, accountsBox.getChildCount(), accounts.size())
+                : context.getString(R.string.active_accounts_off));
+        showCount.run();
+        activeRow.setOnClickListener(v -> {
+            boolean on = !host.activeOnly();
+            host.setActiveOnly(on);
+            toggle.setChecked(on, true);
+            fillAccounts.run();
+            showCount.run();
+            v.setContentDescription(context.getString(R.string.active_accounts) + ", " + activeSub.getText());
+            // The window wraps its content, so it resizes by itself; update() re-places it at the chip.
+            popup.update(anchor, 0, ProviderBadge.dp(context, 4), -1, -1);
+        });
+        activeRow.setContentDescription(context.getString(R.string.active_accounts) + ", " + activeSub.getText());
+        list.addView(activeRow);
 
         popup.showAsDropDown(anchor, 0, ProviderBadge.dp(context, 4), Gravity.START);
     }
 
-    /** One row: [badge] Name (provider) — at least 56dp tall so it's easy to tap. */
-    private static View createAccountRow(Context context, Scheme scheme, Account account,
-                                         boolean isCurrent, View.OnClickListener onClick) {
+    /** One row: [badge] Name (provider) [green dot] — at least 56dp tall so it's easy to tap. */
+    private static View createAccountRow(Context context, Scheme scheme, Account account, boolean isCurrent,
+                                         boolean markLoaded, View.OnClickListener onClick) {
         ProviderSpec provider = Providers.byId(account.providerId);
         LinearLayout row = baseRow(context, onClick);
         if (isCurrent) {
@@ -125,37 +226,85 @@ public final class SwitcherPopup {
         row.addView(texts, textParams);
 
         int nameColor = scheme.get(isCurrent ? Scheme.ON_SECONDARY_CONTAINER : Scheme.ON_SURFACE);
-        TextView name = text(context, account.name, 16, nameColor);
-        texts.addView(name);
+        texts.addView(text(context, account.name, 16, nameColor));
         String description = account.name;
         if (!account.name.equals(provider.displayName)) {
             // Second line tells which website this named account belongs to.
             texts.addView(text(context, provider.displayName, 13, scheme.get(Scheme.ON_SURFACE_VARIANT)));
             description = account.name + ", " + provider.displayName;
         }
+        if (markLoaded) {
+            // A small green dot at the far right: this account's tab is loaded (switching is instant).
+            View dot = new View(context);
+            GradientDrawable circle = new GradientDrawable();
+            circle.setShape(GradientDrawable.OVAL);
+            circle.setColor(scheme.dark ? DOT_DARK : DOT_LIGHT);
+            dot.setBackground(circle);
+            int size = ProviderBadge.dp(context, 8);
+            LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(size, size);
+            dotParams.setMarginStart(ProviderBadge.dp(context, 12));
+            row.addView(dot, dotParams);
+            description = description + ", " + context.getString(R.string.account_loaded);
+        }
         row.setContentDescription(isCurrent
                 ? description + ", " + context.getString(R.string.current_account) : description);
         return row;
     }
 
-    /** An action row below the accounts: icon + label ("Reload page", "Manage accounts"). */
-    private static View createActionRow(Context context, Scheme scheme, int iconRes, int labelRes,
-                                        View.OnClickListener onClick) {
-        LinearLayout row = baseRow(context, onClick);
-        // The icon is centred in a badge-sized box so the text lines up with the account names.
+    /**
+     * A 48 × 48dp icon button (Android's minimum touch size) with a 24dp icon, the size the menu's rows
+     * used. Disabled buttons are drawn at 38 % opacity and ignore taps. A long press shows the name.
+     */
+    private static ImageButton iconButton(Context context, Scheme scheme, int iconRes, int labelRes,
+                                          boolean enabled, PopupWindow popup, Runnable action) {
+        ImageButton button = new ImageButton(context);
+        button.setImageResource(iconRes);
+        button.setImageTintList(ColorStateList.valueOf(scheme.get(Scheme.ON_SURFACE_VARIANT)));
+        button.setScaleType(ImageView.ScaleType.CENTER);
+        TypedValue ripple = new TypedValue();
+        context.getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, ripple, true);
+        button.setBackgroundResource(ripple.resourceId);
+        String label = context.getString(labelRes);
+        button.setContentDescription(label);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            button.setTooltipText(label);
+        }
+        button.setEnabled(enabled);
+        button.setAlpha(enabled ? 1f : DISABLED_ALPHA);
+        button.setOnClickListener(v -> {
+            popup.dismiss();
+            action.run();
+        });
+        return button;
+    }
+
+    /** Puts a 48dp button in the middle of an equal-width cell, so the buttons spread evenly. */
+    private static void addEvenly(LinearLayout row, View button) {
+        FrameLayout cell = new FrameLayout(row.getContext());
+        int size = ProviderBadge.dp(row.getContext(), 48);
+        cell.addView(button, new FrameLayout.LayoutParams(size, size, Gravity.CENTER));
+        row.addView(cell, new LinearLayout.LayoutParams(0, size, 1f));
+    }
+
+    /** A 24dp icon centred in a badge-sized (32dp) box, so the text lines up with the account names. */
+    private static ImageView rowIcon(Context context, Scheme scheme, int iconRes) {
         ImageView icon = new ImageView(context);
         icon.setImageResource(iconRes);
-        icon.setImageTintList(android.content.res.ColorStateList.valueOf(scheme.get(Scheme.ON_SURFACE_VARIANT)));
+        icon.setImageTintList(ColorStateList.valueOf(scheme.get(Scheme.ON_SURFACE_VARIANT)));
         icon.setScaleType(ImageView.ScaleType.CENTER);
         icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        int size = ProviderBadge.dp(context, 32);
-        row.addView(icon, new LinearLayout.LayoutParams(size, size));
-        TextView label = text(context, context.getString(labelRes), 16, scheme.get(Scheme.ON_SURFACE));
-        LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        params.setMarginStart(ProviderBadge.dp(context, 14));
-        row.addView(label, params);
-        return row;
+        return icon;
+    }
+
+    /** A thin line between the menu's parts. */
+    private static View divider(Context context, Scheme scheme, int margin) {
+        View divider = new View(context);
+        divider.setBackgroundColor(scheme.get(Scheme.OUTLINE_VARIANT));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, ProviderBadge.dp(context, 1)));
+        params.setMargins(margin, margin / 2, margin, margin / 2);
+        divider.setLayoutParams(params);
+        return divider;
     }
 
     private static LinearLayout baseRow(Context context, View.OnClickListener onClick) {
@@ -168,7 +317,9 @@ public final class SwitcherPopup {
         row.setPadding(h, 0, ProviderBadge.dp(context, 16), 0);
         row.setClickable(true);
         row.setFocusable(true);
-        row.setOnClickListener(onClick);
+        if (onClick != null) {
+            row.setOnClickListener(onClick);
+        }
         // Standard touch ripple effect from the system theme.
         TypedValue ripple = new TypedValue();
         context.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, ripple, true);

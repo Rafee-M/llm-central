@@ -53,14 +53,11 @@ public final class NativeTheme {
         if (settings != null) {
             settings.setImageTintList(ColorStateList.valueOf(scheme.get(Scheme.ON_SURFACE_VARIANT)));
         }
-        ImageView desktop = topBar.findViewById(R.id.desktopButton);
-        if (desktop != null) {
-            styleDesktopButton(desktop, desktop.isSelected(), scheme);
-        }
     }
 
     /**
-     * The "Desktop site" toggle in the top bar, drawn as a Material 3 toggle icon button:
+     * The "Desktop site" toggle in the account menu's icon row (ui/SwitcherPopup), drawn as a Material 3
+     * toggle icon button (the button must be 48 × 48dp):
      * <ul>
      *   <li><b>off</b>: outlined monitor in {@code onSurfaceVariant}, no background (like the gear);</li>
      *   <li><b>on</b>: filled monitor in {@code onSecondaryContainer} on a round

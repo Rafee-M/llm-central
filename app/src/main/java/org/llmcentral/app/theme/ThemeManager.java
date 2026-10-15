@@ -51,6 +51,8 @@ public final class ThemeManager {
     static final String PREF_MATERIAL_YOU = "material_you";
     /** Appearance → "Hide status bar" (frameless): more room for the page. Off by default. */
     static final String PREF_HIDE_STATUS_BAR = "hide_status_bar";
+    /** Appearance → "Mark active accounts": a green dot in the account menu for loaded accounts. Off by default. */
+    static final String PREF_ACTIVE_DOT = "switcher_active_dot";
     private static final String PREFS = "duck_assist_prefs";
 
     private ThemeManager() {
@@ -106,6 +108,15 @@ public final class ThemeManager {
 
     public static void setStatusBarHidden(Context context, boolean hidden) {
         prefs(context).edit().putBoolean(PREF_HIDE_STATUS_BAR, hidden).apply();
+    }
+
+    /** @return true if the account menu marks loaded accounts with a green dot (ui/SwitcherPopup). */
+    public static boolean isActiveDotShown(Context context) {
+        return prefs(context).getBoolean(PREF_ACTIVE_DOT, false);
+    }
+
+    public static void setActiveDotShown(Context context, boolean shown) {
+        prefs(context).edit().putBoolean(PREF_ACTIVE_DOT, shown).apply();
     }
 
     public static void setMaterialYou(Context context, boolean on) {
