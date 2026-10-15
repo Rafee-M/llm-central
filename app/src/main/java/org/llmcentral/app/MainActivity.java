@@ -157,7 +157,8 @@ public class MainActivity extends Activity {
     private Downloader downloader;
     // Microphone for voice chat: asks Android only when a page wants it (web/MicrophoneAccess).
     private final MicrophoneAccess microphone = new MicrophoneAccess(this);
-    private String lastFetchedChatsJson = "{}";
+    // (Until 2026-10-15 a field here kept the whole saved-chats copy in memory for as long as the screen
+    // lived, although only the saved-chats window reads it; that window now reads the file when it opens.)
     private android.app.Dialog chatsViewerDialog = null;
     // true while duck.ai failed to load and the saved-chats window stands in for it (showOfflineChats).
     private boolean duckOffline = false;
@@ -270,25 +271,23 @@ public class MainActivity extends Activity {
         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
         background.execute(() -> {
             if (!OfflineChats.isEnabled(MainActivity.this)) {
-                return; // setting "Offline chats" is off: nothing saved to load
+                return; // setting "Offline chats" is off: nothing saved to move
             }
+            // Very old versions kept the saved chats in the preferences: move them into the file once.
+            // (Until 2026-10-15 every start also read the whole saved copy into memory and kept it there;
+            // the saved-chats window now reads the file itself when it opens: getChatsJson below.)
             try {
-                String cached = ChatDatabaseHelper.getInstance(MainActivity.this).getCachedChatsJson();
-                if (cached != null && !cached.equals("{}") && !cached.isEmpty()) {
-                    lastFetchedChatsJson = cached;
-                } else {
-                    SharedPreferences p = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                    String oldPrefsJson = p.getString("cached_chats_json", null);
-                    if (oldPrefsJson != null && !oldPrefsJson.equals("{}") && !oldPrefsJson.isEmpty()) {
-                        lastFetchedChatsJson = oldPrefsJson;
-                        ChatDatabaseHelper.getInstance(MainActivity.this).saveCachedChatsJson(oldPrefsJson);
-                    } else {
-                        lastFetchedChatsJson = "{}";
+                SharedPreferences p = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
+                String oldPrefsJson = p.getString("cached_chats_json", null);
+                if (oldPrefsJson != null && !oldPrefsJson.equals("{}") && !oldPrefsJson.isEmpty()) {
+                    ChatDatabaseHelper helper = ChatDatabaseHelper.getInstance(MainActivity.this);
+                    String cached = helper.getCachedChatsJson();
+                    if (cached == null || cached.isEmpty() || cached.equals("{}")) {
+                        helper.saveCachedChatsJson(oldPrefsJson);
                     }
                 }
             } catch (Throwable t) {
-                Log.e(TAG, "Failed to load cached_chats_json in background", t);
-                lastFetchedChatsJson = "{}";
+                Log.e(TAG, "Failed to move cached_chats_json in background", t);
             }
         });
         currentZoomLevel = (float) prefs.getInt("text_zoom", 100);
@@ -845,7 +844,6 @@ public class MainActivity extends Activity {
                 public void setOfflineChats(boolean on) {
                     OfflineChats.setEnabled(MainActivity.this, on);
                     if (!on) {
-                        lastFetchedChatsJson = "{}";
                         // Same single background thread as the chat save: a save already running
                         // finishes first and is then deleted; a later one sees the setting is off.
                         background.execute(() -> ChatDatabaseHelper.getInstance(MainActivity.this).deleteAll());
@@ -1139,7 +1137,6 @@ public class MainActivity extends Activity {
             } catch (Throwable e) {
                 Log.w(TAG, "Fetched chats merge error", e);
             }
-            lastFetchedChatsJson = finalJsonStr;
             ChatDatabaseHelper.getInstance(MainActivity.this).saveCachedChatsJson(finalJsonStr);
             if (isRequestingViewer || (chatsViewerDialog != null && chatsViewerDialog.isShowing())) {
                 isRequestingViewer = false;
@@ -1211,9 +1208,18 @@ public class MainActivity extends Activity {
             ws.setAllowContentAccess(false);
             
             webView.addJavascriptInterface(new Object() {
+                /**
+                 * Read from the saved file each time the window asks (on a background thread: calls from
+                 * a page's JavaScript never run on the main thread), so the copy isn't kept in memory.
+                 * ChatDatabaseHelper's methods are synchronized: a save in progress finishes first.
+                 */
                 @JavascriptInterface
                 public String getChatsJson() {
-                    return lastFetchedChatsJson;
+                    if (!OfflineChats.isEnabled(MainActivity.this)) {
+                        return "{}";
+                    }
+                    String json = ChatDatabaseHelper.getInstance(MainActivity.this).getCachedChatsJson();
+                    return json != null && !json.isEmpty() ? json : "{}";
                 }
                 
                 @JavascriptInterface
@@ -1508,9 +1514,6 @@ public class MainActivity extends Activity {
             applyTheme();
         }
         refreshAccounts();
-        if (!OfflineChats.isEnabled(this)) {
-            lastFetchedChatsJson = "{}"; // turned off in the other screen: drop the copy in memory too
-        }
         if (tabManager != null) {
             syncDesktopMode(tabManager.current());
             if (tabManager.current().isDuck()) {
