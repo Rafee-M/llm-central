@@ -274,8 +274,7 @@
         <section id="accounts" aria-labelledby="accountsLabel">
             <h2 class="section-label" id="accountsLabel">Accounts</h2>
             <div id="accountGroups"></div>
-            <p class="hint">Each account keeps its own logins and site data, separate from all others. Tap an account to open it, or ⋮ for more.</p>
-            <p class="hint">“Sign in with Google” doesn't work inside apps (Google blocks it). Use email login instead.</p>
+            <p class="hint">Each account keeps its own logins and site data, separate from all others.</p>
             <p class="hint" id="singleAccountHint" hidden>Several accounts per provider need a newer “Android System WebView”. Update it from the Play Store.</p>
         </section>
 
@@ -356,8 +355,8 @@
                 </div>
                 <!-- Free zoom like a phone browser instead of the text-size pinch (web/PageZoom, 2026-10-15). -->
                 <div class="row">
-                    <div class="text"><div class="title" id="l_pz">Pinch zooms the page</div>
-                        <div class="sub">Like a browser: two fingers magnify the whole page. Off: they change the text size. Open pages reload once.</div></div>
+                    <div class="text"><div class="title" id="l_pz">Pinch to zoom</div>
+                        <div class="sub">Off: they change the text size. Open pages reload once.</div></div>
                     <label class="switch"><input type="checkbox" role="switch" id="pinch_zoom_page" aria-labelledby="l_pz"><span class="track"><span class="thumb"></span></span></label>
                 </div>
                 <!-- "Prompt dialog on launch" (prompt_on_launch) stays hidden, as in duckAssist. -->
@@ -371,7 +370,7 @@
                 <!-- Copy duck.ai's chats to the phone (storage/OfflineChats). Off deletes the copy, so it asks first. -->
                 <div class="row">
                     <div class="text"><div class="title" id="l_oc">Offline chats (duck.ai)</div>
-                        <div class="sub">Keep a copy of your duck.ai chats on this phone, to read without internet</div></div>
+                        <div class="sub">Keep a offline copy of your duck.ai chats on this phone</div></div>
                     <label class="switch"><input type="checkbox" role="switch" id="offline_chats" aria-labelledby="l_oc"><span class="track"><span class="thumb"></span></span></label>
                 </div>
                 <button type="button" class="row clickable" id="savedChatsRow" onclick="openChatsViewer()">
@@ -423,13 +422,13 @@
                 <div class="row">
                     <svg viewBox="0 0 24 24"><path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/></svg>
                     <div class="text"><div class="title" id="l_ad">Mark active accounts</div>
-                        <div class="sub">A green dot in the account menu next to accounts that are loaded.</div></div>
+                        <div class="sub">A green dot next to active accounts in the account menu</div></div>
                     <label class="switch"><input type="checkbox" role="switch" id="active_dot" aria-labelledby="l_ad"><span class="track"><span class="thumb"></span></span></label>
                 </div>
                 <!-- Text size of the chat pages (pref text_zoom, the same value the text-size pinch sets). -->
                 <div class="row block">
                     <div class="text"><div class="title" id="l_tz">Text size</div>
-                        <div class="sub">Text in the chat pages. Also set by pinching when "Pinch zooms the page" is off.</div></div>
+                        <div class="sub">Text in the chat pages. Set by pinching when "Pinch to zoom" is off.</div></div>
                     <div class="slider-line">
                         <input type="range" id="text_zoom" min="50" max="300" step="10" value="100" aria-labelledby="l_tz">
                         <span class="value" id="text_zoom_value" aria-hidden="true">100 %</span>
