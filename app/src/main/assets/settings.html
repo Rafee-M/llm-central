@@ -419,6 +419,13 @@
                         <div class="sub">More room for chats. Swipe down from the top edge to see it for a moment.</div></div>
                     <label class="switch"><input type="checkbox" role="switch" id="hide_status_bar" aria-labelledby="l_hsb"><span class="track"><span class="thumb"></span></span></label>
                 </div>
+                <!-- Green dot in the account menu next to loaded accounts (pref switcher_active_dot, ui/SwitcherPopup). -->
+                <div class="row">
+                    <svg viewBox="0 0 24 24"><path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/></svg>
+                    <div class="text"><div class="title" id="l_ad">Mark active accounts</div>
+                        <div class="sub">A green dot in the account menu next to accounts that are loaded.</div></div>
+                    <label class="switch"><input type="checkbox" role="switch" id="active_dot" aria-labelledby="l_ad"><span class="track"><span class="thumb"></span></span></label>
+                </div>
                 <!-- Text size of the chat pages (pref text_zoom, the same value the text-size pinch sets). -->
                 <div class="row block">
                     <div class="text"><div class="title" id="l_tz">Text size</div>
@@ -850,6 +857,7 @@
             document.getElementById('materialYouSub').textContent = appearance.materialYouAvailable
                 ? 'Use colours from your wallpaper' : 'Needs Android 12 or newer';
             document.getElementById('hide_status_bar').checked = !!appearance.hideStatusBar;
+            document.getElementById('active_dot').checked = !!appearance.activeDot;
         }
         function loadAppearance() {
             if (!AP) return;
@@ -1086,6 +1094,9 @@
             });
             document.getElementById('hide_status_bar').addEventListener('change', (e) => {
                 if (AP && AP.setHideStatusBar) renderAppearance(parse(AP.setHideStatusBar(e.target.checked)));
+            });
+            document.getElementById('active_dot').addEventListener('change', (e) => {
+                if (AP && AP.setActiveDot) renderAppearance(parse(AP.setActiveDot(e.target.checked)));
             });
             // The app bar gets a tinted background once the page scrolls under it (Material 3).
             window.addEventListener('scroll', () => {
