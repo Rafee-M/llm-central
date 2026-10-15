@@ -19,9 +19,13 @@ import java.util.List;
  */
 public final class TabLru {
 
-    /** Smallest and largest allowed values of the "tabs kept loaded" setting. */
+    /**
+     * Smallest and largest allowed values of the "tabs kept loaded" setting (default 3). The largest was 5
+     * until 2026-10-15; the owner raised it to 10. All tabs share one page process, so many loaded tabs
+     * use a lot of memory; Settings says so, and onTrimMemory still closes hidden tabs when Android asks.
+     */
     public static final int MIN_LIVE_TABS = 1;
-    public static final int MAX_LIVE_TABS = 5;
+    public static final int MAX_LIVE_TABS = 10;
 
     // Tab ids from least recently used (index 0) to most recently used (last).
     private final List<String> order = new ArrayList<>();
@@ -43,7 +47,7 @@ public final class TabLru {
     }
 
     /**
-     * @param maxLiveTabs the user's limit; values outside 1–5 are clamped into that range
+     * @param maxLiveTabs the user's limit; values outside 1–10 are clamped into that range
      * @param pinnedId    tab that must never be closed (duck.ai)
      * @return the tabs to close now, oldest first, so that at most {@code maxLiveTabs} stay loaded
      *         (the pinned tab and the current tab always stay, even if that means one more)

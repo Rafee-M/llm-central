@@ -52,15 +52,26 @@ public class TabLruTest {
     }
 
     @Test
-    public void limitIsClampedToOneToFive() {
+    public void limitIsClampedToOneToTen() {
         TabLru lru = new TabLru();
-        for (String id : new String[]{"duck", "a", "b", "c", "d", "e", "f"}) {
+        for (String id : new String[]{"duck", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"}) {
             lru.touch(id);
         }
-        // 7 loaded; 99 is treated as 5 → close the 2 oldest non-pinned ("a", "b").
+        // 12 loaded; 99 is treated as 10 → close the 2 oldest non-pinned ("a", "b").
         assertEquals(Arrays.asList("a", "b"), lru.idsToClose(99, "duck"));
-        // 0 is treated as 1 → close everything except pinned "duck" and current "f".
-        assertEquals(Arrays.asList("a", "b", "c", "d", "e"), lru.idsToClose(0, "duck"));
+        // 0 is treated as 1 → close everything except pinned "duck" and current "k".
+        assertEquals(Arrays.asList("a", "b", "c", "d", "e", "f", "g", "h", "i", "j"), lru.idsToClose(0, "duck"));
+    }
+
+    @Test
+    public void tenTabsStayLoadedAndTheEleventhClosesTheOldest() {
+        TabLru lru = new TabLru();
+        for (String id : new String[]{"duck", "a", "b", "c", "d", "e", "f", "g", "h", "i"}) {
+            lru.touch(id);
+        }
+        assertEquals(Collections.emptyList(), lru.idsToClose(10, "duck")); // 10 loaded, limit 10
+        lru.touch("j");                                                      // an 11th account opens
+        assertEquals(Arrays.asList("a"), lru.idsToClose(10, "duck"));
     }
 
     @Test

@@ -65,7 +65,7 @@ public final class TabManager {
     /**
      * @param duckView    the WebView from the layout, already configured; becomes the duck.ai tab
      * @param duck        the duck.ai account
-     * @param maxLiveTabs how many tabs may stay loaded (setting {@code max_live_tabs}, 1–5)
+     * @param maxLiveTabs how many tabs may stay loaded (setting {@code max_live_tabs}, 1–10)
      */
     public TabManager(WebView duckView, Account duck, Configurer configurer, Listener listener,
                       int maxLiveTabs) {

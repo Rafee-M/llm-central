@@ -95,15 +95,19 @@
         .row.off .title, .row.off .sub:not(.note) { opacity: .38; }
         .sub.note { color: var(--md-primary); }
         .row.block { flex-direction: column; align-items: stretch; gap: 8px; }
+        /* Text size slider (Appearance): the browser's own slider in the theme colour; 48 px tall touch area. */
+        .slider-line { display: flex; align-items: center; gap: 12px; }
+        .slider-line input[type=range] { flex: 1; height: 48px; margin: 0; accent-color: var(--md-primary); }
+        .slider-line .value { min-width: 48px; text-align: right; font-variant-numeric: tabular-nums; color: var(--md-on-surface-variant); }
 
         /* Touch feedback ("state layer"): a see-through layer in the text colour. */
-        .clickable, .icon-btn, .text-btn, .tonal-btn, .seg button, .tile { cursor: pointer; }
-        .clickable::after, .icon-btn::after, .text-btn::after, .tonal-btn::after, .seg button::after {
+        .clickable, .icon-btn, .text-btn, .tonal-btn, .tile { cursor: pointer; }
+        .clickable::after, .icon-btn::after, .text-btn::after, .tonal-btn::after {
             content: ""; position: absolute; inset: 0; border-radius: inherit;
             background: currentColor; opacity: 0; transition: opacity .15s; pointer-events: none;
         }
         .clickable:active::after, .icon-btn:active::after, .text-btn:active::after,
-        .tonal-btn:active::after, .seg button:active::after { opacity: .1; }
+        .tonal-btn:active::after { opacity: .1; }
         :focus-visible { outline: 2px solid var(--md-primary); outline-offset: 2px; }
 
         .icon-btn {
@@ -158,13 +162,15 @@
         .switch input:focus-visible + .track { outline: 2px solid var(--md-primary); outline-offset: 2px; }
 
         /* ---------- Segmented buttons ("Accounts kept loaded") ---------- */
-        .seg { display: flex; border: 1px solid var(--md-outline); border-radius: 20px; overflow: hidden; height: 40px; }
-        .seg button {
-            position: relative; flex: 1; border: 0; background: transparent; font-size: 14px; font-weight: 500;
-            color: var(--md-on-surface);
+        /* "Accounts kept loaded" picker: numbers 1–10 as Material 3 tiles; the chosen one is filled with the
+           primary colour (Material You) and turns fully round, M3's shape change for a selected item. */
+        .number-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+        .number-grid button {
+            position: relative; overflow: hidden; height: 56px; border: 0; border-radius: 16px;
+            background: var(--md-surface-container-highest); color: var(--md-on-surface);
+            font: inherit; font-size: 18px; font-weight: 500; font-variant-numeric: tabular-nums;
         }
-        .seg button + button { border-left: 1px solid var(--md-outline); }
-        .seg button[aria-pressed="true"] { background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+        .number-grid button[aria-checked="true"] { background: var(--md-primary); color: var(--md-on-primary); border-radius: 28px; }
 
         /* ---------- Text fields ---------- */
         textarea, .field {
@@ -331,15 +337,13 @@
                     <span class="icon-slot" aria-hidden="true"></span>
                     <div class="text"><div class="title">Open at start</div><div class="sub value">Last used account</div></div>
                 </button>
-                <!-- How many account tabs stay loaded for instant switching (PROJECT.md R-PERF-1). -->
-                <div class="row block">
-                    <div class="text"><div class="title" id="l_mlt">Accounts kept loaded</div>
-                        <div class="sub">Switch back instantly to this many accounts. More uses more memory.</div></div>
-                    <div class="seg" id="max_live_tabs_seg" role="group" aria-labelledby="l_mlt">
-                        <button type="button" data-value="1">1</button><button type="button" data-value="2">2</button><button type="button" data-value="3">3</button><button type="button" data-value="4">4</button><button type="button" data-value="5">5</button>
-                    </div>
-                    <input type="hidden" id="max_live_tabs" value="3">
-                </div>
+                <!-- How many account tabs stay loaded for instant switching (PROJECT.md R-PERF-1): 1–10, default 3.
+                     The row shows the value; tapping it opens a picker (openLiveTabsDialog). -->
+                <button type="button" class="row clickable" id="maxLiveTabsRow" onclick="openLiveTabsDialog()">
+                    <svg viewBox="0 0 24 24"><path d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h10v4h8v10z"/></svg>
+                    <div class="text"><div class="title">Accounts kept loaded</div><div class="sub" id="maxLiveTabsValue">3 accounts</div></div>
+                </button>
+                <input type="hidden" id="max_live_tabs" value="3">
                 <div class="row">
                     <div class="text"><div class="title" id="l_afk">Open the keyboard on start</div>
                         <div class="sub">Focus the chat box when the app opens</div></div>
@@ -349,6 +353,12 @@
                     <div class="text"><div class="title" id="l_rtl">Right-to-left text fix</div>
                         <div class="sub">Align Persian, Arabic and Urdu text correctly (duck.ai)</div></div>
                     <label class="switch"><input type="checkbox" role="switch" id="rtl_resolver" aria-labelledby="l_rtl"><span class="track"><span class="thumb"></span></span></label>
+                </div>
+                <!-- Free zoom like a phone browser instead of the text-size pinch (web/PageZoom, 2026-10-15). -->
+                <div class="row">
+                    <div class="text"><div class="title" id="l_pz">Pinch zooms the page</div>
+                        <div class="sub">Like a browser: two fingers magnify the whole page. Off: they change the text size. Open pages reload once.</div></div>
+                    <label class="switch"><input type="checkbox" role="switch" id="pinch_zoom_page" aria-labelledby="l_pz"><span class="track"><span class="thumb"></span></span></label>
                 </div>
                 <!-- "Prompt dialog on launch" (prompt_on_launch) stays hidden, as in duckAssist. -->
             </div>
@@ -408,6 +418,15 @@
                     <div class="text"><div class="title" id="l_hsb">Hide status bar</div>
                         <div class="sub">More room for chats. Swipe down from the top edge to see it for a moment.</div></div>
                     <label class="switch"><input type="checkbox" role="switch" id="hide_status_bar" aria-labelledby="l_hsb"><span class="track"><span class="thumb"></span></span></label>
+                </div>
+                <!-- Text size of the chat pages (pref text_zoom, the same value the text-size pinch sets). -->
+                <div class="row block">
+                    <div class="text"><div class="title" id="l_tz">Text size</div>
+                        <div class="sub">Text in the chat pages. Also set by pinching when "Pinch zooms the page" is off.</div></div>
+                    <div class="slider-line">
+                        <input type="range" id="text_zoom" min="50" max="300" step="10" value="100" aria-labelledby="l_tz">
+                        <span class="value" id="text_zoom_value" aria-hidden="true">100 %</span>
+                    </div>
                 </div>
             </div>
         </section>
@@ -906,11 +925,26 @@
             if (S && S.saveSettingsAuto) S.saveSettingsAuto(JSON.stringify(data));
         }
 
+        const LIVE_TABS_DEFAULT = 3, LIVE_TABS_MAX = 10;   // the app clamps to the same range (web/TabLru)
+        function liveTabsText(n) { return n + (n === 1 ? ' account' : ' accounts'); }
         function setMaxLiveTabs(value) {
-            document.getElementById('max_live_tabs').value = String(value);
-            for (const b of document.querySelectorAll('#max_live_tabs_seg button')) {
-                b.setAttribute('aria-pressed', String(b.dataset.value === String(value)));
+            const n = parseInt(value, 10) || LIVE_TABS_DEFAULT;
+            document.getElementById('max_live_tabs').value = String(n);
+            document.getElementById('maxLiveTabsValue').textContent = liveTabsText(n);
+        }
+        // Picker 1–10: tapping a number saves it at once and closes, like the account pickers.
+        function openLiveTabsDialog() {
+            const current = parseInt(document.getElementById('max_live_tabs').value, 10) || LIVE_TABS_DEFAULT;
+            const grid = el('div', { class: 'number-grid', role: 'radiogroup', 'aria-label': 'Accounts kept loaded' });
+            for (let n = 1; n <= LIVE_TABS_MAX; n++) {
+                grid.append(el('button', { type: 'button', class: 'clickable', role: 'radio',
+                    'aria-checked': String(n === current),
+                    'aria-label': liveTabsText(n) + (n === LIVE_TABS_DEFAULT ? ', default' : ''),
+                    onclick: () => { setMaxLiveTabs(n); autoSave(); closeOverlay(); } }, String(n)));
             }
+            dialog('Accounts kept loaded', el('div', {},
+                el('p', {}, 'Switch back to this many accounts instantly. 3 is the default. Each one uses memory: above 5, a phone with little memory may reload pages.'),
+                grid), [{ label: 'Cancel', onclick: closeOverlay }]);
         }
 
         function loadSettings() {
@@ -928,6 +962,16 @@
             document.getElementById('shared_doc_suffix').value = settings.shared_doc_suffix || '';
             setMaxLiveTabs(settings.max_live_tabs || 3);
             showOfflineChats(settings.offline_chats !== false);
+            document.getElementById('pinch_zoom_page').checked = !!settings.pinch_zoom_page;
+            // A pinch can leave values between the slider's 10 % steps (e.g. 137): shown as they are.
+            showTextZoom(settings.text_zoom || 100);
+        }
+
+        function showTextZoom(value) {
+            const slider = document.getElementById('text_zoom');
+            slider.value = String(value);
+            document.getElementById('text_zoom_value').textContent = value + ' %';
+            slider.setAttribute('aria-valuetext', value + ' percent');
         }
 
         // "Offline chats (duck.ai)": turning on saves at once; turning off asks first, because the app
@@ -1022,9 +1066,6 @@
                 'continue_last_chat', 'auto_focus_keyboard', 'rtl_resolver']) {
                 document.getElementById(id).addEventListener('change', () => { syncMutualExclusivity(); autoSave(); });
             }
-            for (const b of document.querySelectorAll('#max_live_tabs_seg button')) {
-                b.addEventListener('click', () => { setMaxLiveTabs(b.dataset.value); autoSave(); });
-            }
             // Text boxes: save shortly after typing stops, and when leaving the box.
             let typingTimer = 0;
             for (const t of document.querySelectorAll('textarea')) {
@@ -1033,6 +1074,13 @@
                 t.addEventListener('focus', () => setTimeout(() => t.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300));
             }
             document.getElementById('offline_chats').addEventListener('change', onOfflineChatsChange);
+            // Separate calls (not autoSave): each applies itself to the open tabs right away.
+            document.getElementById('pinch_zoom_page').addEventListener('change', (e) => {
+                if (S && S.setPinchZoomPage) S.setPinchZoomPage(e.target.checked);
+            });
+            const textZoom = document.getElementById('text_zoom');
+            textZoom.addEventListener('input', () => showTextZoom(parseInt(textZoom.value, 10)));
+            textZoom.addEventListener('change', () => { if (S && S.setTextZoom) S.setTextZoom(parseInt(textZoom.value, 10)); });
             document.getElementById('material_you').addEventListener('change', (e) => {
                 if (AP) renderAppearance(parse(AP.setMaterialYou(e.target.checked)));
             });

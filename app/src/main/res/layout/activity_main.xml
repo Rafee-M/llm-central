@@ -4,7 +4,10 @@
     The RelativeLayout below is the "tab container": it holds duck.ai's WebView (chatWebView) and,
     added at runtime by web/TabManager, one WebView per other provider, with the loading bar on top.
 -->
+<!-- fitsSystemWindows: Android 7–10. On Android 11+ ThemeManager.fitContent pads this view itself,
+     so the top strip can be used while the status bar is hidden. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/mainRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fitsSystemWindows="true"

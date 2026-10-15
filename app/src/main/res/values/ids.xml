@@ -3,4 +3,6 @@
     <!-- Key for data a tab's WebView carries around with it (View.setTag(key, value)): its desktop-site
          state (web/DesktopMode). Stored on the view itself, so it's freed together with the tab. -->
     <item name="tag_desktop_mode" type="id" />
+    <!-- web/PageZoom keeps its per-tab state here ("Pinch zooms the page"). -->
+    <item name="tag_page_zoom" type="id" />
 </resources>

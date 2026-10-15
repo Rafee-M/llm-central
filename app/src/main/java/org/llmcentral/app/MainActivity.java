@@ -46,6 +46,7 @@ import android.os.Looper;
 import org.llmcentral.app.scripts.UserScriptMatcher;
 import org.llmcentral.app.downloads.Downloader;
 import org.llmcentral.app.storage.AppCache;
+import org.llmcentral.app.storage.BackupImages;
 import org.llmcentral.app.storage.OfflineChats;
 import org.llmcentral.app.storage.StorageBridge;
 import org.llmcentral.app.storage.UploadCopies;
@@ -54,6 +55,7 @@ import org.llmcentral.app.web.MicrophoneAccess;
 import org.llmcentral.app.web.DialogWebViewClient;
 import org.llmcentral.app.web.AppBridge;
 import org.llmcentral.app.web.NavigationPolicy;
+import org.llmcentral.app.web.PageZoom;
 import org.llmcentral.app.web.Scripts;
 import org.llmcentral.app.web.TabLru;
 import org.llmcentral.app.web.TabManager;
@@ -157,7 +159,8 @@ public class MainActivity extends Activity {
     private Downloader downloader;
     // Microphone for voice chat: asks Android only when a page wants it (web/MicrophoneAccess).
     private final MicrophoneAccess microphone = new MicrophoneAccess(this);
-    private String lastFetchedChatsJson = "{}";
+    // (Until 2026-10-15 a field here kept the whole saved-chats copy in memory for as long as the screen
+    // lived, although only the saved-chats window reads it; that window now reads the file when it opens.)
     private android.app.Dialog chatsViewerDialog = null;
     // true while duck.ai failed to load and the saved-chats window stands in for it (showOfflineChats).
     private boolean duckOffline = false;
@@ -263,6 +266,10 @@ public class MainActivity extends Activity {
         });
 
         setContentView(getLayoutResourceId());
+        if (!isDrawerLayout()) {
+            // Content clear of the bars and the keyboard; with "Hide status bar" it uses the top strip too.
+            ThemeManager.fitContent(findViewById(R.id.mainRoot));
+        }
 
         progressBar = findViewById(R.id.progressBar);
         chatWebView = findViewById(R.id.chatWebView);
@@ -270,25 +277,23 @@ public class MainActivity extends Activity {
         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
         background.execute(() -> {
             if (!OfflineChats.isEnabled(MainActivity.this)) {
-                return; // setting "Offline chats" is off: nothing saved to load
+                return; // setting "Offline chats" is off: nothing saved to move
             }
+            // Very old versions kept the saved chats in the preferences: move them into the file once.
+            // (Until 2026-10-15 every start also read the whole saved copy into memory and kept it there;
+            // the saved-chats window now reads the file itself when it opens: getChatsJson below.)
             try {
-                String cached = ChatDatabaseHelper.getInstance(MainActivity.this).getCachedChatsJson();
-                if (cached != null && !cached.equals("{}") && !cached.isEmpty()) {
-                    lastFetchedChatsJson = cached;
-                } else {
-                    SharedPreferences p = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                    String oldPrefsJson = p.getString("cached_chats_json", null);
-                    if (oldPrefsJson != null && !oldPrefsJson.equals("{}") && !oldPrefsJson.isEmpty()) {
-                        lastFetchedChatsJson = oldPrefsJson;
-                        ChatDatabaseHelper.getInstance(MainActivity.this).saveCachedChatsJson(oldPrefsJson);
-                    } else {
-                        lastFetchedChatsJson = "{}";
+                SharedPreferences p = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
+                String oldPrefsJson = p.getString("cached_chats_json", null);
+                if (oldPrefsJson != null && !oldPrefsJson.equals("{}") && !oldPrefsJson.isEmpty()) {
+                    ChatDatabaseHelper helper = ChatDatabaseHelper.getInstance(MainActivity.this);
+                    String cached = helper.getCachedChatsJson();
+                    if (cached == null || cached.isEmpty() || cached.equals("{}")) {
+                        helper.saveCachedChatsJson(oldPrefsJson);
                     }
                 }
             } catch (Throwable t) {
-                Log.e(TAG, "Failed to load cached_chats_json in background", t);
-                lastFetchedChatsJson = "{}";
+                Log.e(TAG, "Failed to move cached_chats_json in background", t);
             }
         });
         currentZoomLevel = (float) prefs.getInt("text_zoom", 100);
@@ -433,6 +438,31 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * Makes every open tab follow "Pinch zooms the page" (web/PageZoom). A tab whose mode changes reloads
+     * once; nothing happens when they already match (e.g. on every return to the app).
+     */
+    private void syncPageZoom() {
+        if (tabManager == null) {
+            return;
+        }
+        boolean on = PageZoom.isOn(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE));
+        for (WebView tab : tabManager.liveWebViews()) {
+            Account account = tabManager.accountOf(tab);
+            PageZoom.sync(this, tab, account != null ? Providers.byId(account.providerId) : Providers.DUCK, on);
+        }
+    }
+
+    /** Text size for every open tab (Settings → Appearance → Text size, or the other screen changed it). */
+    private void applyTextZoom(int percent) {
+        currentZoomLevel = percent;
+        if (tabManager != null) {
+            for (WebView tab : tabManager.liveWebViews()) {
+                tab.getSettings().setTextZoom(percent);
+            }
+        }
+    }
+
     /** Shows the current account's provider badge and name in the top bar chip. */
     private void updateTopBar(Account account) {
         TextView badge = findViewById(R.id.providerBadge);
@@ -515,8 +545,11 @@ public class MainActivity extends Activity {
         webSettings.setSaveFormData(false);
         webSettings.setGeolocationEnabled(false);
 
-        // Text size chosen by the user (pinch gesture), see currentZoomLevel.
+        // Text size chosen by the user (pinch gesture or Settings → Appearance → Text size), see currentZoomLevel.
         webSettings.setTextZoom(Math.round(currentZoomLevel));
+        // "Pinch zooms the page" (web/PageZoom): set up before the tab loads its first page.
+        PageZoom.apply(this, webView, provider,
+                PageZoom.isOn(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE)));
 
         // The app draws its own provider icons, so the sites' favicons (tab icons) are never needed:
         // skipping their download saves data and a little time (PROJECT.md R-PERF-4).
@@ -608,9 +641,10 @@ public class MainActivity extends Activity {
             @SuppressLint("ClickableViewAccessibility")
             @Override
             public boolean onTouch(View v, MotionEvent event) {
-                // duck.ai's image viewer, or the desktop site: pinching zooms the page itself (WebView
-                // handles it) instead of changing the text size.
-                if (isImageZoomActive || DesktopMode.isActive(webView)) {
+                // duck.ai's image viewer, the desktop site, or the setting "Pinch zooms the page"
+                // (web/PageZoom): pinching zooms the page itself (WebView handles it) instead of
+                // changing the text size.
+                if (isImageZoomActive || DesktopMode.isActive(webView) || PageZoom.isActive(webView)) {
                     return false;
                 }
                 scaleGestureDetector.onTouchEvent(event);
@@ -724,10 +758,27 @@ public class MainActivity extends Activity {
                         obj.put("shared_doc_suffix", prefs.getString("shared_doc_suffix", ""));
                         obj.put("max_live_tabs", prefs.getInt(PREF_MAX_LIVE_TABS, 3));
                         obj.put("offline_chats", OfflineChats.isEnabled(MainActivity.this));
+                        obj.put(PageZoom.PREF, PageZoom.isOn(prefs));
+                        obj.put("text_zoom", prefs.getInt("text_zoom", 100));
                     } catch (Exception e) {
                         Log.e(TAG, "Error generating settings JSON", e);
                     }
                     return obj.toString();
+                }
+
+                /** Settings → Behaviour → "Pinch zooms the page" (web/PageZoom): open tabs reload once. */
+                @JavascriptInterface
+                public void setPinchZoomPage(boolean on) {
+                    PageZoom.setOn(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), on);
+                    runOnUiThread(MainActivity.this::syncPageZoom);
+                }
+
+                /** Settings → Appearance → Text size (50–300 %, the same value the text-size pinch sets). */
+                @JavascriptInterface
+                public void setTextZoom(int percent) {
+                    int value = Math.max(50, Math.min(300, percent));
+                    getSharedPreferences("duck_assist_prefs", MODE_PRIVATE).edit().putInt("text_zoom", value).apply();
+                    runOnUiThread(() -> applyTextZoom(value));
                 }
 
                 @JavascriptInterface
@@ -742,7 +793,7 @@ public class MainActivity extends Activity {
                             autoFocus = false;
                         }
                         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                        // "Providers kept loaded" (1–5); anything else from the page is clamped.
+                        // "Accounts kept loaded" (1–10); anything else from the page is clamped.
                         int maxTabs = Math.max(TabLru.MIN_LIVE_TABS,
                                 Math.min(TabLru.MAX_LIVE_TABS, obj.optInt("max_live_tabs", 3)));
                         boolean oldRtl = prefs.getBoolean("rtl_resolver", false);
@@ -795,7 +846,7 @@ public class MainActivity extends Activity {
                             autoFocus = false;
                         }
                         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                        // "Providers kept loaded" (1–5); anything else from the page is clamped.
+                        // "Accounts kept loaded" (1–10); anything else from the page is clamped.
                         int maxTabs = Math.max(TabLru.MIN_LIVE_TABS,
                                 Math.min(TabLru.MAX_LIVE_TABS, obj.optInt("max_live_tabs", 3)));
                         boolean oldRtl = prefs.getBoolean("rtl_resolver", false);
@@ -845,7 +896,6 @@ public class MainActivity extends Activity {
                 public void setOfflineChats(boolean on) {
                     OfflineChats.setEnabled(MainActivity.this, on);
                     if (!on) {
-                        lastFetchedChatsJson = "{}";
                         // Same single background thread as the chat save: a save already running
                         // finishes first and is then deleted; a later one sees the setting is off.
                         background.execute(() -> ChatDatabaseHelper.getInstance(MainActivity.this).deleteAll());
@@ -1036,48 +1086,19 @@ public class MainActivity extends Activity {
                     try {
                         org.json.JSONObject oldObj = new org.json.JSONObject(oldJson);
                         
-                        // Merge blobMap
-                        org.json.JSONObject oldBlobMap = oldObj.optJSONObject("blobMap");
-                        org.json.JSONObject newBlobMap = newObj.optJSONObject("blobMap");
-                        if (oldBlobMap != null) {
-                            if (newBlobMap == null) {
-                                newObj.put("blobMap", oldBlobMap);
-                            } else {
-                                java.util.Iterator<String> keys = oldBlobMap.keys();
-                                while (keys.hasNext()) {
-                                    String k = keys.next();
-                                    if (!newBlobMap.has(k)) {
-                                        newBlobMap.put(k, oldBlobMap.get(k));
-                                    }
-                                }
-                            }
+                        // Pictures only the older saved copy has: kept newest first, up to a budget
+                        // (storage/BackupImages). They used to be kept forever, and duck.ai's own pictures
+                        // get a new blob: address on every visit, so the saved file only ever grew.
+                        BackupImages oldPictures = new BackupImages(BackupImages.OLD_BUDGET_CHARS);
+                        org.json.JSONObject blobMap = oldPictures.mergeMap(
+                                newObj.optJSONObject("blobMap"), oldObj.optJSONObject("blobMap"));
+                        if (blobMap != null) {
+                            newObj.put("blobMap", blobMap);
                         }
-
-                        // Merge domImages
-                        org.json.JSONArray oldDomImgs = oldObj.optJSONArray("domImages");
-                        org.json.JSONArray newDomImgs = newObj.optJSONArray("domImages");
-                        if (oldDomImgs != null && oldDomImgs.length() > 0) {
-                            if (newDomImgs == null) {
-                                newObj.put("domImages", oldDomImgs);
-                            } else {
-                                java.util.Set<String> existingSrcs = new java.util.HashSet<>();
-                                for (int i = 0; i < newDomImgs.length(); i++) {
-                                    org.json.JSONObject item = newDomImgs.optJSONObject(i);
-                                    if (item != null && item.has("src")) {
-                                        existingSrcs.add(item.optString("src"));
-                                    }
-                                }
-                                for (int i = 0; i < oldDomImgs.length(); i++) {
-                                    org.json.JSONObject item = oldDomImgs.optJSONObject(i);
-                                    if (item != null) {
-                                        String src = item.optString("src");
-                                        if (src == null || !existingSrcs.contains(src)) {
-                                            newDomImgs.put(item);
-                                            if (src != null) existingSrcs.add(src);
-                                        }
-                                    }
-                                }
-                            }
+                        org.json.JSONArray domImages = oldPictures.mergeList(
+                                newObj.optJSONArray("domImages"), oldObj.optJSONArray("domImages"));
+                        if (domImages != null) {
+                            newObj.put("domImages", domImages);
                         }
 
                         // Merge indexedDB (never lose previous chats or images on partial dumps)
@@ -1139,7 +1160,6 @@ public class MainActivity extends Activity {
             } catch (Throwable e) {
                 Log.w(TAG, "Fetched chats merge error", e);
             }
-            lastFetchedChatsJson = finalJsonStr;
             ChatDatabaseHelper.getInstance(MainActivity.this).saveCachedChatsJson(finalJsonStr);
             if (isRequestingViewer || (chatsViewerDialog != null && chatsViewerDialog.isShowing())) {
                 isRequestingViewer = false;
@@ -1211,9 +1231,18 @@ public class MainActivity extends Activity {
             ws.setAllowContentAccess(false);
             
             webView.addJavascriptInterface(new Object() {
+                /**
+                 * Read from the saved file each time the window asks (on a background thread: calls from
+                 * a page's JavaScript never run on the main thread), so the copy isn't kept in memory.
+                 * ChatDatabaseHelper's methods are synchronized: a save in progress finishes first.
+                 */
                 @JavascriptInterface
                 public String getChatsJson() {
-                    return lastFetchedChatsJson;
+                    if (!OfflineChats.isEnabled(MainActivity.this)) {
+                        return "{}";
+                    }
+                    String json = ChatDatabaseHelper.getInstance(MainActivity.this).getCachedChatsJson();
+                    return json != null && !json.isEmpty() ? json : "{}";
                 }
                 
                 @JavascriptInterface
@@ -1508,10 +1537,13 @@ public class MainActivity extends Activity {
             applyTheme();
         }
         refreshAccounts();
-        if (!OfflineChats.isEnabled(this)) {
-            lastFetchedChatsJson = "{}"; // turned off in the other screen: drop the copy in memory too
-        }
         if (tabManager != null) {
+            // Settings changed in the app's other screen (assistant drawer): text size and pinch mode.
+            int textZoom = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE).getInt("text_zoom", 100);
+            if (textZoom != Math.round(currentZoomLevel)) {
+                applyTextZoom(textZoom);
+            }
+            syncPageZoom();
             syncDesktopMode(tabManager.current());
             if (tabManager.current().isDuck()) {
                 duckUsedSinceDump = true;
@@ -1566,6 +1598,8 @@ public class MainActivity extends Activity {
         if (tabManager != null) {
             tabManager.flushCookies();
         }
+        // Copies of attached files older than an hour (storage/UploadCopies): the process may live for days.
+        UploadCopies.cleanUpExpired(this);
         // Save duck.ai's chats for offline reading, but only if duck.ai was used since the last save:
         // the dump reads every chat and image, too much work to repeat when only other accounts were
         // used (round 6).
@@ -2012,6 +2046,7 @@ public class MainActivity extends Activity {
             }
             if (isSafeMode) return;
             DesktopMode.onPageFinished(MainActivity.this, view); // wide page in desktop mode
+            PageZoom.onPageFinished(MainActivity.this, view);    // fallback for old WebViews
             if (!provider.isDuck()) {
                 // Other providers: no duck.ai helper scripts (they target duck.ai's page and need the
                 // bridge). Files the page makes become downloadable (blob_capture.js); a shared prompt
