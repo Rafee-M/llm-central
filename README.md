@@ -26,7 +26,7 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
   **"Ask AI"** text action, and which one the app starts with (Settings → Assistant & sharing / Behaviour).
   duck.ai stays the default.
 - ✍️ **Prompt pre-fill on every provider**: shared text lands in the chosen chat's message box, ready to edit and send.
-- ↕️ **Re-order accounts** (Settings → Accounts → ⋮ → Move up / Move down).
+- ↕️ **Re-order accounts** (Settings → Accounts → Re-order accounts: drag the handle; any order, across providers).
 - 🔑 **Sign-in pop-ups** (e.g. "Continue with Microsoft/Apple/GitHub") open in the right account.
 - 🖥️ **Desktop site** toggle in the account menu, remembered per account.
 - ⛶ **Hide status bar** (Settings → Appearance) for more room.
