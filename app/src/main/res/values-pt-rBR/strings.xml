@@ -1,9 +1,4 @@
 <resources>
-    <string name="error_microsoft_google">O login por contas Google, Apple ou Microsoft não é suportado</string>
-    <string name="error_copy">Por favor selecione e copie o texto manualmente</string>
-    <!-- StarDialog -->
     <string name="download">Download iniciado:</string>
-    <string name="all_urls">Todas as URLs permitidas</string>
-    <string name="urls_restricted">URLs restritas</string>
     <string name="url_copied">URL copiada</string>
 </resources>

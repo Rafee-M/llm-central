@@ -1,11 +1,8 @@
-<resources>
-    <string name="app_name" translatable="false">LLM Central</string>
-    <string name="error_microsoft_google">Login via Google, Apple, or Microsoft account is not supported</string>
-    <string name="error_copy">Please select and copy text manually</string>
-    <!-- StarDialog -->
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- The app's name. Lint calls it "unused" because it can't see its uses: app/build.gradle (the manifest
+         placeholder appName) and the About window. Not translated: the name is the same in every language. -->
+    <string name="app_name" translatable="false" tools:ignore="UnusedResources">LLM Central</string>
     <string name="download">Download started:</string>
-    <string name="all_urls">All URLs allowed</string>
-    <string name="urls_restricted">URLs restricted</string>
     <string name="url_copied">copied to clipboard</string>
     <!-- Downloads (downloads/Downloader) -->
     <string name="download_failed">The file couldn\'t be saved.</string>
