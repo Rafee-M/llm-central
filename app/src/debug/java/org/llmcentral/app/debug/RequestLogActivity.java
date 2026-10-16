@@ -103,18 +103,31 @@ public final class RequestLogActivity extends Activity {
         return RequestLog.get().export(RequestLogHooks.about(this), System.currentTimeMillis());
     }
 
+    /*
+     * Copy and Share pass the text through Android's inter-process channel (Binder), which refuses about 1 MB and
+     * more. A crash here would end the app process and with it the log (it is kept in memory only), so a log that
+     * is too big only shows a message: Clear and measure fewer providers at a time.
+     */
     private void copy() {
-        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.request_log_title), export()));
-        Toast.makeText(this, R.string.request_log_copied, Toast.LENGTH_SHORT).show();
+        try {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.request_log_title), export()));
+            Toast.makeText(this, R.string.request_log_copied, Toast.LENGTH_SHORT).show();
+        } catch (RuntimeException e) {
+            Toast.makeText(this, R.string.request_log_too_big, Toast.LENGTH_LONG).show();
+        }
     }
 
     private void share() {
-        Intent send = new Intent(Intent.ACTION_SEND);
-        send.setType("text/plain");
-        send.putExtra(Intent.EXTRA_SUBJECT, getString(R.string.request_log_title));
-        send.putExtra(Intent.EXTRA_TEXT, export());
-        startActivity(Intent.createChooser(send, getString(R.string.request_log_share)));
+        try {
+            Intent send = new Intent(Intent.ACTION_SEND);
+            send.setType("text/plain");
+            send.putExtra(Intent.EXTRA_SUBJECT, getString(R.string.request_log_title));
+            send.putExtra(Intent.EXTRA_TEXT, export());
+            startActivity(Intent.createChooser(send, getString(R.string.request_log_share)));
+        } catch (RuntimeException e) {
+            Toast.makeText(this, R.string.request_log_too_big, Toast.LENGTH_LONG).show();
+        }
     }
 
     private void clear() {

@@ -10,5 +10,6 @@
     <string name="request_log_refresh">Refresh</string>
     <string name="request_log_copied">Request log copied</string>
     <string name="request_log_cleared">Request log cleared</string>
+    <string name="request_log_too_big">The log is too big to hand over. Clear it and measure one provider at a time.</string>
     <string name="request_log_more">Lines not shown here (Copy / Share include them): %1$d</string>
 </resources>

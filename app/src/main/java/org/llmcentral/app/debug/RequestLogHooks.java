@@ -50,9 +50,13 @@ public final class RequestLogHooks {
      */
     public static String accountOf(WebView webView, ProviderSpec provider) {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
-            String name = WebViewCompat.getProfile(webView).getName();
-            if (name.startsWith("acct_")) {
-                return name.substring("acct_".length());
+            try {
+                String name = WebViewCompat.getProfile(webView).getName();
+                if (name.startsWith("acct_")) {
+                    return name.substring("acct_".length());
+                }
+            } catch (RuntimeException e) {
+                countFailure(e); // as web/Profiles.cookieManager: never let the log break setting up a tab
             }
         }
         // Default container: duck.ai, or (WebView without profiles) the provider's only account, whose id is the
