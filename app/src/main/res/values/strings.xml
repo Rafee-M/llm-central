@@ -17,6 +17,8 @@
     <!-- Account menu (ui/SwitcherPopup): the icon row and the "Active accounts" switch. -->
     <string name="reset_text_size">Reset text size</string>
     <string name="unload_tab">Unload tab</string>
+    <!-- The ✕ on an account's row in the account menu (label for screen readers and the long-press tooltip). -->
+    <string name="unload_account">Unload %1$s</string>
     <string name="clear_cache">Clear cache</string>
     <string name="cache_cleared">Cache cleared. Logins stay.</string>
     <string name="active_accounts">Active accounts</string>

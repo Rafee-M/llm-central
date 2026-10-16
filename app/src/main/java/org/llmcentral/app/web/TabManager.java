@@ -141,11 +141,22 @@ public final class TabManager {
      * @return true if a tab was unloaded; false for duck.ai or a tab that is already unloaded
      */
     public boolean unloadCurrent() {
-        if (current.isDuck() || !liveTabs.containsKey(current.id)) {
+        return unload(current.id);
+    }
+
+    /**
+     * The account menu's ✕ on an account's row: closes that account's tab (its memory is freed). For the
+     * account on screen this is {@link #unloadCurrent}'s placeholder; any other account simply has no tab
+     * any more and loads again when it's picked. duck.ai's pinned tab is never unloaded.
+     *
+     * @return true if a tab was unloaded; false for duck.ai or an account without a loaded tab
+     */
+    public boolean unload(String accountId) {
+        if (Providers.DUCK_ID.equals(accountId) || !liveTabs.containsKey(accountId)) {
             return false;
         }
-        closeTab(current.id);
-        updatePlaceholder();
+        closeTab(accountId);
+        updatePlaceholder(); // shows the placeholder if it was the account on screen
         return true;
     }
 

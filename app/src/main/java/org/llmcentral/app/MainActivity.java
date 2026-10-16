@@ -487,14 +487,9 @@ public class MainActivity extends Activity {
         }
 
         @Override
-        public boolean canUnload() {
-            Account current = tabManager.current();
-            return SwitcherModel.canUnload(current, tabManager.isLoaded(current.id));
-        }
-
-        @Override
-        public void unload() {
-            if (tabManager.unloadCurrent() && progressBar != null) {
+        public void unload(String accountId) {
+            boolean onScreen = accountId.equals(tabManager.current().id);
+            if (tabManager.unload(accountId) && onScreen && progressBar != null) {
                 progressBar.setVisibility(View.GONE); // the closed tab's loading bar must not stay
             }
         }
