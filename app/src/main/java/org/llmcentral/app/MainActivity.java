@@ -60,6 +60,7 @@ import org.llmcentral.app.web.LoadErrors;
 import org.llmcentral.app.web.AppBridge;
 import org.llmcentral.app.web.NavigationPolicy;
 import org.llmcentral.app.web.PageZoom;
+import org.llmcentral.app.web.TrackerBlocking;
 import org.llmcentral.app.web.Scripts;
 import org.llmcentral.app.web.TabLru;
 import org.llmcentral.app.web.TabManager;
@@ -918,6 +919,7 @@ public class MainActivity extends Activity {
                         obj.put("max_live_tabs", prefs.getInt(PREF_MAX_LIVE_TABS, 3));
                         obj.put("offline_chats", OfflineChats.isEnabled(MainActivity.this));
                         obj.put(PageZoom.PREF, PageZoom.isOn(prefs));
+                        obj.put(TrackerBlocking.PREF, TrackerBlocking.isEnabled(MainActivity.this));
                         obj.put("text_zoom", prefs.getInt("text_zoom", 100));
                     } catch (Exception e) {
                         Log.e(TAG, "Error generating settings JSON", e);
@@ -930,6 +932,15 @@ public class MainActivity extends Activity {
                 public void setPinchZoomPage(boolean on) {
                     PageZoom.setOn(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), on);
                     runOnUiThread(MainActivity.this::syncPageZoom);
+                }
+
+                /**
+                 * Settings → Data &amp; tools → "Block trackers" (web/TrackerBlocking). Read on every request, so it
+                 * applies at once; scripts a page already loaded stay until that page is reloaded.
+                 */
+                @JavascriptInterface
+                public void setBlockTrackers(boolean on) {
+                    TrackerBlocking.setEnabled(MainActivity.this, on);
                 }
 
                 /** Settings → Appearance → Text size (50–300 %, the same value the text-size pinch sets). */
@@ -2060,6 +2071,15 @@ public class MainActivity extends Activity {
                 chatWebView.loadUrl(isWebPage ? lastUrl : "https://duck.ai/");
             }
             return true;
+        }
+
+        /**
+         * Every request of this tab's page, on a WebView background thread: known trackers get an empty answer when
+         * Settings → Data &amp; tools → "Block trackers" is on (web/TrackerBlocking; page loads are never blocked).
+         */
+        @Override
+        public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+            return TrackerBlocking.answer(getApplicationContext(), request);
         }
 
         @Override
