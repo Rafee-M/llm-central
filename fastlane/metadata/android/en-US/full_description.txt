@@ -3,7 +3,7 @@ LLM Central puts several AI chat websites in one small app: duck.ai, ChatGPT, Cl
 <b>Features</b>
 <ul>
 <li><b>Several accounts per provider</b> (e.g. ChatGPT "Work" and "Personal"), each in its own container with separate logins, cookies and site data. Rename, hide, re-order, sign out or remove them in Settings.</li>
-<li><b>Instant switching</b>: up to 3 accounts stay loaded (1–5, changeable); others reload when opened.</li>
+<li><b>Instant switching</b>: up to 3 accounts stay loaded (1–10, changeable); others reload when opened.</li>
 <li><b>Assistant and sharing</b>: set the app as your digital assistant, share text or files to it, or select text anywhere and choose "Ask AI". You choose which account each of these opens.</li>
 <li><b>Prompt pre-fill</b>: shared text lands in the chosen chat's message box, ready to edit and send.</li>
 <li><b>Files</b>: attach files and photos exactly as they are; save files the chat sites create, with their real names, to Downloads.</li>
@@ -11,6 +11,7 @@ LLM Central puts several AI chat websites in one small app: duck.ai, ChatGPT, Cl
 <li><b>Desktop site</b> toggle per account, sign-in pop-ups, reload page, hide the status bar.</li>
 <li><b>duck.ai extras</b>: voice chat from the assistant gesture and offline reading of your saved chats (can be switched off; switching off deletes the saved copy).</li>
 <li><b>User scripts</b> per website (off by default, with a security warning).</li>
+<li><b>Block trackers</b> (on by default): the chat sites' own analytics, telemetry and fingerprinting requests are stopped inside the app; sign-in and chats are never blocked.</li>
 <li><b>Clear cache</b> in Settings; logins stay.</li>
 </ul>
 

@@ -37,6 +37,9 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
   lists only the loaded accounts.
 - 🔁 **Tap to retry**: a page that can't be loaded (e.g. no connection) shows a calm black screen instead of Chromium's
   error page; tap it to try again.
+- 🛡️ **Block trackers** (on by default; Settings → Data & tools): the chat sites' analytics, telemetry and
+  fingerprinting requests get no answer. A small list built from real measurements on each site; sign-in, captchas
+  and chats are never blocked.
 - 🧹 **Clear cache** (Settings → Data & tools; logins stay).
 - ⚙️ **Settings button on every provider** in the top bar; a minimal Material 3 settings screen, with an
   **About** page (version, developer, source code link).
