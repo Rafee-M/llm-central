@@ -210,9 +210,13 @@ public final class SwitcherPopup {
             showCount[0].run();
             popup.update(anchor, 0, ProviderBadge.dp(context, 4), -1, -1);
         };
-        showCount[0] = () -> activeSub.setText(host.activeOnly()
-                ? context.getString(R.string.active_accounts_count, accountsBox.getChildCount(), accounts.size())
-                : context.getString(R.string.active_accounts_off));
+        showCount[0] = () -> {
+            activeSub.setText(host.activeOnly()
+                    ? context.getString(R.string.active_accounts_count, accountsBox.getChildCount(), accounts.size())
+                    : context.getString(R.string.active_accounts_off));
+            // Screen readers read the row's description, not the small text: keep both the same, also after a ✕.
+            activeRow.setContentDescription(context.getString(R.string.active_accounts) + ", " + activeSub.getText());
+        };
         showCount[0].run();
         activeRow.setOnClickListener(v -> {
             boolean on = !host.activeOnly();
@@ -220,11 +224,9 @@ public final class SwitcherPopup {
             toggle.setChecked(on, true);
             fillAccounts.run();
             showCount[0].run();
-            v.setContentDescription(context.getString(R.string.active_accounts) + ", " + activeSub.getText());
             // The window wraps its content, so it resizes by itself; update() re-places it at the chip.
             popup.update(anchor, 0, ProviderBadge.dp(context, 4), -1, -1);
         });
-        activeRow.setContentDescription(context.getString(R.string.active_accounts) + ", " + activeSub.getText());
         list.addView(activeRow);
 
         popup.showAsDropDown(anchor, 0, ProviderBadge.dp(context, 4), Gravity.START);
