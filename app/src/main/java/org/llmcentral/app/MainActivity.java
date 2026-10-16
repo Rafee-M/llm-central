@@ -515,11 +515,6 @@ public class MainActivity extends Activity {
             getSharedPreferences("duck_assist_prefs", MODE_PRIVATE).edit()
                     .putBoolean(PREF_SWITCHER_ACTIVE_ONLY, on).apply();
         }
-
-        @Override
-        public boolean showActiveDot() {
-            return ThemeManager.isActiveDotShown(MainActivity.this);
-        }
     };
 
     /**

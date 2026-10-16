@@ -29,8 +29,7 @@ import java.util.List;
  * The drop-down list that opens when the chip in the top bar is tapped (PROJECT.md R-SW-2):
  * <ol>
  *   <li><b>Accounts:</b> one row per visible account (provider badge + name, the provider underneath when
- *       it differs, e.g. "Work / ChatGPT"); the current account is highlighted. Optional green dot at the
- *       right end of loaded accounts (Settings → Appearance → "Mark active accounts"). The list scrolls
+ *       it differs, e.g. "Work / ChatGPT"); the current account is highlighted. The list scrolls
  *       when it's long, so the controls below always stay on screen.</li>
  *   <li><b>Icon row</b> for the account on screen: Desktop site, Reload page, Reset text size (hidden while
  *       "Pinch zooms the page" is on), Unload tab (frees the tab's memory; duck.ai's pinned tab can't be
@@ -80,16 +79,10 @@ public final class SwitcherPopup {
         boolean activeOnly();
 
         void setActiveOnly(boolean on);
-
-        /** Settings → Appearance → "Mark active accounts" (pref {@code switcher_active_dot}). */
-        boolean showActiveDot();
     }
 
     /** Material 3's "disabled" look: content at 38 % opacity. */
     private static final float DISABLED_ALPHA = 0.38f;
-    /** The green of the "loaded" dot: Google green 600 on light surfaces, green 200 on dark ones. */
-    private static final int DOT_LIGHT = 0xFF1E8E3E;
-    private static final int DOT_DARK = 0xFF81C995;
 
     private SwitcherPopup() {
         // Only static methods.
@@ -135,12 +128,11 @@ public final class SwitcherPopup {
         accountsBox.setOrientation(LinearLayout.VERTICAL);
         scroller.addView(accountsBox);
         list.addView(scroller);
-        boolean markLoaded = host.showActiveDot(); // a setting; it can't change while the menu is open
         Runnable fillAccounts = () -> {
             accountsBox.removeAllViews(); // never add rows twice (the switch can be flipped many times)
             for (Account account : SwitcherModel.rows(accounts, host::isLoaded, host.activeOnly(), current.id)) {
                 accountsBox.addView(createAccountRow(context, scheme, account, account.id.equals(current.id),
-                        markLoaded && host.isLoaded(account.id), v -> {
+                        host.isLoaded(account.id), v -> {
                             popup.dismiss();
                             host.pick(account);
                         }));
@@ -211,9 +203,9 @@ public final class SwitcherPopup {
         popup.showAsDropDown(anchor, 0, ProviderBadge.dp(context, 4), Gravity.START);
     }
 
-    /** One row: [badge] Name (provider) [green dot] — at least 56dp tall so it's easy to tap. */
+    /** One row: [badge] Name (provider) — at least 56dp tall so it's easy to tap. */
     private static View createAccountRow(Context context, Scheme scheme, Account account, boolean isCurrent,
-                                         boolean markLoaded, View.OnClickListener onClick) {
+                                         boolean loaded, View.OnClickListener onClick) {
         ProviderSpec provider = Providers.byId(account.providerId);
         LinearLayout row = baseRow(context, onClick);
         if (isCurrent) {
@@ -245,17 +237,8 @@ public final class SwitcherPopup {
             texts.addView(text(context, provider.displayName, 13, scheme.get(Scheme.ON_SURFACE_VARIANT)));
             description = account.name + ", " + provider.displayName;
         }
-        if (markLoaded) {
-            // A small green dot at the far right: this account's tab is loaded (switching is instant).
-            View dot = new View(context);
-            GradientDrawable circle = new GradientDrawable();
-            circle.setShape(GradientDrawable.OVAL);
-            circle.setColor(scheme.dark ? DOT_DARK : DOT_LIGHT);
-            dot.setBackground(circle);
-            int size = ProviderBadge.dp(context, 8);
-            LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(size, size);
-            dotParams.setMarginStart(ProviderBadge.dp(context, 12));
-            row.addView(dot, dotParams);
+        if (loaded) {
+            // Screen readers hear that this account's tab is loaded (switching to it is instant).
             description = description + ", " + context.getString(R.string.account_loaded);
         }
         row.setContentDescription(isCurrent

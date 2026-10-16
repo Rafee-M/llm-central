@@ -50,7 +50,6 @@ public final class AppearanceBridge {
             root.put("materialYouAvailable", ThemeManager.isMaterialYouAvailable());
             root.put("palette", ThemeManager.paletteId(context));
             root.put("hideStatusBar", ThemeManager.isStatusBarHidden(context));
-            root.put("activeDot", ThemeManager.isActiveDotShown(context));
             root.put("css", ThemeManager.scheme(context).toCss());
             Scheme dynamic = ThemeManager.materialYouPreview(context);
             root.put("dynamic", dynamic == null ? JSONObject.NULL : swatch(dynamic));
@@ -93,16 +92,6 @@ public final class AppearanceBridge {
     public String setHideStatusBar(boolean hide) {
         ThemeManager.setStatusBarHidden(context, hide);
         return changed();
-    }
-
-    /**
-     * Appearance → "Mark active accounts": a green dot in the account menu for loaded accounts. The menu
-     * reads it each time it opens, so no repaint is needed (unlike the theme setters above).
-     */
-    @JavascriptInterface
-    public String setActiveDot(boolean shown) {
-        ThemeManager.setActiveDotShown(context, shown);
-        return getAppearanceJson();
     }
 
     private String changed() {
