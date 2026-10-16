@@ -686,6 +686,16 @@
             else if (successText) snack(successText);
             return !data.error;
         }
+        // Every account, in the account menu's order (Re-order accounts); hidden ones after it, by provider.
+        function accountsInMenuOrder() {
+            const shown = (accountsData.order || []).map(findAccount).filter(Boolean);
+            const ids = new Set(shown.map(f => f.account.id));
+            const hidden = [];
+            for (const p of accountsData.providers) {
+                for (const a of p.accounts) if (!ids.has(a.id)) hidden.push({ account: a, provider: p });
+            }
+            return shown.concat(hidden);
+        }
         function findAccount(id) {
             for (const p of accountsData.providers) {
                 for (const a of p.accounts) if (a.id === id) return { account: a, provider: p };
@@ -918,12 +928,10 @@
             if (purpose === 'launch') {
                 list.append(option('', el('span', { class: 'icon-slot' }, icon('history')), 'Last used account', 'The account you had open'));
             }
-            for (const p of accountsData.providers) {
-                for (const a of p.accounts) {
-                    list.append(option(a.id,
-                        providerBadge(p),
-                        a.name, a.name === p.name ? (p.id === 'duck' ? 'Voice chat and saved chats work here' : null) : p.name));
-                }
+            for (const { account: a, provider: p } of accountsInMenuOrder()) {
+                list.append(option(a.id,
+                    providerBadge(p),
+                    a.name, a.name === p.name ? (p.id === 'duck' ? 'Voice chat and saved chats work here' : null) : p.name));
             }
             dialog(PICKER_TITLES[purpose], el('div', {}, el('p', {}, PICKER_HINTS[purpose]), list),
                 [{ label: 'Cancel', onclick: closeOverlay }]);

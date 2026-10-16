@@ -177,6 +177,8 @@ public class MainActivity extends Activity {
     private long signOutsSeenAt = System.currentTimeMillis();
     // The open user-scripts window (Settings → User scripts), so a double tap can't open a second one.
     private android.app.Dialog scriptsWindow = null;
+    // The open Settings window (closed in onDestroy so it can't leak when the screen is rebuilt).
+    private android.app.Dialog settingsDialog = null;
     private boolean isRequestingViewer = false;
 
     /** Paths of shared files still waiting for the page's 📎 button (not to be deleted as "cache"). */
@@ -860,6 +862,7 @@ public class MainActivity extends Activity {
         runOnUiThread(() -> {
             android.app.Dialog dialog = new android.app.Dialog(MainActivity.this);
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+            settingsDialog = dialog;
             
             WebView webView = new WebView(MainActivity.this);
             // Handles "renderer died" (closes this dialog instead of the app crashing) and keeps
@@ -1126,6 +1129,12 @@ public class MainActivity extends Activity {
             // Light ↔ dark can only fully switch (websites, system dialogs) by rebuilding the screen:
             // do it when the settings close, so the settings page itself isn't interrupted.
             dialog.setOnDismissListener(d -> {
+                // A WebView that isn't destroyed keeps its memory (and this screen, through its bridges) until
+                // Java's garbage collector finds it.
+                webView.destroy();
+                if (settingsDialog == d) {
+                    settingsDialog = null;
+                }
                 if (appliedNight != ThemeManager.isNight(MainActivity.this)) {
                     recreate();
                 }
@@ -2326,6 +2335,14 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        // Windows still open when this screen is rebuilt (e.g. light/dark switched in the other screen) would
+        // otherwise "leak" (Android logs WindowLeaked); closing them also frees their WebViews.
+        if (scriptsWindow != null && scriptsWindow.isShowing()) {
+            scriptsWindow.dismiss();
+        }
+        if (settingsDialog != null && settingsDialog.isShowing()) {
+            settingsDialog.dismiss();
+        }
         if (tabManager != null) {
             tabManager.destroyAccountTabs();
         }
