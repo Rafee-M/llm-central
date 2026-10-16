@@ -50,6 +50,7 @@ import org.llmcentral.app.storage.AppCache;
 import org.llmcentral.app.storage.BackupImages;
 import org.llmcentral.app.storage.OfflineChats;
 import org.llmcentral.app.storage.StorageBridge;
+import org.llmcentral.app.storage.SharedFiles;
 import org.llmcentral.app.storage.UploadCopies;
 import org.llmcentral.app.web.DesktopMode;
 import org.llmcentral.app.web.MicrophoneAccess;
@@ -1669,8 +1670,13 @@ public class MainActivity extends Activity {
             }
         } else if (Intent.ACTION_SEND.equals(action) || Intent.ACTION_SEND_MULTIPLE.equals(action) || Intent.ACTION_PROCESS_TEXT.equals(action)) {
             String sharedText = null;
-            java.util.ArrayList<Uri> streamUris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+            // Only other apps' content:// files are accepted (storage/SharedFiles: a file:// address could make
+            // the page's 📎 attach this app's own private files).
+            java.util.ArrayList<Uri> streamUris = acceptableShares(intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM));
             Uri streamUri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+            if (streamUri != null && !isAcceptableShare(streamUri)) {
+                streamUri = null;
+            }
             if (streamUris != null && !streamUris.isEmpty()) {
                 pendingSharedFileUris = streamUris;
                 pendingSharedFileUri = streamUris.get(0);
@@ -1757,6 +1763,31 @@ public class MainActivity extends Activity {
                 chatWebView.loadUrl("https://duck.ai/");
             }
         }
+    }
+
+    /** @return true if a shared file may be offered to the page (storage/SharedFiles); tells the user if not. */
+    private boolean isAcceptableShare(Uri uri) {
+        boolean ok = uri != null
+                && SharedFiles.isAcceptable(uri.getScheme(), uri.getAuthority(), getPackageName() + ".fileprovider");
+        if (uri != null && !ok) {
+            Log.w(TAG, "Refused a shared file that isn't another app's content:// address");
+            Toast.makeText(this, R.string.share_refused, Toast.LENGTH_LONG).show();
+        }
+        return ok;
+    }
+
+    /** The acceptable ones of several shared files, or null if none is. */
+    private java.util.ArrayList<Uri> acceptableShares(java.util.ArrayList<Uri> uris) {
+        if (uris == null) {
+            return null;
+        }
+        java.util.ArrayList<Uri> ok = new java.util.ArrayList<>();
+        for (Uri uri : uris) {
+            if (isAcceptableShare(uri)) {
+                ok.add(uri);
+            }
+        }
+        return ok.isEmpty() ? null : ok;
     }
 
     /**
