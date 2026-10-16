@@ -348,7 +348,7 @@ public class MainActivity extends Activity {
                         + " keeps crashing and was closed.", Toast.LENGTH_LONG).show();
             }
         }, prefs.getInt(PREF_MAX_LIVE_TABS, 3));
-        // Shown while the account on screen is unloaded (account menu → "Unload tab"); a tap loads it again.
+        // Shown while the account on screen is unloaded (the ✕ on its row in the account menu); a tap loads it again.
         // Added last to the tab container, so it is drawn above every tab's WebView.
         View unloaded = UnloadedPlaceholder.create(this, () -> tabManager.show(tabManager.current()));
         ((ViewGroup) chatWebView.getParent()).addView(unloaded, new ViewGroup.LayoutParams(
@@ -394,9 +394,9 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Connects the native top bar (layout/top_bar.xml): the chip opens the account menu (accounts, the
-     * icon row with Desktop site / Reload / Reset text size / Unload tab, and "Active accounts"), the gear
-     * opens settings. Works the same for every provider (PROJECT.md R-SW-1/2), unlike duckAssist's
+     * Connects the native top bar (layout/top_bar.xml): the chip opens the account menu (accounts with a ✕
+     * on loaded rows, the icon row with Desktop site / Reload / Reset text size / Hide status bar / Clear
+     * cache, and "Active accounts"), the gear opens settings. Works the same for every provider (PROJECT.md R-SW-1/2), unlike duckAssist's
      * settings button, which was injected into duck.ai's page only.
      */
     private void setupTopBar() {
@@ -2078,13 +2078,23 @@ public class MainActivity extends Activity {
         }
 
         @Override
+        public void onPageCommitVisible(WebView view, String url) {
+            super.onPageCommitVisible(view, url);
+            // The new page is being drawn: without an error during its load, the retry screen goes (O-M4).
+            if (tabManager != null) {
+                tabManager.pageVisible(view);
+            }
+        }
+
+        @Override
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
             super.onPageStarted(view, url, favicon);
             hasInjectedProgressJs = false;
-            // A new page is on its way: no retry screen for this tab any more (it comes back if this one fails
-            // too; Chromium calls onReceivedError after onPageStarted for a failed page).
+            // A new load began. A retry screen on this tab stays until a page is drawn without an error
+            // (onPageCommitVisible above; onPageFinished as a backstop), so WebView's grey error page under it
+            // doesn't show during a retry (O-M4).
             if (tabManager != null) {
-                tabManager.clearLoadFailed(view);
+                tabManager.pageStarted(view);
             }
             if (isVisibleTab(view)) {
                 progressBar.setVisibility(View.VISIBLE);
@@ -2096,6 +2106,11 @@ public class MainActivity extends Activity {
             super.onPageFinished(view, url);
             if (isVisibleTab(view)) {
                 progressBar.setVisibility(View.GONE);
+            }
+            // Backstop for onPageCommitVisible (which needs a drawn frame): a load that finished without an
+            // error also removes the retry screen. A failed load reports its error before this, so it stays.
+            if (tabManager != null) {
+                tabManager.pageVisible(view);
             }
             if (isSafeMode) return;
             DesktopMode.onPageFinished(MainActivity.this, view); // wide page in desktop mode

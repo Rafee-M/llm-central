@@ -47,7 +47,7 @@ public final class SwitcherModel {
         return rows;
     }
 
-    /** The ✕ ("Unload tab") at the end of an account's row in the menu. */
+    /** The ✕ (unload) at the end of an account's row in the menu. */
     public enum UnloadButton {
         /** The account has no loaded tab: nothing to unload, no button. */
         NONE,

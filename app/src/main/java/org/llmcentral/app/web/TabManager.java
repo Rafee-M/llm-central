@@ -34,9 +34,9 @@ import java.util.Map;
  * memory first when it runs low. duck.ai is the "home" tab: it's the WebView from the layout, it
  * carries the app's extra features, and it's never closed.</p>
  *
- * <p><b>Unloading:</b> the account menu's "Unload tab" button closes the tab on screen to free its
- * memory but keeps that account selected; a placeholder (ui/UnloadedPlaceholder: black, app icon) is
- * shown instead until the account is opened again ({@link #unloadCurrent()}).</p>
+ * <p><b>Unloading:</b> the ✕ on an account's row in the account menu closes that account's tab to free
+ * its memory ({@link #unload}). The account on screen stays selected; a placeholder
+ * (ui/UnloadedPlaceholder: black, app icon) is shown instead until it is opened again.</p>
  */
 public final class TabManager {
 
@@ -66,7 +66,7 @@ public final class TabManager {
     private final ArrayDeque<Long> recoveryTimes = new ArrayDeque<>();
     private Account current;
     private int maxLiveTabs;
-    // Shown instead of a page while the account on screen is unloaded (see unloadCurrent); may be null.
+    // Shown instead of a page while the account on screen is unloaded (see unload); may be null.
     private View placeholder;
     // Shown instead of a page that failed to load (see markLoadFailed, O-M4); may be null.
     private View retryPlaceholder;
@@ -140,34 +140,56 @@ public final class TabManager {
     }
 
     /**
-     * A tab's page couldn't be loaded (web/LoadErrors): remember the address on the tab's own WebView (so the
-     * mark goes away with the tab) and cover the tab with the retry screen while it is on screen, also later
-     * when the user switches to it.
+     * A tab's page couldn't be loaded (web/LoadErrors): remember it on the tab's own WebView (so it goes away
+     * with the tab) and cover the tab with the retry screen while it is on screen, also later when the user
+     * switches to it. It stays until a page is drawn in the tab without an error ({@link #pageVisible}).
      */
     public void markLoadFailed(WebView view, String url) {
-        view.setTag(R.id.tag_load_failed, url != null ? url : "");
+        LoadErrors.TabState state = loadState(view);
+        if (state == null) {
+            state = new LoadErrors.TabState();
+            view.setTag(R.id.tag_load_failed, state);
+        }
+        state.failed(url);
         updatePlaceholder();
     }
 
-    /** A new page started loading in this tab (or it is being retried): the retry screen goes away. */
-    public void clearLoadFailed(WebView view) {
-        if (view.getTag(R.id.tag_load_failed) != null) {
-            view.setTag(R.id.tag_load_failed, null);
+    /** WebViewClient.onPageStarted: a new load began in this tab (the retry screen stays until it is drawn). */
+    public void pageStarted(WebView view) {
+        LoadErrors.TabState state = loadState(view);
+        if (state != null) {
+            state.pageStarted();
+        }
+    }
+
+    /**
+     * WebViewClient.onPageCommitVisible (and onPageFinished as a backstop): a page is drawn; without an error
+     * during its load the retry screen goes.
+     */
+    public void pageVisible(WebView view) {
+        LoadErrors.TabState state = loadState(view);
+        if (state != null && state.pageVisible()) {
             updatePlaceholder();
         }
     }
 
-    /** The retry screen was tapped: load the page that failed again (or the provider's home page). */
+    /**
+     * The retry screen was tapped: load the page that failed again (or the provider's home page). The screen
+     * stays up meanwhile (WebView's grey error page is under it) and goes once the page is drawn.
+     */
     public void retryCurrent() {
         WebView view = currentWebView();
-        if (view == null) {
+        LoadErrors.TabState state = view == null ? null : loadState(view);
+        if (state == null || !state.showsRetry()) {
             return;
         }
-        Object failed = view.getTag(R.id.tag_load_failed);
-        clearLoadFailed(view);
-        String url = failed instanceof String && !((String) failed).isEmpty() ? (String) failed
-                : Providers.byId(current.providerId).homeUrl;
+        String url = !state.failedUrl().isEmpty() ? state.failedUrl() : Providers.byId(current.providerId).homeUrl;
         view.loadUrl(url);
+    }
+
+    private static LoadErrors.TabState loadState(WebView view) {
+        Object tag = view.getTag(R.id.tag_load_failed);
+        return tag instanceof LoadErrors.TabState ? (LoadErrors.TabState) tag : null;
     }
 
     /** @return true if the account on screen has no loaded tab (it was unloaded; the placeholder shows). */
@@ -176,21 +198,11 @@ public final class TabManager {
     }
 
     /**
-     * The account menu's "Unload tab": closes the tab on screen (its WebView is destroyed and its memory
-     * freed) but keeps the account selected, so the top bar still names it and the placeholder shows.
-     * Opening the account again (account menu, Reload, or a tap on the placeholder) loads its home page.
-     * duck.ai's tab is the pinned home tab and is never unloaded.
-     *
-     * @return true if a tab was unloaded; false for duck.ai or a tab that is already unloaded
-     */
-    public boolean unloadCurrent() {
-        return unload(current.id);
-    }
-
-    /**
-     * The account menu's ✕ on an account's row: closes that account's tab (its memory is freed). For the
-     * account on screen this is {@link #unloadCurrent}'s placeholder; any other account simply has no tab
-     * any more and loads again when it's picked. duck.ai's pinned tab is never unloaded.
+     * The account menu's ✕ on an account's row: closes that account's tab (its WebView is destroyed and its
+     * memory freed). The account on screen stays selected, so the top bar still names it and the placeholder
+     * shows; opening it again (account menu, Reload, or a tap on the placeholder) loads its home page. Any
+     * other account simply has no tab any more and loads again when it's picked. duck.ai's tab is the pinned
+     * home tab and is never unloaded.
      *
      * @return true if a tab was unloaded; false for duck.ai or an account without a loaded tab
      */
@@ -437,7 +449,8 @@ public final class TabManager {
         }
         if (retryPlaceholder != null) {
             WebView view = currentWebView();
-            boolean failed = !unloaded && view != null && view.getTag(R.id.tag_load_failed) != null;
+            LoadErrors.TabState state = view == null ? null : loadState(view);
+            boolean failed = !unloaded && state != null && state.showsRetry();
             retryPlaceholder.setVisibility(failed ? View.VISIBLE : View.GONE);
         }
     }
