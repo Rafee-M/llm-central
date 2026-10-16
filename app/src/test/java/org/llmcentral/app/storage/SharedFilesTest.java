@@ -31,6 +31,18 @@ public class SharedFilesTest {
     }
 
     @Test
+    public void ownFileProviderWithAUserPrefixIsRefused() {
+        // content://0@<authority>/… : Android drops "<user>@" before it looks the provider up
+        // (ContentProvider.getAuthorityWithoutUserId), so this still opens our own FileProvider.
+        assertFalse(SharedFiles.isAcceptable("content", "0@" + OWN, OWN));
+        assertFalse(SharedFiles.isAcceptable("content", "10@" + OWN, OWN));
+        assertFalse(SharedFiles.isAcceptable("content", "x@y@" + OWN, OWN));
+        assertFalse("nothing left after the prefix", SharedFiles.isAcceptable("content", "0@", OWN));
+        // Another app's file shared from a work profile carries the same prefix and stays accepted.
+        assertTrue(SharedFiles.isAcceptable("content", "10@com.android.providers.media.documents", OWN));
+    }
+
+    @Test
     public void anythingElseIsRefused() {
         assertFalse(SharedFiles.isAcceptable(null, "x", OWN));
         assertFalse(SharedFiles.isAcceptable("http", "example.com", OWN));

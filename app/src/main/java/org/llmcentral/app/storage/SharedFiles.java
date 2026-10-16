@@ -29,9 +29,17 @@ public final class SharedFiles {
         if (scheme == null || !"content".equals(scheme.toLowerCase(Locale.ROOT))) {
             return false;
         }
-        if (authority == null || authority.isEmpty()) {
+        if (authority == null) {
             return false;
         }
-        return !authority.equalsIgnoreCase(ownFileProviderAuthority);
+        // "content://0@<authority>/…" names a provider in user 0 (a phone user or work profile). Android drops
+        // everything up to the last "@" before it looks the provider up (AOSP ContentProvider
+        // .getAuthorityWithoutUserId), so compare what Android will really open: without it, our own
+        // FileProvider could be reached as "0@org.llmcentral.app.fileprovider" (re-check 2026-10-16).
+        String provider = authority.substring(authority.lastIndexOf('@') + 1);
+        if (provider.isEmpty()) {
+            return false;
+        }
+        return !provider.equalsIgnoreCase(ownFileProviderAuthority);
     }
 }
