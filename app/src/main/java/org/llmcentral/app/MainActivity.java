@@ -55,6 +55,7 @@ import org.llmcentral.app.storage.UploadCopies;
 import org.llmcentral.app.web.DesktopMode;
 import org.llmcentral.app.web.MicrophoneAccess;
 import org.llmcentral.app.web.DialogWebViewClient;
+import org.llmcentral.app.web.LoadErrors;
 import org.llmcentral.app.web.AppBridge;
 import org.llmcentral.app.web.NavigationPolicy;
 import org.llmcentral.app.web.PageZoom;
@@ -353,6 +354,11 @@ public class MainActivity extends Activity {
         ((ViewGroup) chatWebView.getParent()).addView(unloaded, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         tabManager.setPlaceholder(unloaded);
+        // The same black screen with "Tap to retry", over a page that couldn't be loaded (web/LoadErrors, O-M4).
+        View retry = UnloadedPlaceholder.create(this, R.string.tab_load_failed, () -> tabManager.retryCurrent());
+        ((ViewGroup) chatWebView.getParent()).addView(retry, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        tabManager.setRetryPlaceholder(retry);
         DesktopMode.applySaved(this, prefs, chatWebView, accounts.duck()); // before duck.ai's first page load
         setupTopBar();
         updateTopBar(tabManager.current());
@@ -2075,6 +2081,11 @@ public class MainActivity extends Activity {
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
             super.onPageStarted(view, url, favicon);
             hasInjectedProgressJs = false;
+            // A new page is on its way: no retry screen for this tab any more (it comes back if this one fails
+            // too; Chromium calls onReceivedError after onPageStarted for a failed page).
+            if (tabManager != null) {
+                tabManager.clearLoadFailed(view);
+            }
             if (isVisibleTab(view)) {
                 progressBar.setVisibility(View.VISIBLE);
             }
@@ -2128,12 +2139,21 @@ public class MainActivity extends Activity {
 
         @Override
         public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
-            if (request.isForMainFrame() && provider.isDuck()) {
-                Log.d(TAG, "Connection failed for duck.ai, showing saved chats: " + error.getDescription());
-                runOnUiThread(() -> showOfflineChats(view));
-                return; // the saved chats are shown instead
+            switch (LoadErrors.reaction(request.isForMainFrame(), provider.isDuck(),
+                    OfflineChats.isEnabled(MainActivity.this))) {
+                case SAVED_CHATS:
+                    Log.d(TAG, "Connection failed for duck.ai, showing saved chats: " + error.getDescription());
+                    runOnUiThread(() -> showOfflineChats(view));
+                    return; // the saved chats are shown instead
+                case RETRY_SCREEN:
+                    // Instead of Chromium's raw "Webpage not available": the black retry screen (O-M4).
+                    if (tabManager != null) {
+                        tabManager.markLoadFailed(view, request.getUrl().toString());
+                    }
+                    return;
+                default:
+                    super.onReceivedError(view, request, error);
             }
-            super.onReceivedError(view, request, error);
         }
     }
 

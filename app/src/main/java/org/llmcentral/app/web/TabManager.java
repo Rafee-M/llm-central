@@ -5,6 +5,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebView;
 
+import org.llmcentral.app.R;
 import org.llmcentral.app.account.Account;
 import org.llmcentral.app.account.AccountStore;
 import org.llmcentral.app.provider.ProviderSpec;
@@ -67,6 +68,8 @@ public final class TabManager {
     private int maxLiveTabs;
     // Shown instead of a page while the account on screen is unloaded (see unloadCurrent); may be null.
     private View placeholder;
+    // Shown instead of a page that failed to load (see markLoadFailed, O-M4); may be null.
+    private View retryPlaceholder;
 
     /**
      * @param duckView    the WebView from the layout, already configured; becomes the duck.ai tab
@@ -125,6 +128,46 @@ public final class TabManager {
     public void setPlaceholder(View placeholder) {
         this.placeholder = placeholder;
         updatePlaceholder();
+    }
+
+    /**
+     * The view to show while the page of the account on screen failed to load (O-M4: black, app icon, "Tap to
+     * retry"). Like {@link #setPlaceholder}, it must already be in the tab container above the WebViews.
+     */
+    public void setRetryPlaceholder(View retryPlaceholder) {
+        this.retryPlaceholder = retryPlaceholder;
+        updatePlaceholder();
+    }
+
+    /**
+     * A tab's page couldn't be loaded (web/LoadErrors): remember the address on the tab's own WebView (so the
+     * mark goes away with the tab) and cover the tab with the retry screen while it is on screen, also later
+     * when the user switches to it.
+     */
+    public void markLoadFailed(WebView view, String url) {
+        view.setTag(R.id.tag_load_failed, url != null ? url : "");
+        updatePlaceholder();
+    }
+
+    /** A new page started loading in this tab (or it is being retried): the retry screen goes away. */
+    public void clearLoadFailed(WebView view) {
+        if (view.getTag(R.id.tag_load_failed) != null) {
+            view.setTag(R.id.tag_load_failed, null);
+            updatePlaceholder();
+        }
+    }
+
+    /** The retry screen was tapped: load the page that failed again (or the provider's home page). */
+    public void retryCurrent() {
+        WebView view = currentWebView();
+        if (view == null) {
+            return;
+        }
+        Object failed = view.getTag(R.id.tag_load_failed);
+        clearLoadFailed(view);
+        String url = failed instanceof String && !((String) failed).isEmpty() ? (String) failed
+                : Providers.byId(current.providerId).homeUrl;
+        view.loadUrl(url);
     }
 
     /** @return true if the account on screen has no loaded tab (it was unloaded; the placeholder shows). */
@@ -301,6 +344,7 @@ public final class TabManager {
         liveTabs.put(Providers.DUCK_ID, fresh);
         lowerPriorityWhenHidden(fresh);
         fresh.setVisibility(current.isDuck() ? View.VISIBLE : View.GONE);
+        updatePlaceholder(); // a fresh WebView has no "failed" mark
     }
 
     /**
@@ -337,6 +381,7 @@ public final class TabManager {
         WebView fresh = WebViewRecovery.replace(dead);
         prepare(fresh, account);
         liveTabs.put(account.id, fresh);
+        updatePlaceholder(); // a fresh WebView has no "failed" mark
         boolean isWebPage = lastUrl != null && lastUrl.startsWith("https://");
         fresh.loadUrl(isWebPage ? lastUrl : Providers.byId(account.providerId).homeUrl);
     }
@@ -381,10 +426,19 @@ public final class TabManager {
         }
     }
 
-    /** The placeholder is visible exactly while the account on screen has no loaded tab. */
+    /**
+     * The unloaded placeholder is visible exactly while the account on screen has no loaded tab; the retry
+     * screen while its loaded tab's page failed to load (and it isn't unloaded).
+     */
     private void updatePlaceholder() {
+        boolean unloaded = isCurrentUnloaded();
         if (placeholder != null) {
-            placeholder.setVisibility(isCurrentUnloaded() ? View.VISIBLE : View.GONE);
+            placeholder.setVisibility(unloaded ? View.VISIBLE : View.GONE);
+        }
+        if (retryPlaceholder != null) {
+            WebView view = currentWebView();
+            boolean failed = !unloaded && view != null && view.getTag(R.id.tag_load_failed) != null;
+            retryPlaceholder.setVisibility(failed ? View.VISIBLE : View.GONE);
         }
     }
 

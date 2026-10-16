@@ -5,4 +5,6 @@
     <item name="tag_desktop_mode" type="id" />
     <!-- web/PageZoom keeps its per-tab state here ("Pinch zooms the page"). -->
     <item name="tag_page_zoom" type="id" />
+    <!-- web/TabManager: the address of a page that failed to load in this tab (retry screen, O-M4). -->
+    <item name="tag_load_failed" type="id" />
 </resources>

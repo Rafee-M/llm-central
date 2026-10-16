@@ -14,9 +14,10 @@ import android.widget.TextView;
 import org.llmcentral.app.R;
 
 /**
- * What the screen shows while the account on screen is unloaded (account menu → "Unload tab",
- * web/TabManager.unloadCurrent): a black screen with the app's icon in the centre and a short hint.
- * Tapping anywhere loads the account again.
+ * What the screen shows while the account on screen is unloaded (account menu → the ✕ on its row,
+ * web/TabManager.unload): a black screen with the app's icon in the centre and a short hint.
+ * Tapping anywhere loads the account again. The same screen with "Tap to retry" covers a page that failed
+ * to load (web/LoadErrors, O-M4).
  *
  * <p>Built from plain framework views (no layout file, no UI library), like the account menu. The
  * background is pure black on purpose (also in the light theme): it reads as "nothing loaded here" and
@@ -36,12 +37,22 @@ public final class UnloadedPlaceholder {
      * @return a full-size view, initially GONE; web/TabManager makes it visible while needed
      */
     public static View create(Context context, Runnable onTap) {
+        return create(context, R.string.tab_unloaded, onTap);
+    }
+
+    /**
+     * The same black screen with another hint, e.g. the retry screen after a page failed to load (O-M4:
+     * "Couldn't load this page. Tap to retry").
+     *
+     * @param textRes the hint, also what screen readers say
+     */
+    public static View create(Context context, int textRes, Runnable onTap) {
         FrameLayout root = new FrameLayout(context);
         root.setBackgroundColor(Color.BLACK);
         root.setVisibility(View.GONE);
         root.setClickable(true); // also stops taps from reaching hidden pages behind it
         root.setFocusable(true);
-        root.setContentDescription(context.getString(R.string.tab_unloaded));
+        root.setContentDescription(context.getString(textRes));
         root.setOnClickListener(v -> onTap.run());
 
         LinearLayout column = new LinearLayout(context);
@@ -58,7 +69,7 @@ public final class UnloadedPlaceholder {
         column.addView(icon, new LinearLayout.LayoutParams(size, size));
 
         TextView hint = new TextView(context);
-        hint.setText(R.string.tab_unloaded);
+        hint.setText(textRes);
         hint.setTextColor(HINT_COLOR);
         hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(

@@ -14,6 +14,8 @@
     <string name="dropdown_arrow" translatable="false">▾</string>
     <string name="reload_page">Reload page</string>
     <string name="tab_unloaded">Unloaded. Tap to load</string>
+    <!-- Retry screen when a page can't be loaded (no connection, site down): web/LoadErrors, O-M4. -->
+    <string name="tab_load_failed">Couldn\'t load this page. Tap to retry</string>
     <!-- Account menu (ui/SwitcherPopup): the icon row and the "Active accounts" switch. -->
     <string name="reset_text_size">Reset text size</string>
     <!-- The ✕ on an account's row in the account menu (label for screen readers and the long-press tooltip). -->
