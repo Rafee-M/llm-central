@@ -1,0 +1,80 @@
+# LLM Central tracker list v1 (read by web/TrackerBlocker; Settings → Data & tools → "Block trackers").
+#   host           blocks that host and its subdomains
+#   host/path      blocks addresses on that host (and subdomains) whose path starts so
+#   ?name          blocks any address with that query parameter
+# Page loads are never blocked. Sources (2026-10-17): the owner's uBlock Origin logs, the app's own request log
+# (docs/trackers/phone/2026-10-17-all-providers.tsv), checked against EasyPrivacy, uBlock filters – Privacy and
+# Peter Lowe's list; hif-dliq.deepseek.com from AI Hub's measured data (aihub-config-data, MIT). Review and reasons:
+# docs/superpowers/plans/2026-10-16-tracker-blocking.md §6. Sign-in, captcha and bot-check hosts must never be listed.
+
+# ChatGPT / OpenAI
+ab.chatgpt.com
+chatgpt.com/ces/v1/
+chat.openai.com/ces/v1/
+chatgpt.com/awe/api/v2/rum
+auth.openai.com/awe/api/v2/rum
+csp.withgoogle.com
+
+# Claude / Anthropic
+a-api.anthropic.com
+a-cdn.anthropic.com
+statsig.anthropic.com
+s-cdn.anthropic.com/s.js
+api.anthropic.com/api/event_logging/
+a.claude.ai/isolated-segment.html
+
+# DeepSeek (ByteDance Volcengine analytics, device fingerprint)
+hif-dliq.deepseek.com
+gator.volces.com
+apmplus.volces.com
+ctobsnssdk.com
+tobsnssdk.com
+fp-it-acc.portal101.cn/deviceprofile/
+
+# Z.ai / Zhipu / Alibaba Cloud
+sdata.chatglm.cn
+zcode.z.ai/api/v1/zai/blank.gif
+rum.aliyuncs.com
+log.aliyuncs.com
+
+# duck.ai
+improving.duckduckgo.com
+metrics-content.duckduckgo.com
+
+# Statsig (feature flags and analytics; several domains)
+statsig.com
+statsigapi.net
+statsigcdn.com
+featuregates.org
+featureassets.org
+assetsconfigcdn.org
+prodregistryv2.org
+beyondwickedmapping.org
+
+# Datadog (real-user monitoring)
+datadoghq.com
+datadoghq.eu
+datadoghq-browser-agent.com
+browser-intake-datadoghq.com
+browser-intake-datadoghq.eu
+browser-intake-us3-datadoghq.com
+browser-intake-us5-datadoghq.com
+browser-intake-ap1-datadoghq.com
+browser-intake-ap2-datadoghq.com
+browser-intake-ddog-gov.com
+# Datadog reports sent through a site's own address
+?ddsource
+
+# Sentry (error reports)
+sentry.io
+
+# Segment
+api.segment.io
+cdn.segment.com
+
+# Google
+google-analytics.com
+analytics.google.com
+googletagmanager.com
+doubleclick.net
+www.youtube.com/youtubei/v1/log_event

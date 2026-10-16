@@ -14,11 +14,14 @@
 //   - the artwork's square canvas (445 units) = that visible 72 dp, so 1 unit = 72/445 dp, offset 18 dp;
 //   - the first shape covering the whole canvas is the background (its colour becomes the background layer;
 //     its rounded corners are only for the PNGs, because on Android 8+ the launcher cuts the shape itself);
-//   - everything after it is the foreground; it must stay inside the 66 dp "safe zone" circle (checked below).
+//   - everything after it is the foreground. Nothing may be cut off by the roundest launcher shape, a circle of
+//     72 dp (radius 36 dp): if the foreground reaches further, it is scaled down around the centre just enough
+//     (the factor is printed). Key content belongs inside the 66 dp "safe zone" circle (radius 33 dp); a part
+//     between 33 and 36 dp (e.g. the tip of a speech-bubble tail) is reported, not refused.
 //
 // The SVG reader is deliberately small: it understands what SVGMaker writes for this artwork (rect with
-// rounded corners, path with M/L/H/V/Z, group transforms that scale evenly and move) and stops with a clear
-// message on anything else, instead of guessing.
+// rounded corners, circle, path with M/L/H/V/Z, group transforms that scale evenly and move) and stops with a
+// clear message on anything else, instead of guessing.
 //
 // The rendering (SVG reading, PNG pictures) uses Chromium through Playwright, the same engine as a browser.
 
@@ -35,7 +38,7 @@ const STORE_ICON = join(ROOT, 'fastlane', 'metadata', 'android', 'en-US', 'image
 const LEGACY = { mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
 const STORE_PX = 512;
 
-const LAYER_DP = 108, VISIBLE_DP = 72, SAFE_RADIUS_DP = 33;
+const LAYER_DP = 108, VISIBLE_DP = 72, SAFE_RADIUS_DP = 33, VISIBLE_RADIUS_DP = 36;
 // Points of the same path closer than this (in artwork units) are treated as the same line. SVGMaker leaves
 // gaps/overlaps of up to ~0.001 between pixel rows; snapping them makes neighbouring rows meet exactly.
 const SNAP = 0.01;
@@ -155,6 +158,11 @@ function toShape(s) {
         const w = n('width') * t.k, h = n('height') * t.k;
         return { kind: 'roundRect', x, y, w, h, r: Math.min(rx * t.k, w / 2, h / 2), fill, stroke, strokeWidth, evenOdd };
     }
+    if (s.tag === 'circle') {
+        const n = k => Number(s.attr[k] || 0);
+        const [cx, cy] = t.map(n('cx'), n('cy'));
+        return { kind: 'circle', cx, cy, r: n('r') * t.k, fill, stroke, strokeWidth, evenOdd };
+    }
     if (s.tag === 'path') {
         const polys = snap(parsePolygons(s.attr.d).map(p => p.map(([x, y]) => t.map(x, y))));
         return { kind: 'polygons', polys, fill, stroke, strokeWidth, evenOdd };
@@ -164,8 +172,9 @@ function toShape(s) {
 
 // ---------- 3. vector drawable writing (units → dp, numbers to 3 decimals = 1/1000 dp) ----------
 
-function writer(canvas) {
-    const scale = VISIBLE_DP / canvas, offset = (LAYER_DP - VISIBLE_DP) / 2;
+function writer(canvas, fit = 1) {
+    // fit < 1 shrinks the foreground around the canvas centre (see "How the artwork maps" above)
+    const scale = VISIBLE_DP / canvas * fit, offset = (LAYER_DP - VISIBLE_DP * fit) / 2;
     const dp = v => offset + v * scale;
     // Round once, in thousandths, so equal artwork values stay exactly equal in the output.
     const f = v => { const n = Math.round(v * 1000) / 1000; return Object.is(n, -0) ? '0' : String(n); };
@@ -185,7 +194,12 @@ function writer(canvas) {
         }
         return out + 'Z';
     }).join('');
-    const pathData = s => s.kind === 'roundRect' ? roundRect(s) : polygons(s.polys);
+    // a circle as two half-circle arcs (VectorDrawable path data has no circle command)
+    const circle = ({ cx, cy, r }) => {
+        const [x, y, R] = [dp(cx), dp(cy), r * scale];
+        return `M${f(x - R)} ${f(y)}A${f(R)} ${f(R)} 0 1 0 ${f(x + R)} ${f(y)}A${f(R)} ${f(R)} 0 1 0 ${f(x - R)} ${f(y)}Z`;
+    };
+    const pathData = s => s.kind === 'roundRect' ? roundRect(s) : s.kind === 'circle' ? circle(s) : polygons(s.polys);
     const pathXml = (data, { fill, stroke, strokeWidth, evenOdd }) => '    <path\n'
         + (fill ? `        android:fillColor="${fill}"\n` : '')
         + (evenOdd ? '        android:fillType="evenOdd"\n' : '')
@@ -207,7 +221,9 @@ function farthest(shapes, c) {
     let max = 0;
     for (const s of shapes) {
         const pad = s.stroke ? s.strokeWidth / 2 : 0;
-        if (s.kind === 'roundRect') {
+        if (s.kind === 'circle') {
+            max = Math.max(max, Math.hypot(s.cx - c, s.cy - c) + s.r + pad);
+        } else if (s.kind === 'roundRect') {
             for (const [cx, cy] of [[s.x + s.r, s.y + s.r], [s.x + s.w - s.r, s.y + s.r], [s.x + s.r, s.y + s.h - s.r], [s.x + s.w - s.r, s.y + s.h - s.r]]) {
                 max = Math.max(max, Math.hypot(cx - c, cy - c) + s.r + pad);
             }
@@ -238,15 +254,32 @@ function circleInRoundRect(px, py, radius, s) {
 // frame. The tail edges below the bubble are on the same lines, so the visible tail does not change.
 
 function monochromeShapes(fg) {
-    const [bubble, tail, screen, ...sprites] = fg;
-    const ok = bubble?.kind === 'roundRect' && tail?.kind === 'polygons' && tail.stroke && tail.polys.length === 1
-        && screen?.kind === 'roundRect' && sprites.length > 0 && sprites.every(s => s.kind === 'polygons' && !s.stroke);
-    if (!ok) fail('the foreground is expected as: bubble (rect), tail (stroked path), screen (rect), then sprite paths');
-    const inside = (outer, inner) => inner.x >= outer.x && inner.y >= outer.y
-        && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h;
+    // Two layouts: the 2026-10-02 artwork (bubble, tail, screen: rects) and the 2026-10-16 one (bubble circle,
+    // tail, screen circle). Always in this order: bubble, tail, screen, then the sprites.
+    const roundish = s => s?.kind === 'roundRect' || s?.kind === 'circle';
+    const isTail = s => s?.kind === 'polygons' && s.stroke && s.polys.length === 1;
+    let bubble, tail, screen, sprites;
+    if (roundish(fg[0]) && isTail(fg[1]) && roundish(fg[2])) [bubble, tail, screen, ...sprites] = fg;
+    const ok = bubble && screen && bubble.kind === screen.kind && sprites.length > 0
+        && sprites.every(s => s.kind === 'polygons' && !s.stroke);
+    if (!ok) fail('the foreground is expected as: bubble (rect or circle), tail (stroked path), screen (same kind as the bubble), then sprite paths');
+    const circles = bubble.kind === 'circle';
+    const inside = (outer, inner) => circles
+        ? Math.hypot(inner.cx - outer.cx, inner.cy - outer.cy) + inner.r <= outer.r
+        : inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h;
+    const inScreen = (x, y) => circles ? Math.hypot(x - screen.cx, y - screen.cy) <= screen.r
+        : x >= screen.x && x <= screen.x + screen.w && y >= screen.y && y <= screen.y + screen.h;
     if (!inside(bubble, screen)) stop('the screen must lie inside the bubble');
     for (const s of sprites) for (const [x, y] of s.polys.flat()) {
-        if (x < screen.x || x > screen.x + screen.w || y < screen.y || y > screen.y + screen.h) stop('sprites must lie inside the screen');
+        if (!inScreen(x, y)) stop('sprites must lie inside the screen');
+    }
+    if (circles) {
+        // Round layout: the tail's corners must already lie outside the screen (in the white ring or beyond),
+        // because one colour would show a corner hidden under the screen. Moving them is only done for rects.
+        // Only the corners are checked: an edge cutting into the screen circle would not be noticed (the
+        // 2026-10-16 artwork's tail clears it by about 0.4 units including the stroke).
+        if (tail.polys[0].some(([x, y]) => inScreen(x, y))) stop('a tail corner lies under the round screen; move it into the ring in the artwork');
+        return { bubble, screen, tail, sprites, yMid: null };
     }
     const screenBottom = screen.y + screen.h, bubbleBottom = bubble.y + bubble.h;
     const yMid = (screenBottom + bubbleBottom) / 2;
@@ -290,11 +323,12 @@ async function main() {
             fail('the first shape must be the background: a rect covering the whole canvas, without a stroke');
         }
         const fg = fgRaw.map(toShape);
-        const out = writer(W);
 
-        // safe zone: the foreground must fit in the 66 dp circle
-        const far = farthest(fg, W / 2) * out.scale;
-        if (far > SAFE_RADIUS_DP) stop(`the foreground reaches ${far.toFixed(2)} dp from the centre; the safe zone is ${SAFE_RADIUS_DP} dp`);
+        // nothing may be cut by a circular launcher mask: shrink the foreground just enough if it reaches past 36 dp
+        const far = farthest(fg, W / 2) * VISIBLE_DP / W;
+        const fit = far > VISIBLE_RADIUS_DP ? VISIBLE_RADIUS_DP / far : 1;
+        const out = writer(W, fit);
+        const reach = far * fit;
 
         // background colour
         writeFileSync(join(RES, 'values', 'ic_launcher_background.xml'), '<?xml version="1.0" encoding="utf-8"?>\n' + HEADER
@@ -329,9 +363,11 @@ async function main() {
         for (const [density, px] of Object.entries(LEGACY)) await png(px, join(RES, `mipmap-${density}`, 'ic_launcher.png'));
         await png(STORE_PX, STORE_ICON);
 
-        console.log(`background ${bg.fill}; ${fg.length} foreground shapes; farthest point ${far.toFixed(2)} dp `
-            + `(safe zone ${SAFE_RADIUS_DP} dp); monochrome tail corners moved to y=${mono.yMid.toFixed(2)} units; `
-            + `${Object.keys(LEGACY).length} legacy PNGs + ${STORE_PX} px store icon written.`);
+        console.log(`background ${bg.fill}; ${fg.length} foreground shapes; farthest point ${far.toFixed(2)} dp`
+            + (fit < 1 ? `, foreground scaled by ${fit.toFixed(4)} to ${reach.toFixed(2)} dp (visible circle ${VISIBLE_RADIUS_DP} dp)` : '')
+            + (reach > SAFE_RADIUS_DP ? `; NOTE: reaches past the ${SAFE_RADIUS_DP} dp safe zone (fine for a tail tip, not for key content)` : '')
+            + (mono.yMid !== null ? `; monochrome tail corners moved to y=${mono.yMid.toFixed(2)} units` : '; monochrome tail unchanged')
+            + `; ${Object.keys(LEGACY).length} legacy PNGs + ${STORE_PX} px store icon written.`);
     } finally {
         await browser.close();
     }

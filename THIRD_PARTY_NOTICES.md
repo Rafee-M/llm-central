@@ -52,3 +52,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Tracker list (`app/src/main/assets/trackers.txt`)
+A list of host names and address prefixes (facts, not copied rule text). Built from the owner's uBlock Origin logs
+and the app's own request log, cross-checked against EasyPrivacy (https://easylist.to, GPL-3.0-or-later /
+CC BY-SA 3.0), uBlock filters – Privacy (https://github.com/uBlockOrigin/uAssets, GPL-3.0) and Peter Lowe's list
+(https://pgl.yoyo.org/adservers/). One host (`hif-dliq.deepseek.com`) comes from AI Hub's measured data,
+https://github.com/SilentCoderHere/aihub-config-data (MIT). Thanks to all of them.
