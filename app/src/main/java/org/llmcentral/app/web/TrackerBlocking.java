@@ -43,7 +43,8 @@ public final class TrackerBlocking {
      * of every tab, and each getSharedPreferences(name) call takes a lock shared by the whole app twice (AOSP
      * ContextImpl: synchronized (ContextImpl.class)), the same lock the main thread takes whenever it opens a settings
      * file. Safe because the app runs in one process (both screens share this field) and setEnabled is the only code
-     * that changes the setting. "volatile" makes a change on the main thread visible to WebView's threads at once.
+     * that changes the setting. "volatile" makes the switch's change (made on the Settings page's bridge thread) visible to WebView's request
+     * threads at once.
      */
     private static volatile Boolean enabled;
 
