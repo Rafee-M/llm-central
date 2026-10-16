@@ -487,6 +487,23 @@ public class MainActivity extends Activity {
         }
 
         @Override
+        public boolean canToggleStatusBar() {
+            return !isDrawerLayout(); // the drawer's see-through window never hides the status bar (applyTheme)
+        }
+
+        @Override
+        public boolean isStatusBarHidden() {
+            return ThemeManager.isStatusBarHidden(MainActivity.this);
+        }
+
+        @Override
+        public void toggleStatusBar() {
+            // The same pref and code as Settings → Appearance → "Hide status bar" (AppearanceBridge).
+            ThemeManager.setStatusBarHidden(MainActivity.this, !ThemeManager.isStatusBarHidden(MainActivity.this));
+            ThemeManager.applyStatusBar(MainActivity.this);
+        }
+
+        @Override
         public void unload(String accountId) {
             boolean onScreen = accountId.equals(tabManager.current().id);
             if (tabManager.unload(accountId) && onScreen && progressBar != null) {

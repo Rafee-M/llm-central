@@ -67,9 +67,21 @@ public final class NativeTheme {
      * hear it in the button's label). Docs: https://m3.material.io/components/icon-buttons/specs
      */
     public static void styleDesktopButton(ImageView button, boolean on, Scheme scheme) {
+        styleToggleButton(button, on, scheme, R.drawable.ic_desktop, R.drawable.ic_desktop_on, R.string.desktop_site);
+    }
+
+    /**
+     * Any on/off icon button of the account menu's icon row, drawn like {@link #styleDesktopButton} (outlined
+     * icon when off; icon on a filled {@code secondaryContainer} circle when on), with the state for screen
+     * readers. Used by Desktop site and Hide status bar.
+     *
+     * @param offIcon icon while off; {@code onIcon} while on (may be the same drawable)
+     */
+    public static void styleToggleButton(ImageView button, boolean on, Scheme scheme, int offIcon, int onIcon,
+                                         int labelRes) {
         Context context = button.getContext();
         button.setSelected(on);
-        button.setImageResource(on ? R.drawable.ic_desktop_on : R.drawable.ic_desktop);
+        button.setImageResource(on ? onIcon : offIcon);
         button.setImageTintList(ColorStateList.valueOf(
                 scheme.get(on ? Scheme.ON_SECONDARY_CONTAINER : Scheme.ON_SURFACE_VARIANT)));
         // A 40dp circle inside the 48dp button, plus the usual touch ripple on top of it.
@@ -83,7 +95,7 @@ public final class NativeTheme {
         int ripple = (scheme.get(Scheme.ON_SURFACE) & 0x00FFFFFF) | 0x1F000000; // onSurface at 12%
         button.setBackground(new RippleDrawable(ColorStateList.valueOf(ripple),
                 on ? new InsetDrawable(circle, inset) : null, new InsetDrawable(mask, inset)));
-        String label = context.getString(R.string.desktop_site);
+        String label = context.getString(labelRes);
         String state = context.getString(on ? R.string.state_on : R.string.state_off);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             button.setContentDescription(label);
