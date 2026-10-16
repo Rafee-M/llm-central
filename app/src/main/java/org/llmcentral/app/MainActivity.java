@@ -20,6 +20,7 @@ import android.webkit.CookieManager;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -73,6 +74,7 @@ import org.llmcentral.app.ui.ProviderBadge;
 import org.llmcentral.app.ui.SwitcherModel;
 import org.llmcentral.app.ui.SwitcherPopup;
 import org.llmcentral.app.ui.UnloadedPlaceholder;
+import org.llmcentral.app.debug.RequestLogHooks;
 import org.llmcentral.app.account.AccountsBridge;
 import org.llmcentral.app.account.DefaultAccounts;
 import org.llmcentral.app.account.SignOuts;
@@ -315,6 +317,10 @@ public class MainActivity extends Activity {
 
         promptFiller = new PromptFiller(this);
         downloader = new Downloader(this, background);
+        if (BuildConfig.DEBUG) {
+            // Debug builds only: count duck.ai's service-worker requests for the tracker list (debug/RequestLogHooks).
+            RequestLogHooks.watchDefaultWorkers();
+        }
         configureWebView(chatWebView, Providers.DUCK);
 
         accounts = AccountStore.load(prefs);
@@ -717,7 +723,11 @@ public class MainActivity extends Activity {
         // security check (e.g. Cloudflare) inside an embedded frame, which needs them.
         cookieManager.setAcceptThirdPartyCookies(webView, !provider.isDuck());
 
-        webView.setWebViewClient(new MyWebViewClient(provider));
+        // Debug builds count every request for the tracker list (debug/RequestLogHooks); in a release build
+        // BuildConfig.DEBUG is the constant false, so only "new MyWebViewClient" is compiled in.
+        webView.setWebViewClient(BuildConfig.DEBUG
+                ? new LoggingWebViewClient(provider, RequestLogHooks.accountOf(webView, provider))
+                : new MyWebViewClient(provider));
         webView.setWebChromeClient(new MyWebChromeClient(provider));
         if (!provider.isDuck()) {
             // Sign-in pop-up windows open in the same account's container (web/PopupWindows).
@@ -2171,6 +2181,45 @@ public class MainActivity extends Activity {
                     return;
                 default:
                     super.onReceivedError(view, request, error);
+            }
+        }
+    }
+
+    /**
+     * <b>Debug builds only</b> (see configureWebView): {@link MyWebViewClient} plus counting each request of the
+     * tab in the request log (debug/RequestLog), for the tracker list. It changes nothing: every request gets
+     * exactly what MyWebViewClient answers.
+     */
+    private class LoggingWebViewClient extends MyWebViewClient {
+        private final ProviderSpec logProvider;
+        private final String accountId;
+        // Host of the page on screen in this tab (e.g. auth.openai.com while signing in); read on WebView's
+        // background threads, so volatile.
+        private volatile String pageHost;
+
+        LoggingWebViewClient(ProviderSpec provider, String accountId) {
+            super(provider);
+            this.logProvider = provider;
+            this.accountId = accountId;
+        }
+
+        @Override
+        public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+            WebResourceResponse answer = super.shouldInterceptRequest(view, request);
+            if (request.isForMainFrame()) {
+                pageHost = request.getUrl().getHost(); // a new page in this tab
+            }
+            RequestLogHooks.recordPage(accountId, logProvider, request, pageHost, answer != null);
+            return answer;
+        }
+
+        @Override
+        public void onPageStarted(WebView view, String url, Bitmap favicon) {
+            super.onPageStarted(view, url, favicon);
+            // The page that really opened (after redirects, which shouldInterceptRequest doesn't see).
+            String host = url != null ? Uri.parse(url).getHost() : null;
+            if (host != null) {
+                pageHost = host;
             }
         }
     }

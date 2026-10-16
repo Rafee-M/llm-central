@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: Gradle merges this file into the debug app's manifest; release builds never see it.
+     Adds the "LLM Central requests" screen (debug/RequestLogActivity) with its own launcher icon, so the
+     request log for the tracker list can be copied or shared (plan 2026-10-16-tracker-blocking.md §4). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Own task (taskAffinity), so opening it never rearranges the app's chat screens. -->
+        <activity
+            android:name=".debug.RequestLogActivity"
+            android:exported="true"
+            android:label="@string/request_log_title"
+            android:taskAffinity=".requestlog">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
