@@ -255,7 +255,7 @@ function circleInRoundRect(px, py, radius, s) {
 
 function monochromeShapes(fg) {
     // Two layouts: the 2026-10-02 artwork (bubble, tail, screen: rects) and the 2026-10-16 one (bubble circle,
-    // tail, screen circle). The tail may come before or after the bubble.
+    // tail, screen circle). Always in this order: bubble, tail, screen, then the sprites.
     const roundish = s => s?.kind === 'roundRect' || s?.kind === 'circle';
     const isTail = s => s?.kind === 'polygons' && s.stroke && s.polys.length === 1;
     let bubble, tail, screen, sprites;
@@ -276,6 +276,8 @@ function monochromeShapes(fg) {
     if (circles) {
         // Round layout: the tail's corners must already lie outside the screen (in the white ring or beyond),
         // because one colour would show a corner hidden under the screen. Moving them is only done for rects.
+        // Only the corners are checked: an edge cutting into the screen circle would not be noticed (the
+        // 2026-10-16 artwork's tail clears it by about 0.4 units including the stroke).
         if (tail.polys[0].some(([x, y]) => inScreen(x, y))) stop('a tail corner lies under the round screen; move it into the ring in the artwork');
         return { bubble, screen, tail, sprites, yMid: null };
     }
