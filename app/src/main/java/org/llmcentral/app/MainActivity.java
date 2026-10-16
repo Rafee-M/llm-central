@@ -349,14 +349,17 @@ public class MainActivity extends Activity {
             }
         }, prefs.getInt(PREF_MAX_LIVE_TABS, 3));
         // Shown while the account on screen is unloaded (the ✕ on its row in the account menu); a tap loads it again.
-        // Added last to the tab container, so it is drawn above every tab's WebView.
+        // A container draws its children in order, so each black screen goes in just before the loading bar:
+        // above every tab's WebView (they are added at index 0), but under the bar, which must stay visible
+        // while "Tap to retry" loads the page again (re-check 2026-10-16: the bar was hidden behind it).
+        ViewGroup tabContainer = (ViewGroup) chatWebView.getParent();
         View unloaded = UnloadedPlaceholder.create(this, () -> tabManager.show(tabManager.current()));
-        ((ViewGroup) chatWebView.getParent()).addView(unloaded, new ViewGroup.LayoutParams(
+        tabContainer.addView(unloaded, tabContainer.indexOfChild(progressBar), new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         tabManager.setPlaceholder(unloaded);
         // The same black screen with "Tap to retry", over a page that couldn't be loaded (web/LoadErrors, O-M4).
         View retry = UnloadedPlaceholder.create(this, R.string.tab_load_failed, () -> tabManager.retryCurrent());
-        ((ViewGroup) chatWebView.getParent()).addView(retry, new ViewGroup.LayoutParams(
+        tabContainer.addView(retry, tabContainer.indexOfChild(progressBar), new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         tabManager.setRetryPlaceholder(retry);
         DesktopMode.applySaved(this, prefs, chatWebView, accounts.duck()); // before duck.ai's first page load
