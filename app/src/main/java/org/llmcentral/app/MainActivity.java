@@ -74,6 +74,7 @@ import org.llmcentral.app.ui.SwitcherPopup;
 import org.llmcentral.app.ui.UnloadedPlaceholder;
 import org.llmcentral.app.account.AccountsBridge;
 import org.llmcentral.app.account.DefaultAccounts;
+import org.llmcentral.app.account.SignOuts;
 import org.llmcentral.app.theme.AppearanceBridge;
 import org.llmcentral.app.theme.Scheme;
 import org.llmcentral.app.theme.ThemeBridge;
@@ -171,6 +172,9 @@ public class MainActivity extends Activity {
     private android.app.Dialog chatsViewerDialog = null;
     // true while duck.ai failed to load and the saved-chats window stands in for it (showOfflineChats).
     private boolean duckOffline = false;
+    // Sign-outs (account/SignOuts) up to this time are already handled by this screen. Starts at the screen's
+    // creation: tabs created later load the signed-out state anyway.
+    private long signOutsSeenAt = System.currentTimeMillis();
     // The open user-scripts window (Settings → User scripts), so a double tap can't open a second one.
     private android.app.Dialog scriptsWindow = null;
     private boolean isRequestingViewer = false;
@@ -1097,6 +1101,9 @@ public class MainActivity extends Activity {
                 @Override
                 public void closeAccountTab(String accountId) {
                     tabManager.closeAccount(accountId);
+                    // This screen did the sign-out itself: don't close the tab again later (the user may have
+                    // signed in again by then).
+                    signOutsSeenAt = Math.max(signOutsSeenAt, System.currentTimeMillis());
                 }
 
                 @Override
@@ -1538,11 +1545,19 @@ public class MainActivity extends Activity {
      */
     private void refreshAccounts() {
         if (accounts != null && tabManager != null) {
-            AccountStore fresh = AccountStore.load(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE));
+            SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
+            AccountStore fresh = AccountStore.load(prefs);
             if (!fresh.toJson().equals(accounts.toJson())) {
                 accounts = fresh;
                 tabManager.updateAccounts(accounts);
             }
+            // Accounts signed out in the other screen since we last looked: their tab here still shows the
+            // signed-in page, so close it (it reloads, signed out, when opened again). See account/SignOuts.
+            String signOuts = prefs.getString(SignOuts.PREF, null);
+            for (String id : SignOuts.since(signOuts, signOutsSeenAt)) {
+                tabManager.closeAccount(id);
+            }
+            signOutsSeenAt = SignOuts.latest(signOuts, signOutsSeenAt);
         }
     }
 

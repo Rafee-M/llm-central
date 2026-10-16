@@ -178,6 +178,10 @@ public final class AccountsBridge {
         if (account == null || account.isDuck() || !Profiles.isSupported()) {
             return json("This account can't be signed out here.");
         }
+        // The other screen (main / assistant drawer) closes its tab of this account when it comes back (SignOuts).
+        SharedPreferences prefs = host.prefs();
+        prefs.edit().putString(SignOuts.PREF,
+                SignOuts.record(prefs.getString(SignOuts.PREF, null), account.id, System.currentTimeMillis())).apply();
         host.runOnUiThread(() -> {
             host.closeAccountTab(account.id);
             Profiles.forget(account);
