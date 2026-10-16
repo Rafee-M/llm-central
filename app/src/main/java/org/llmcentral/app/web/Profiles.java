@@ -12,7 +12,9 @@ import androidx.webkit.WebStorageCompat;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
+import org.llmcentral.app.BuildConfig;
 import org.llmcentral.app.account.Account;
+import org.llmcentral.app.debug.RequestLogHooks;
 
 import java.util.HashSet;
 import java.util.List;
@@ -77,6 +79,10 @@ public final class Profiles {
         }
         WebViewCompat.setProfile(webView, name); // creates the profile the first time
         limitCache(WebViewCompat.getProfile(webView));
+        if (BuildConfig.DEBUG) {
+            // Debug builds only: count this account's service-worker requests (debug/RequestLogHooks).
+            RequestLogHooks.watchProfileWorkers(webView, account);
+        }
     }
 
     /**
