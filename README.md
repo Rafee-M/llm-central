@@ -32,8 +32,11 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 - ⛶ **Hide status bar** (Settings → Appearance) for more room.
 - 📥 **Downloads on every provider**, including files the chat creates itself (e.g. a CSV), saved to
   `Downloads/<Provider>/`.
-- 🗂️ **Account menu tools**: Desktop site, 🔄 Reload page, Reset text size, **Unload tab** (frees memory) and Clear cache
-  as one icon row; an **Active accounts** switch lists only the loaded accounts (optional green dot, Settings → Appearance).
+- 🗂️ **Account menu tools**: Desktop site, 🔄 Reload page, Reset text size, **Hide status bar** and Clear cache as one
+  icon row; a **✕ on every loaded account** unloads it (frees memory; duck.ai stays loaded); an **Active accounts** switch
+  lists only the loaded accounts.
+- 🔁 **Tap to retry**: a page that can't be loaded (e.g. no connection) shows a calm black screen instead of Chromium's
+  error page; tap it to try again.
 - 🧹 **Clear cache** (Settings → Data & tools; logins stay).
 - ⚙️ **Settings button on every provider** in the top bar; a minimal Material 3 settings screen, with an
   **About** page (version, developer, source code link).
