@@ -32,8 +32,9 @@ import java.util.UUID;
  *   <li>At least one account stays visible in the switcher menu (R-ACC-6).</li>
  *   <li>Names are cleaned: no control characters, no extra spaces, at most {@value #MAX_NAME_LENGTH}
  *       characters, never empty.</li>
- *   <li>Accounts of the same provider stay next to each other (the menu groups them); inside a
- *       provider the user can change their order ({@link #move}).</li>
+ *   <li>The list's order is the switcher menu's order, freely across providers (owner, 2026-10-15;
+ *       until then accounts stayed grouped by provider). A new account, or one shown in the menu
+ *       again, goes to the end; the user re-orders the shown ones with {@link #reorder}.</li>
  * </ul>
  *
  * <p><b>Threads:</b> the settings page calls into Java on a background thread while the screen uses
@@ -175,7 +176,7 @@ public final class AccountStore {
     // ---------------------------------------------------------------- changing
 
     /**
-     * Adds an account for a provider (R-ACC-1). It's placed after that provider's other accounts.
+     * Adds an account for a provider (R-ACC-1), at the end of the list (the bottom of the menu).
      *
      * @param name  the user's name for it; empty → "ChatGPT", "ChatGPT 2", … (first free one)
      * @param newId a new unique id (use {@link #newId}); tests pass fixed ids
@@ -190,9 +191,7 @@ public final class AccountStore {
         String clean = cleanName(name);
         Account added = new Account(newId, provider.id,
                 clean.isEmpty() ? defaultNameLocked(provider) : clean, true);
-        // Insert right after the provider's last account; if it has none, where the provider's
-        // position in Providers.ALL says (keeps the menu grouped and in a predictable order).
-        accounts.add(insertIndexLocked(provider), added);
+        accounts.add(added);
         return added;
     }
 
@@ -208,7 +207,8 @@ public final class AccountStore {
     }
 
     /**
-     * Shows or hides an account in the switcher menu (R-ACC-4).
+     * Shows or hides an account in the switcher menu (R-ACC-4). An account shown again goes to the end
+     * of the menu; hiding one leaves everyone else where they are.
      *
      * @return false if there's no such account, or if hiding it would leave no visible account (R-ACC-6)
      */
@@ -221,7 +221,12 @@ public final class AccountStore {
         if (!visible && account.visible && countVisibleLocked() <= 1) {
             return false;
         }
-        accounts.set(index, account.withVisible(visible));
+        if (visible && !account.visible) {
+            accounts.remove(index);
+            accounts.add(account.withVisible(true));
+        } else {
+            accounts.set(index, account.withVisible(visible));
+        }
         return true;
     }
 
@@ -242,23 +247,33 @@ public final class AccountStore {
     }
 
     /**
-     * Moves an account one place up ({@code -1}) or down ({@code +1}) in the list, which is also the
-     * order of the switcher menu (R-ACC-4). It only swaps with a neighbour of the <b>same provider</b>,
-     * so a provider's accounts always stay together.
+     * Puts the accounts shown in the menu into a new order (Settings → Re-order accounts, R-ACC-4).
+     * Accounts hidden from the menu keep their places in the list.
      *
-     * @return false if there's no such account, or it's already first/last of its provider
+     * @param visibleIds every visible account's id, each exactly once, in the new order
+     * @return false (and nothing changes) unless the ids are exactly the visible accounts, e.g. when the
+     *         list changed in the meantime
      */
-    public synchronized boolean move(String id, int delta) {
-        int index = indexOfLocked(id);
-        if (index < 0 || (delta != -1 && delta != 1)) {
+    public synchronized boolean reorder(List<String> visibleIds) {
+        if (visibleIds == null || visibleIds.size() != countVisibleLocked()) {
             return false;
         }
-        int other = index + delta;
-        if (other < 0 || other >= accounts.size()
-                || !accounts.get(other).providerId.equals(accounts.get(index).providerId)) {
-            return false;
+        List<Account> inNewOrder = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (String id : visibleIds) {
+            Account account = id == null ? null : findLocked(id);
+            if (account == null || !account.visible || !seen.add(id)) {
+                return false; // unknown, hidden or listed twice
+            }
+            inNewOrder.add(account);
         }
-        Collections.swap(accounts, index, other);
+        // Fill the visible accounts' slots in the new order; hidden ones stay where they are.
+        int next = 0;
+        for (int i = 0; i < accounts.size(); i++) {
+            if (accounts.get(i).visible) {
+                accounts.set(i, inNewOrder.get(next++));
+            }
+        }
         return true;
     }
 
@@ -328,26 +343,6 @@ public final class AccountStore {
                 return candidate;
             }
         }
-    }
-
-    private int insertIndexLocked(ProviderSpec provider) {
-        int lastOfProvider = -1;
-        for (int i = 0; i < accounts.size(); i++) {
-            if (accounts.get(i).providerId.equals(provider.id)) {
-                lastOfProvider = i;
-            }
-        }
-        if (lastOfProvider >= 0) {
-            return lastOfProvider + 1;
-        }
-        // No account of this provider yet: before the first account of a provider listed later.
-        int order = Providers.ALL.indexOf(provider);
-        for (int i = 0; i < accounts.size(); i++) {
-            if (Providers.ALL.indexOf(Providers.find(accounts.get(i).providerId)) > order) {
-                return i;
-            }
-        }
-        return accounts.size();
     }
 
     private int countVisibleLocked() {

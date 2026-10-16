@@ -58,12 +58,14 @@ public final class Scripts {
     public static final String PREFILL_PROMPT = "prefill_prompt.js";
     /** Not injected automatically: the example shown in the user-script manager (off by default). */
     public static final String USER_SCRIPT_SAMPLE = "user_script_sample.js";
+    /** A function expression: runs one user script once per page (scripts/UserScripts.invocation). */
+    public static final String USER_SCRIPT_RUN = "user_script_run.js";
 
     /** Every script file above; used by the unit test. Add new names here too. */
     public static final String[] ALL = {
             BLOB_DOWNLOAD_PATCH, IMAGE_ZOOM_MONITOR, AUTO_FOCUS, CLIPBOARD_PATCH, SWIPE_SCROLL,
             RTL_RESOLVER, RTL_CLEANUP, VOICE_CHAT, CONTINUE_LAST_CHAT, DUMP_CHATS, BLOB_FETCH, BLOB_CAPTURE, DOWNLOAD_NAME,
-            PREFILL_PROMPT, DESKTOP_VIEWPORT, ZOOM_VIEWPORT, USER_SCRIPT_SAMPLE
+            PREFILL_PROMPT, DESKTOP_VIEWPORT, ZOOM_VIEWPORT, USER_SCRIPT_SAMPLE, USER_SCRIPT_RUN
     };
 
     /** Folder inside assets/ that holds the scripts. */

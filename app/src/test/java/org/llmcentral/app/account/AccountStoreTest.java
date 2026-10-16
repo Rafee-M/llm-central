@@ -46,14 +46,33 @@ public class AccountStoreTest {
     }
 
     @Test
-    public void addedAccountsStayGroupedWithTheirProvider() {
+    public void addedAccountsGoToTheBottom() {
+        // The list order is the switcher menu's order; a new account is added at its end (owner, 2026-10-15).
         AccountStore store = AccountStore.fromJson(null);
         store.add("chatgpt", "Work", "chatgpt-2");
-        assertEquals("duck,chatgpt,chatgpt-2,claude,deepseek,zai", ids(store.all()));
-        // Provider without accounts left: a new one goes back to the provider's usual position.
+        assertEquals("duck,chatgpt,claude,deepseek,zai,chatgpt-2", ids(store.all()));
         store.remove("claude");
         store.add("claude", "", "claude-2");
-        assertEquals("duck,chatgpt,chatgpt-2,claude-2,deepseek,zai", ids(store.all()));
+        assertEquals("duck,chatgpt,deepseek,zai,chatgpt-2,claude-2", ids(store.all()));
+    }
+
+    @Test
+    public void showingAgainMovesToTheBottom() {
+        AccountStore store = AccountStore.fromJson(null);
+        assertTrue(store.setVisible("chatgpt", false));
+        assertTrue(store.setVisible("chatgpt", true));
+        assertEquals("duck,claude,deepseek,zai,chatgpt", ids(store.visible()));
+        // Switching on an account that is already shown changes nothing.
+        assertTrue(store.setVisible("claude", true));
+        assertEquals("duck,claude,deepseek,zai,chatgpt", ids(store.visible()));
+    }
+
+    @Test
+    public void hidingKeepsTheOthersInPlace() {
+        AccountStore store = AccountStore.fromJson(null);
+        assertTrue(store.setVisible("claude", false));
+        assertEquals("duck,chatgpt,claude,deepseek,zai", ids(store.all()));
+        assertEquals("duck,chatgpt,deepseek,zai", ids(store.visible()));
     }
 
     @Test
@@ -139,21 +158,32 @@ public class AccountStoreTest {
     }
 
     @Test
-    public void accountsMoveOnlyWithinTheirProvider() {
+    public void reorderMixesProvidersAndKeepsHiddenSlots() {
         AccountStore store = AccountStore.fromJson(null);
         store.add("chatgpt", "Work", "chatgpt-2");
-        store.add("chatgpt", "Home", "chatgpt-3");
-        assertTrue(store.move("chatgpt-3", -1));
-        assertEquals("duck,chatgpt,chatgpt-3,chatgpt-2,claude,deepseek,zai", ids(store.all()));
-        assertTrue(store.move("chatgpt", 1));
-        assertEquals("duck,chatgpt-3,chatgpt,chatgpt-2,claude,deepseek,zai", ids(store.all()));
-        // Never past the provider's first/last account (the group stays together), never by 2+.
-        assertFalse(store.move("chatgpt-3", -1));
-        assertFalse(store.move("chatgpt-2", 1));
-        assertFalse(store.move("claude", -1));
-        assertFalse(store.move("chatgpt", 2));
-        assertFalse(store.move("nope", 1));
-        // The new order is saved.
+        store.setVisible("deepseek", false);
+        // Visible: duck,chatgpt,claude,zai,chatgpt-2 → any order, also across providers.
+        assertTrue(store.reorder(java.util.Arrays.asList("chatgpt-2", "claude", "duck", "zai", "chatgpt")));
+        assertEquals("chatgpt-2,claude,duck,zai,chatgpt", ids(store.visible()));
+        // The hidden account keeps its place in the full list (slot 4 of 6).
+        assertEquals("chatgpt-2,claude,duck,deepseek,zai,chatgpt", ids(store.all()));
+        // Saved: the new order survives a save and load.
         assertEquals(ids(store.all()), ids(AccountStore.fromJson(store.toJson()).all()));
+    }
+
+    @Test
+    public void reorderRefusesAnythingButTheVisibleSet() {
+        AccountStore store = AccountStore.fromJson(null);
+        store.setVisible("zai", false);
+        String before = ids(store.all());
+        assertFalse("missing one", store.reorder(java.util.Arrays.asList("duck", "chatgpt", "claude")));
+        assertFalse("hidden one", store.reorder(java.util.Arrays.asList("duck", "chatgpt", "claude", "deepseek", "zai")));
+        // Same length, but the hidden "zai" instead of the visible "deepseek": would duplicate one account and lose another.
+        assertFalse("hidden instead of visible", store.reorder(java.util.Arrays.asList("duck", "chatgpt", "claude", "zai")));
+        assertFalse("duplicate", store.reorder(java.util.Arrays.asList("duck", "chatgpt", "claude", "claude")));
+        assertFalse("unknown", store.reorder(java.util.Arrays.asList("duck", "chatgpt", "claude", "nope")));
+        assertFalse("null list", store.reorder(null));
+        assertFalse("null id", store.reorder(java.util.Arrays.asList("duck", "chatgpt", "claude", null)));
+        assertEquals("nothing changed", before, ids(store.all()));
     }
 }

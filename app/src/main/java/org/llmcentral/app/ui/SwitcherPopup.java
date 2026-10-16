@@ -29,12 +29,12 @@ import java.util.List;
  * The drop-down list that opens when the chip in the top bar is tapped (PROJECT.md R-SW-2):
  * <ol>
  *   <li><b>Accounts:</b> one row per visible account (provider badge + name, the provider underneath when
- *       it differs, e.g. "Work / ChatGPT"); the current account is highlighted. Optional green dot at the
- *       right end of loaded accounts (Settings → Appearance → "Mark active accounts"). The list scrolls
+ *       it differs, e.g. "Work / ChatGPT"); the current account is highlighted. The list scrolls
  *       when it's long, so the controls below always stay on screen.</li>
- *   <li><b>Icon row</b> for the account on screen: Desktop site, Reload page, Reset text size (hidden while
- *       "Pinch zooms the page" is on), Unload tab (frees the tab's memory; duck.ai's pinned tab can't be
- *       unloaded), Clear cache (the same as in Settings; logins stay).</li>
+ *   <li><b>Icon row</b>: Desktop site and Reload page (for the account on screen), Reset text size (hidden
+ *       while "Pinch zooms the page" is on), Hide status bar (the same as Settings → Appearance; not in the
+ *       assistant drawer, which never hides it), Clear cache (the same as in Settings; logins stay).
+ *       Unloading is the ✕ on each loaded account's row.</li>
  *   <li><b>Active accounts</b> switch: lists only the loaded accounts ({@link SwitcherModel#rows}).
  *       Flipping it redraws the list right away; the menu stays open.</li>
  * </ol>
@@ -68,10 +68,17 @@ public final class SwitcherPopup {
 
         void resetTextSize();
 
-        /** May the tab on screen be unloaded now (see {@link SwitcherModel#canUnload})? */
-        boolean canUnload();
+        /** Unloads that account's tab (the ✕ on its row; see {@link SwitcherModel#unloadButton}). */
+        void unload(String accountId);
 
-        void unload();
+        /** Does this screen show the Hide status bar button? (Not the assistant drawer: it never hides it.) */
+        boolean canToggleStatusBar();
+
+        /** Settings → Appearance → "Hide status bar" (pref {@code hide_status_bar}). */
+        boolean isStatusBarHidden();
+
+        /** Flips "Hide status bar" and applies it at once, exactly like the Settings switch. */
+        void toggleStatusBar();
 
         /** The same as Settings → Data &amp; tools → Clear cache (storage/StorageBridge.clearAll); logins stay. */
         void clearCache();
@@ -80,16 +87,10 @@ public final class SwitcherPopup {
         boolean activeOnly();
 
         void setActiveOnly(boolean on);
-
-        /** Settings → Appearance → "Mark active accounts" (pref {@code switcher_active_dot}). */
-        boolean showActiveDot();
     }
 
     /** Material 3's "disabled" look: content at 38 % opacity. */
     private static final float DISABLED_ALPHA = 0.38f;
-    /** The green of the "loaded" dot: Google green 600 on light surfaces, green 200 on dark ones. */
-    private static final int DOT_LIGHT = 0xFF1E8E3E;
-    private static final int DOT_DARK = 0xFF81C995;
 
     private SwitcherPopup() {
         // Only static methods.
@@ -131,18 +132,26 @@ public final class SwitcherPopup {
                 super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(limit, MeasureSpec.AT_MOST));
             }
         };
+        // Set further down (they need views made later); the rows' ✕ calls them after an unload.
+        Runnable[] refreshAfterUnload = new Runnable[1];
+        Runnable[] showCount = new Runnable[1];
         LinearLayout accountsBox = new LinearLayout(context);
         accountsBox.setOrientation(LinearLayout.VERTICAL);
         scroller.addView(accountsBox);
         list.addView(scroller);
-        boolean markLoaded = host.showActiveDot(); // a setting; it can't change while the menu is open
         Runnable fillAccounts = () -> {
             accountsBox.removeAllViews(); // never add rows twice (the switch can be flipped many times)
             for (Account account : SwitcherModel.rows(accounts, host::isLoaded, host.activeOnly(), current.id)) {
                 accountsBox.addView(createAccountRow(context, scheme, account, account.id.equals(current.id),
-                        markLoaded && host.isLoaded(account.id), v -> {
+                        host.isLoaded(account.id), v -> {
                             popup.dismiss();
                             host.pick(account);
+                        }, () -> {
+                            // ✕ on the row: unload that account; the menu stays open and is redrawn, so several
+                            // accounts can be unloaded in a row. The window wraps its content (it resizes by
+                            // itself); update() re-places it at the chip.
+                            host.unload(account.id);
+                            refreshAfterUnload[0].run();
                         }));
             }
         };
@@ -162,8 +171,13 @@ public final class SwitcherPopup {
             addEvenly(icons, iconButton(context, scheme, R.drawable.ic_format_size, R.string.reset_text_size,
                     SwitcherModel.canResetTextSize(host.textZoom()), popup, host::resetTextSize));
         }
-        addEvenly(icons, iconButton(context, scheme, R.drawable.ic_close, R.string.unload_tab,
-                host.canUnload(), popup, host::unload));
+        if (host.canToggleStatusBar()) {
+            ImageButton statusBar = iconButton(context, scheme, R.drawable.ic_fullscreen, R.string.hide_status_bar,
+                    true, popup, host::toggleStatusBar);
+            NativeTheme.styleToggleButton(statusBar, host.isStatusBarHidden(), scheme,
+                    R.drawable.ic_fullscreen, R.drawable.ic_fullscreen, R.string.hide_status_bar);
+            addEvenly(icons, statusBar);
+        }
         addEvenly(icons, iconButton(context, scheme, R.drawable.ic_delete_sweep, R.string.clear_cache,
                 true, popup, host::clearCache));
         list.addView(icons);
@@ -191,16 +205,21 @@ public final class SwitcherPopup {
         toggleParams.setMarginStart(ProviderBadge.dp(context, 12));
         activeRow.addView(toggle, toggleParams);
         M3Switch.describeRowAsSwitch(activeRow, toggle);
-        Runnable showCount = () -> activeSub.setText(host.activeOnly()
+        refreshAfterUnload[0] = () -> {
+            fillAccounts.run();
+            showCount[0].run();
+            popup.update(anchor, 0, ProviderBadge.dp(context, 4), -1, -1);
+        };
+        showCount[0] = () -> activeSub.setText(host.activeOnly()
                 ? context.getString(R.string.active_accounts_count, accountsBox.getChildCount(), accounts.size())
                 : context.getString(R.string.active_accounts_off));
-        showCount.run();
+        showCount[0].run();
         activeRow.setOnClickListener(v -> {
             boolean on = !host.activeOnly();
             host.setActiveOnly(on);
             toggle.setChecked(on, true);
             fillAccounts.run();
-            showCount.run();
+            showCount[0].run();
             v.setContentDescription(context.getString(R.string.active_accounts) + ", " + activeSub.getText());
             // The window wraps its content, so it resizes by itself; update() re-places it at the chip.
             popup.update(anchor, 0, ProviderBadge.dp(context, 4), -1, -1);
@@ -211,9 +230,13 @@ public final class SwitcherPopup {
         popup.showAsDropDown(anchor, 0, ProviderBadge.dp(context, 4), Gravity.START);
     }
 
-    /** One row: [badge] Name (provider) [green dot] — at least 56dp tall so it's easy to tap. */
+    /**
+     * One row: [badge] Name (provider) [✕] — at least 56dp tall so it's easy to tap. The ✕ (only on loaded
+     * accounts, greyed out for duck.ai; {@link SwitcherModel#unloadButton}) is its own 48dp button: tapping it
+     * unloads the account, tapping anywhere else on the row opens it.
+     */
     private static View createAccountRow(Context context, Scheme scheme, Account account, boolean isCurrent,
-                                         boolean markLoaded, View.OnClickListener onClick) {
+                                         boolean loaded, View.OnClickListener onClick, Runnable onUnload) {
         ProviderSpec provider = Providers.byId(account.providerId);
         LinearLayout row = baseRow(context, onClick);
         if (isCurrent) {
@@ -245,18 +268,34 @@ public final class SwitcherPopup {
             texts.addView(text(context, provider.displayName, 13, scheme.get(Scheme.ON_SURFACE_VARIANT)));
             description = account.name + ", " + provider.displayName;
         }
-        if (markLoaded) {
-            // A small green dot at the far right: this account's tab is loaded (switching is instant).
-            View dot = new View(context);
-            GradientDrawable circle = new GradientDrawable();
-            circle.setShape(GradientDrawable.OVAL);
-            circle.setColor(scheme.dark ? DOT_DARK : DOT_LIGHT);
-            dot.setBackground(circle);
-            int size = ProviderBadge.dp(context, 8);
-            LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(size, size);
-            dotParams.setMarginStart(ProviderBadge.dp(context, 12));
-            row.addView(dot, dotParams);
+        if (loaded) {
+            // Screen readers hear that this account's tab is loaded (switching to it is instant).
             description = description + ", " + context.getString(R.string.account_loaded);
+        }
+        SwitcherModel.UnloadButton unload = SwitcherModel.unloadButton(account, loaded);
+        if (unload != SwitcherModel.UnloadButton.NONE) {
+            ImageButton close = new ImageButton(context);
+            close.setImageResource(R.drawable.ic_close);
+            close.setImageTintList(ColorStateList.valueOf(scheme.get(isCurrent
+                    ? Scheme.ON_SECONDARY_CONTAINER : Scheme.ON_SURFACE_VARIANT)));
+            close.setScaleType(ImageView.ScaleType.CENTER);
+            TypedValue ripple = new TypedValue();
+            context.getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, ripple, true);
+            close.setBackgroundResource(ripple.resourceId);
+            String label = context.getString(R.string.unload_account, account.name);
+            close.setContentDescription(label);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                close.setTooltipText(label);
+            }
+            boolean enabled = unload == SwitcherModel.UnloadButton.ENABLED;
+            close.setEnabled(enabled);
+            close.setAlpha(enabled ? 1f : DISABLED_ALPHA);
+            close.setOnClickListener(v -> onUnload.run());
+            int size = ProviderBadge.dp(context, 48);
+            LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(size, size);
+            closeParams.setMarginStart(ProviderBadge.dp(context, 4));
+            closeParams.setMarginEnd(-ProviderBadge.dp(context, 12)); // sits in the row's end padding
+            row.addView(close, closeParams);
         }
         row.setContentDescription(isCurrent
                 ? description + ", " + context.getString(R.string.current_account) : description);

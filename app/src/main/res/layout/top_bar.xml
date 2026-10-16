@@ -2,7 +2,8 @@
 <!--
     Native top bar shown above every provider's page (PROJECT.md R-SW-1):
       left  = account chip: [badge] Name ▾  → opens the account menu (ui/SwitcherPopup): accounts, then
-                                            Desktop site / Reload / Reset text size / Unload tab, then
+                                            Desktop site / Reload / Reset text size / Hide status bar /
+                                            Clear cache (a ✕ on each loaded account unloads it), then
                                             the "Active accounts" switch
       right = settings button (gear)       → opens the app's settings
     (The desktop-site toggle used to sit here; since 2026-10-15 it is in the account menu.)

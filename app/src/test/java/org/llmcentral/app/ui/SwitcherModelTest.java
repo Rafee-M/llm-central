@@ -81,18 +81,22 @@ public class SwitcherModelTest {
     }
 
     @Test
-    public void cannotUnloadDuck() {
-        assertFalse(SwitcherModel.canUnload(DUCK, true));
+    public void unloadButtonOnlyOnLoadedRows() {
+        // The ✕ sits where the green dot used to be: only accounts whose tab is loaded get one.
+        assertEquals(SwitcherModel.UnloadButton.NONE, SwitcherModel.unloadButton(CHATGPT, false));
+        assertEquals(SwitcherModel.UnloadButton.NONE, SwitcherModel.unloadButton(WORK, false));
     }
 
     @Test
-    public void cannotUnloadWhenNotLoaded() {
-        assertFalse(SwitcherModel.canUnload(CHATGPT, false));
+    public void duckUnloadButtonIsGreyedOut() {
+        // duck.ai's tab is pinned (never closed): its ✕ is shown, but greyed out and not usable.
+        assertEquals(SwitcherModel.UnloadButton.DISABLED, SwitcherModel.unloadButton(DUCK, true));
     }
 
     @Test
-    public void canUnloadLoadedAccount() {
-        assertTrue(SwitcherModel.canUnload(WORK, true));
+    public void loadedAccountCanBeUnloaded() {
+        assertEquals(SwitcherModel.UnloadButton.ENABLED, SwitcherModel.unloadButton(WORK, true));
+        assertEquals(SwitcherModel.UnloadButton.ENABLED, SwitcherModel.unloadButton(CHATGPT, true));
     }
 
     @Test

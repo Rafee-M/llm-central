@@ -21,7 +21,7 @@ import java.util.regex.Pattern;
  *       every other character must match literally.</li>
  * </ul>
  * <p>The special values {@code *} and {@code <all_urls>} match every http(s) page. An empty match
- * setting also means "all pages" (behaviour kept from duckAssist).</p>
+ * setting (also one with only commas and spaces) means "all pages" too.</p>
  *
  * <p><b>Why this class exists:</b> the original duckAssist code turned patterns into a regex and then
  * also returned {@code true} for <i>any</i> URL containing "duck.ai" or "duckduckgo.com". With only
@@ -46,15 +46,21 @@ public final class UserScriptMatcher {
         if (url == null) {
             return false;
         }
-        if (matchPatterns == null || matchPatterns.trim().isEmpty()) {
-            return isWebUrl(url);
-        }
-        for (String pattern : matchPatterns.split(",")) {
-            if (matches(url, pattern.trim())) {
-                return true;
+        boolean anyPattern = false;
+        if (matchPatterns != null) {
+            for (String pattern : matchPatterns.split(",")) {
+                String p = pattern.trim();
+                if (p.isEmpty()) {
+                    continue; // an empty entry between two commas matches nothing by itself
+                }
+                anyPattern = true;
+                if (matches(url, p)) {
+                    return true;
+                }
             }
         }
-        return false;
+        // No pattern at all (empty, or only commas and spaces) = every web page (owner, 2026-10-15).
+        return !anyPattern && isWebUrl(url);
     }
 
     /** Checks one single pattern (no commas) against the URL. */

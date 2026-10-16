@@ -57,10 +57,13 @@ public class UserScriptMatcherTest {
     public void specialAndEmptyPatterns() {
         assertTrue(UserScriptMatcher.matchesAny("https://chat.deepseek.com/", "*"));
         assertTrue(UserScriptMatcher.matchesAny("https://chat.deepseek.com/", "<all_urls>"));
-        assertTrue(UserScriptMatcher.matchesAny("https://chat.deepseek.com/", ""));   // kept from duckAssist
+        // Empty = every web page (owner, 2026-10-15). Only commas/spaces is empty too: it used to match
+        // nothing while the editor's warning said "ALL websites".
+        assertTrue(UserScriptMatcher.matchesAny("https://chat.deepseek.com/", ""));
         assertTrue(UserScriptMatcher.matchesAny("https://chat.deepseek.com/", null));
+        assertTrue(UserScriptMatcher.matchesAny("https://duck.ai/", " , "));
+        assertFalse(UserScriptMatcher.matchesAny("file:///android_asset/settings.html", " , "));
         assertFalse(UserScriptMatcher.matchesAny(null, DUCK_DEFAULT));
-        assertFalse(UserScriptMatcher.matchesAny("https://duck.ai/", " , "));
     }
 
     @Test

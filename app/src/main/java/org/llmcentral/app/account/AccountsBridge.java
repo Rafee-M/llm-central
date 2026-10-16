@@ -11,9 +11,12 @@ import org.llmcentral.app.provider.Providers;
 import org.llmcentral.app.theme.Scheme;
 import org.llmcentral.app.web.Profiles;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
- * What the Settings page's "Accounts" section can ask the app to do (PROJECT.md R-ACC-4): list,
- * add, rename, re-order, show/hide in the switcher menu, open, sign out and remove accounts. It also stores
+ * What the Settings page's "Accounts" screens can ask the app to do (PROJECT.md R-ACC-4): list,
+ * add, rename, re-order (the switcher menu's order), show/hide in the menu, open, sign out and remove accounts. It also stores
  * which account the assistant, sharing and the app start open ({@link DefaultAccounts}, R-AST).
  *
  * <p><b>How a web page talks to Java:</b> MainActivity adds this object to the settings WebView with
@@ -64,7 +67,7 @@ public final class AccountsBridge {
 
     /**
      * @return {@code {"multiAccount":true, "current":"chatgpt",
-     *         "defaults":{"assistant":"duck","share":"duck","launch":""},
+     *         "defaults":{"assistant":"duck","share":"duck","launch":""}, "order":["duck",…],
      *         "providers":[{"id","name","badge","color","canAdd","accounts":[{"id","name","visible"}]}]}}
      *         Default accounts that no longer exist are reported as duck.ai ("launch": as "").
      */
@@ -102,12 +105,26 @@ public final class AccountsBridge {
         return json(null);
     }
 
-    /** Moves an account one place up (-1) or down (+1) among its provider's accounts (R-ACC-4). */
+    /**
+     * Settings → Re-order accounts: the new menu order after a drag (R-ACC-4).
+     *
+     * @param idsJson a JSON list of every visible account's id, in the new order
+     */
     @JavascriptInterface
-    public String moveAccount(String id, int delta) {
+    public String reorderAccounts(String idsJson) {
         AccountStore store = host.accounts();
-        if (!store.move(id, delta)) {
-            return json("It can't move further.");
+        List<String> ids = new ArrayList<>();
+        try {
+            JSONArray list = new JSONArray(idsJson);
+            for (int i = 0; i < list.length(); i++) {
+                ids.add(list.getString(i));
+            }
+        } catch (Exception e) {
+            return json("The new order couldn't be saved.");
+        }
+        if (!store.reorder(ids)) {
+            // The list changed meanwhile (e.g. in the other screen): the page redraws the real order.
+            return json("The accounts changed. Please try again.");
         }
         saveAndRefresh(store);
         return json(null);
@@ -161,6 +178,10 @@ public final class AccountsBridge {
         if (account == null || account.isDuck() || !Profiles.isSupported()) {
             return json("This account can't be signed out here.");
         }
+        // The other screen (main / assistant drawer) closes its tab of this account when it comes back (SignOuts).
+        SharedPreferences prefs = host.prefs();
+        prefs.edit().putString(SignOuts.PREF,
+                SignOuts.record(prefs.getString(SignOuts.PREF, null), account.id, System.currentTimeMillis())).apply();
         host.runOnUiThread(() -> {
             host.closeAccountTab(account.id);
             Profiles.forget(account);
@@ -228,6 +249,12 @@ public final class AccountsBridge {
                     .put("share", DefaultAccounts.resolve(store,
                             prefs.getString(DefaultAccounts.PREF_SHARE, null)).id)
                     .put("launch", launchChoice(store, prefs.getString(DefaultAccounts.PREF_LAUNCH, ""))));
+            // The switcher menu's order: the visible accounts' ids (Settings → Re-order accounts).
+            JSONArray order = new JSONArray();
+            for (Account a : store.visible()) {
+                order.put(a.id);
+            }
+            root.put("order", order);
             JSONArray providers = new JSONArray();
             for (ProviderSpec provider : Providers.ALL) {
                 JSONArray list = new JSONArray();

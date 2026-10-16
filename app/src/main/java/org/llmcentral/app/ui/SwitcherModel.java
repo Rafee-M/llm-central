@@ -47,12 +47,26 @@ public final class SwitcherModel {
         return rows;
     }
 
+    /** The ✕ (unload) at the end of an account's row in the menu. */
+    public enum UnloadButton {
+        /** The account has no loaded tab: nothing to unload, no button. */
+        NONE,
+        /** Shown greyed out and not usable: duck.ai's tab is the pinned "home" tab (assistant, offline chats,
+         *  share target) and is never closed (web/TabManager). No message (owner, 2026-10-16). */
+        DISABLED,
+        /** Tapping it unloads that account's tab, whether it is on screen or not. */
+        ENABLED
+    }
+
     /**
-     * "Unload tab" is allowed for a loaded tab of any account except duck.ai: duck.ai's tab is the app's
-     * pinned "home" tab (assistant, offline chats, share target) and is never closed (web/TabManager).
+     * Which ✕ an account's row gets. It sits where the green "loaded" dot used to be, so a ✕ also shows that
+     * the account is loaded; it lets you unload other accounts while you use a different one.
      */
-    public static boolean canUnload(Account current, boolean currentLoaded) {
-        return currentLoaded && !current.isDuck();
+    public static UnloadButton unloadButton(Account account, boolean loaded) {
+        if (!loaded) {
+            return UnloadButton.NONE;
+        }
+        return account.isDuck() ? UnloadButton.DISABLED : UnloadButton.ENABLED;
     }
 
     /**

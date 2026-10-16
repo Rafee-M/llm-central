@@ -14,9 +14,12 @@
     <string name="dropdown_arrow" translatable="false">▾</string>
     <string name="reload_page">Reload page</string>
     <string name="tab_unloaded">Unloaded. Tap to load</string>
+    <!-- Retry screen when a page can't be loaded (no connection, site down): web/LoadErrors, O-M4. -->
+    <string name="tab_load_failed">Couldn\'t load this page. Tap to retry</string>
     <!-- Account menu (ui/SwitcherPopup): the icon row and the "Active accounts" switch. -->
     <string name="reset_text_size">Reset text size</string>
-    <string name="unload_tab">Unload tab</string>
+    <!-- The ✕ on an account's row in the account menu (label for screen readers and the long-press tooltip). -->
+    <string name="unload_account">Unload %1$s</string>
     <string name="clear_cache">Clear cache</string>
     <string name="cache_cleared">Cache cleared. Logins stay.</string>
     <string name="active_accounts">Active accounts</string>
@@ -31,8 +34,12 @@
     <string name="close_window">Close window</string>
     <!-- Top bar toggle (web/DesktopMode) and what screen readers say about its state. -->
     <string name="desktop_site">Desktop site</string>
+    <!-- Account menu button: the same as Settings → Appearance → "Hide status bar". -->
+    <string name="hide_status_bar">Hide status bar</string>
     <string name="state_on">On</string>
     <string name="state_off">Off</string>
     <string name="microphone_denied">Voice needs the microphone. You can allow it in App info → Permissions → Microphone.</string>
+    <!-- A shared file was refused: only other apps' content:// files can be attached (storage/SharedFiles). -->
+    <string name="share_refused">This file can\'t be shared to LLM Central. Share it from a files or gallery app instead.</string>
     <string name="offline_chats_off">Offline chats are off. Turn them on in Settings → Data &amp; tools.</string>
 </resources>

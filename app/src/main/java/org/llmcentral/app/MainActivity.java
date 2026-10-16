@@ -44,16 +44,18 @@ import android.os.Looper;
 
 
 
-import org.llmcentral.app.scripts.UserScriptMatcher;
+import org.llmcentral.app.scripts.UserScripts;
 import org.llmcentral.app.downloads.Downloader;
 import org.llmcentral.app.storage.AppCache;
 import org.llmcentral.app.storage.BackupImages;
 import org.llmcentral.app.storage.OfflineChats;
 import org.llmcentral.app.storage.StorageBridge;
+import org.llmcentral.app.storage.SharedFiles;
 import org.llmcentral.app.storage.UploadCopies;
 import org.llmcentral.app.web.DesktopMode;
 import org.llmcentral.app.web.MicrophoneAccess;
 import org.llmcentral.app.web.DialogWebViewClient;
+import org.llmcentral.app.web.LoadErrors;
 import org.llmcentral.app.web.AppBridge;
 import org.llmcentral.app.web.NavigationPolicy;
 import org.llmcentral.app.web.PageZoom;
@@ -66,12 +68,14 @@ import org.llmcentral.app.provider.PromptPrefill;
 import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
 import org.llmcentral.app.ui.AboutWindow;
+import org.llmcentral.app.ui.ScriptsWindow;
 import org.llmcentral.app.ui.ProviderBadge;
 import org.llmcentral.app.ui.SwitcherModel;
 import org.llmcentral.app.ui.SwitcherPopup;
 import org.llmcentral.app.ui.UnloadedPlaceholder;
 import org.llmcentral.app.account.AccountsBridge;
 import org.llmcentral.app.account.DefaultAccounts;
+import org.llmcentral.app.account.SignOuts;
 import org.llmcentral.app.theme.AppearanceBridge;
 import org.llmcentral.app.theme.Scheme;
 import org.llmcentral.app.theme.ThemeBridge;
@@ -169,7 +173,13 @@ public class MainActivity extends Activity {
     private android.app.Dialog chatsViewerDialog = null;
     // true while duck.ai failed to load and the saved-chats window stands in for it (showOfflineChats).
     private boolean duckOffline = false;
-    private android.app.Dialog scriptsManagerDialog = null;
+    // Sign-outs (account/SignOuts) up to this time are already handled by this screen. Starts at the screen's
+    // creation: tabs created later load the signed-out state anyway.
+    private long signOutsSeenAt = System.currentTimeMillis();
+    // The open user-scripts window (Settings → User scripts), so a double tap can't open a second one.
+    private android.app.Dialog scriptsWindow = null;
+    // The open Settings window (closed in onDestroy so it can't leak when the screen is rebuilt).
+    private android.app.Dialog settingsDialog = null;
     private boolean isRequestingViewer = false;
 
     /** Paths of shared files still waiting for the page's 📎 button (not to be deleted as "cache"). */
@@ -338,12 +348,17 @@ public class MainActivity extends Activity {
                         + " keeps crashing and was closed.", Toast.LENGTH_LONG).show();
             }
         }, prefs.getInt(PREF_MAX_LIVE_TABS, 3));
-        // Shown while the account on screen is unloaded (account menu → "Unload tab"); a tap loads it again.
+        // Shown while the account on screen is unloaded (the ✕ on its row in the account menu); a tap loads it again.
         // Added last to the tab container, so it is drawn above every tab's WebView.
         View unloaded = UnloadedPlaceholder.create(this, () -> tabManager.show(tabManager.current()));
         ((ViewGroup) chatWebView.getParent()).addView(unloaded, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         tabManager.setPlaceholder(unloaded);
+        // The same black screen with "Tap to retry", over a page that couldn't be loaded (web/LoadErrors, O-M4).
+        View retry = UnloadedPlaceholder.create(this, R.string.tab_load_failed, () -> tabManager.retryCurrent());
+        ((ViewGroup) chatWebView.getParent()).addView(retry, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        tabManager.setRetryPlaceholder(retry);
         DesktopMode.applySaved(this, prefs, chatWebView, accounts.duck()); // before duck.ai's first page load
         setupTopBar();
         updateTopBar(tabManager.current());
@@ -379,9 +394,9 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Connects the native top bar (layout/top_bar.xml): the chip opens the account menu (accounts, the
-     * icon row with Desktop site / Reload / Reset text size / Unload tab, and "Active accounts"), the gear
-     * opens settings. Works the same for every provider (PROJECT.md R-SW-1/2), unlike duckAssist's
+     * Connects the native top bar (layout/top_bar.xml): the chip opens the account menu (accounts with a ✕
+     * on loaded rows, the icon row with Desktop site / Reload / Reset text size / Hide status bar / Clear
+     * cache, and "Active accounts"), the gear opens settings. Works the same for every provider (PROJECT.md R-SW-1/2), unlike duckAssist's
      * settings button, which was injected into duck.ai's page only.
      */
     private void setupTopBar() {
@@ -478,14 +493,26 @@ public class MainActivity extends Activity {
         }
 
         @Override
-        public boolean canUnload() {
-            Account current = tabManager.current();
-            return SwitcherModel.canUnload(current, tabManager.isLoaded(current.id));
+        public boolean canToggleStatusBar() {
+            return !isDrawerLayout(); // the drawer's see-through window never hides the status bar (applyTheme)
         }
 
         @Override
-        public void unload() {
-            if (tabManager.unloadCurrent() && progressBar != null) {
+        public boolean isStatusBarHidden() {
+            return ThemeManager.isStatusBarHidden(MainActivity.this);
+        }
+
+        @Override
+        public void toggleStatusBar() {
+            // The same pref and code as Settings → Appearance → "Hide status bar" (AppearanceBridge).
+            ThemeManager.setStatusBarHidden(MainActivity.this, !ThemeManager.isStatusBarHidden(MainActivity.this));
+            ThemeManager.applyStatusBar(MainActivity.this);
+        }
+
+        @Override
+        public void unload(String accountId) {
+            boolean onScreen = accountId.equals(tabManager.current().id);
+            if (tabManager.unload(accountId) && onScreen && progressBar != null) {
                 progressBar.setVisibility(View.GONE); // the closed tab's loading bar must not stay
             }
         }
@@ -505,11 +532,6 @@ public class MainActivity extends Activity {
         public void setActiveOnly(boolean on) {
             getSharedPreferences("duck_assist_prefs", MODE_PRIVATE).edit()
                     .putBoolean(PREF_SWITCHER_ACTIVE_ONLY, on).apply();
-        }
-
-        @Override
-        public boolean showActiveDot() {
-            return ThemeManager.isActiveDotShown(MainActivity.this);
         }
     };
 
@@ -650,11 +672,13 @@ public class MainActivity extends Activity {
      * chats and save files, so it must never be reachable by other websites (PROJECT.md P1).
      * Other providers get a plain, secure browser tab.</p>
      */
+    // Lint's ClickableViewAccessibility points at setOnTouchListener below. Safe: single taps return
+    // false there, so WebView's own click and accessibility (TalkBack) handling still runs; only
+    // multi-finger gestures (the text-size pinch) are taken.
+    @SuppressLint("ClickableViewAccessibility")
     private void configureWebView(WebView webView, ProviderSpec provider) {
         WebSettings webSettings = webView.getSettings();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
-        }
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
         webSettings.setJavaScriptEnabled(true);
         webSettings.setDomStorageEnabled(true);
         webSettings.setLoadWithOverviewMode(true);
@@ -664,12 +688,8 @@ public class MainActivity extends Activity {
         webSettings.setDisplayZoomControls(false);
         webSettings.setAllowFileAccess(true);
         webSettings.setAllowContentAccess(true);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            webSettings.setMediaPlaybackRequiresUserGesture(false);
-        }
+        webSettings.setMediaPlaybackRequiresUserGesture(false);
         webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        webSettings.setDatabaseEnabled(true);
-        webSettings.setDomStorageEnabled(true);
         webSettings.setSaveFormData(false);
         webSettings.setGeolocationEnabled(false);
 
@@ -761,12 +781,9 @@ public class MainActivity extends Activity {
                 return true;
             }
         });
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            scaleGestureDetector.setQuickScaleEnabled(false);
-        }
+        scaleGestureDetector.setQuickScaleEnabled(false);
 
         webView.setOnTouchListener(new View.OnTouchListener() {
-            @SuppressLint("ClickableViewAccessibility")
             @Override
             public boolean onTouch(View v, MotionEvent event) {
                 // duck.ai's image viewer, the desktop site, or the setting "Pinch zooms the page"
@@ -858,6 +875,7 @@ public class MainActivity extends Activity {
         runOnUiThread(() -> {
             android.app.Dialog dialog = new android.app.Dialog(MainActivity.this);
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+            settingsDialog = dialog;
             
             WebView webView = new WebView(MainActivity.this);
             // Handles "renderer died" (closes this dialog instead of the app crashing) and keeps
@@ -1052,11 +1070,15 @@ public class MainActivity extends Activity {
                     runOnUiThread(() -> AboutWindow.show(MainActivity.this));
                 }
 
+                /** Settings → User scripts: opens on top; Settings stays open underneath, so Back returns to it. */
                 @JavascriptInterface
                 public void openScriptsManager() {
                     runOnUiThread(() -> {
-                        dialog.dismiss();
-                        showScriptsManagerDialog();
+                        // One window at a time: a second copy would still show the old list and could save it
+                        // back over changes made in the first (e.g. a deleted script returning).
+                        if (scriptsWindow == null || !scriptsWindow.isShowing()) {
+                            scriptsWindow = ScriptsWindow.show(MainActivity.this, MainActivity.this::reloadCurrentTab);
+                        }
                     });
                 }
             }, "AndroidSettings");
@@ -1095,6 +1117,9 @@ public class MainActivity extends Activity {
                 @Override
                 public void closeAccountTab(String accountId) {
                     tabManager.closeAccount(accountId);
+                    // This screen did the sign-out itself: don't close the tab again later (the user may have
+                    // signed in again by then).
+                    signOutsSeenAt = Math.max(signOutsSeenAt, System.currentTimeMillis());
                 }
 
                 @Override
@@ -1117,6 +1142,12 @@ public class MainActivity extends Activity {
             // Light ↔ dark can only fully switch (websites, system dialogs) by rebuilding the screen:
             // do it when the settings close, so the settings page itself isn't interrupted.
             dialog.setOnDismissListener(d -> {
+                // A WebView that isn't destroyed keeps its memory (and this screen, through its bridges) until
+                // Java's garbage collector finds it.
+                webView.destroy();
+                if (settingsDialog == d) {
+                    settingsDialog = null;
+                }
                 if (appliedNight != ThemeManager.isNight(MainActivity.this)) {
                     recreate();
                 }
@@ -1396,153 +1427,29 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void showScriptsManagerDialog() {
-        runOnUiThread(() -> {
-            if (scriptsManagerDialog != null && scriptsManagerDialog.isShowing()) {
-                scriptsManagerDialog.dismiss();
-            }
-            scriptsManagerDialog = new android.app.Dialog(MainActivity.this);
-            scriptsManagerDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-
-            WebView webView = new WebView(MainActivity.this);
-            // Handles "renderer died" (closes this dialog instead of the app crashing) and keeps
-            // web links opening in the browser. See web/DialogWebViewClient.java.
-            final android.app.Dialog thisDialog = scriptsManagerDialog;
-            webView.setWebViewClient(new DialogWebViewClient(thisDialog::dismiss));
-            WebSettings ws = webView.getSettings();
-            ws.setJavaScriptEnabled(true);
-            ws.setDomStorageEnabled(true);
-            ws.setAllowFileAccess(false);
-            ws.setAllowContentAccess(false);
-            webView.setWebChromeClient(new WebChromeClient());
-
-            webView.addJavascriptInterface(new Object() {
-                @JavascriptInterface
-                public String getScriptsJson() {
-                    SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                    String json = prefs.getString("user_scripts", null);
-                    if (json == null || json.trim().isEmpty()) {
-                        json = getDefaultScriptsJson();
-                        prefs.edit().putString("user_scripts", json).apply();
-                    }
-                    return json;
-                }
-
-                @JavascriptInterface
-                public void saveScriptsJson(String json) {
-                    SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                    prefs.edit().putString("user_scripts", json).apply();
-                    if (chatWebView != null) {
-                        runOnUiThread(() -> {
-                            String currentUrl = chatWebView.getUrl();
-                            injectUserScripts(chatWebView, currentUrl);
-                        });
-                    }
-                }
-
-                @JavascriptInterface
-                public void dismissScriptsManager() {
-                    runOnUiThread(() -> {
-                        if (scriptsManagerDialog != null) {
-                            scriptsManagerDialog.dismiss();
-                        }
-                    });
-                }
-            }, "AndroidScripts");
-
-            // Theme colours for the page (read-only, local page only; see theme/ThemeBridge).
-            webView.addJavascriptInterface(new ThemeBridge(this), "AndroidTheme");
-            webView.loadUrl("file:///android_asset/scripts_manager.html");
-            scriptsManagerDialog.setContentView(webView);
-            scriptsManagerDialog.show();
-
-            Window window = scriptsManagerDialog.getWindow();
-            if (window != null) {
-                window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
-                window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
-            }
-        });
-    }
-
-    private String getDefaultScriptsJson() {
-        try {
-            org.json.JSONArray array = new org.json.JSONArray();
-            org.json.JSONObject script = new org.json.JSONObject();
-            // An example written for LLM Central (GPL-3.0-only, like the app). Until 2026-10-01 this was a
-            // third-party script without a licence (F-Droid requires every file to be free).
-            script.put("id", "example_larger_text");
-            script.put("name", "Example: larger text on duck.ai");
-            script.put("author", "LLM Central");
-            script.put("description", "Shows how user scripts work: makes duck.ai's text 10 % larger. Edit or delete it as you like.");
-            script.put("match", "*://*.duck.ai/*");
-            script.put("enabled", false);
-            script.put("code", js(Scripts.USER_SCRIPT_SAMPLE));
-            array.put(script);
-            return array.toString();
-        } catch (Exception e) {
-            Log.e(TAG, "Error building default scripts JSON", e);
-            return "[]";
-        }
-    }
-
+    /**
+     * Runs the user's own scripts that apply to this page (Settings → Data &amp; tools → User scripts).
+     * Which ones, and how, is decided in scripts/UserScripts; each runs once per page
+     * (assets/js/user_script_run.js), so a second "page finished" for the same page changes nothing.
+     */
     private void injectUserScripts(WebView view, String url) {
         if (isSafeMode || view == null) return;
+        String scriptsJson = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE).getString(UserScripts.PREF, null);
+        if (scriptsJson == null) {
+            return; // never saved: the only script is the switched-off example
+        }
         try {
-            SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-            String scriptsJson = prefs.getString("user_scripts", null);
-            if (scriptsJson == null || scriptsJson.trim().isEmpty()) {
-                scriptsJson = getDefaultScriptsJson();
-                prefs.edit().putString("user_scripts", scriptsJson).apply();
-            }
             org.json.JSONArray array = new org.json.JSONArray(scriptsJson);
             for (int i = 0; i < array.length(); i++) {
-                org.json.JSONObject item = array.getJSONObject(i);
-                if (!item.optBoolean("enabled", false)) {
-                    continue;
+                org.json.JSONObject item = array.optJSONObject(i);
+                if (item != null && UserScripts.shouldRun(item, url)) {
+                    safeEvaluateJavascript(view,
+                            UserScripts.invocation(js(Scripts.USER_SCRIPT_RUN), UserScripts.runKey(item, i), item.optString("code")));
                 }
-                String code = item.optString("code", "");
-                if (code.trim().isEmpty()) {
-                    continue;
-                }
-
-                String matchPatterns = item.optString("match", "*://*.duck.ai/*");
-                // Only run the script on the sites listed in its "match" setting (see UserScriptMatcher).
-                if (!UserScriptMatcher.matchesAny(url, matchPatterns)) {
-                    continue;
-                }
-
-                String wrapped = wrapUserScriptCode(code);
-                safeEvaluateJavascript(view, wrapped);
             }
         } catch (Exception e) {
             Log.e(TAG, "Error injecting user scripts", e);
         }
-    }
-
-    private String wrapUserScriptCode(String code) {
-        return "(function() {\n" +
-               "  try {\n" +
-               "    if (typeof window.GM_addStyle === 'undefined') {\n" +
-               "      window.GM_addStyle = function(css) {\n" +
-               "        var head = document.getElementsByTagName('head')[0] || document.documentElement;\n" +
-               "        var style = document.createElement('style');\n" +
-               "        style.type = 'text/css';\n" +
-               "        style.appendChild(document.createTextNode(css));\n" +
-               "        head.appendChild(style);\n" +
-               "        return style;\n" +
-               "      };\n" +
-               "    }\n" +
-               "    if (typeof GM_addStyle === 'undefined') {\n" +
-               "      var GM_addStyle = window.GM_addStyle;\n" +
-               "    }\n" +
-               "    if (typeof unsafeWindow === 'undefined') {\n" +
-               "      var unsafeWindow = window;\n" +
-               "    }\n" +
-               code + "\n" +
-               "  } catch (err) {\n" +
-               "    console.error('UserScript execution error:', err);\n" +
-               "  }\n" +
-               "})();";
     }
 
     @Override
@@ -1586,9 +1493,7 @@ public class MainActivity extends Activity {
                 shape.setCornerRadius(12 * getResources().getDisplayMetrics().density);
                 bannerCard.setBackground(shape);
                 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    bannerCard.setElevation(16 * getResources().getDisplayMetrics().density);
-                }
+                bannerCard.setElevation(16 * getResources().getDisplayMetrics().density);
                 
                 android.widget.TextView textView = new android.widget.TextView(this);
                 textView.setText(message);
@@ -1662,11 +1567,19 @@ public class MainActivity extends Activity {
      */
     private void refreshAccounts() {
         if (accounts != null && tabManager != null) {
-            AccountStore fresh = AccountStore.load(getSharedPreferences("duck_assist_prefs", MODE_PRIVATE));
+            SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
+            AccountStore fresh = AccountStore.load(prefs);
             if (!fresh.toJson().equals(accounts.toJson())) {
                 accounts = fresh;
                 tabManager.updateAccounts(accounts);
             }
+            // Accounts signed out in the other screen since we last looked: their tab here still shows the
+            // signed-in page, so close it (it reloads, signed out, when opened again). See account/SignOuts.
+            String signOuts = prefs.getString(SignOuts.PREF, null);
+            for (String id : SignOuts.since(signOuts, signOutsSeenAt)) {
+                tabManager.closeAccount(id);
+            }
+            signOutsSeenAt = SignOuts.latest(signOuts, signOutsSeenAt);
         }
     }
 
@@ -1794,8 +1707,13 @@ public class MainActivity extends Activity {
             }
         } else if (Intent.ACTION_SEND.equals(action) || Intent.ACTION_SEND_MULTIPLE.equals(action) || Intent.ACTION_PROCESS_TEXT.equals(action)) {
             String sharedText = null;
-            java.util.ArrayList<Uri> streamUris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+            // Only other apps' content:// files are accepted (storage/SharedFiles: a file:// address could make
+            // the page's 📎 attach this app's own private files).
+            java.util.ArrayList<Uri> streamUris = acceptableShares(intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM));
             Uri streamUri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+            if (streamUri != null && !isAcceptableShare(streamUri)) {
+                streamUri = null;
+            }
             if (streamUris != null && !streamUris.isEmpty()) {
                 pendingSharedFileUris = streamUris;
                 pendingSharedFileUri = streamUris.get(0);
@@ -1882,6 +1800,31 @@ public class MainActivity extends Activity {
                 chatWebView.loadUrl("https://duck.ai/");
             }
         }
+    }
+
+    /** @return true if a shared file may be offered to the page (storage/SharedFiles); tells the user if not. */
+    private boolean isAcceptableShare(Uri uri) {
+        boolean ok = uri != null
+                && SharedFiles.isAcceptable(uri.getScheme(), uri.getAuthority(), getPackageName() + ".fileprovider");
+        if (uri != null && !ok) {
+            Log.w(TAG, "Refused a shared file that isn't another app's content:// address");
+            Toast.makeText(this, R.string.share_refused, Toast.LENGTH_LONG).show();
+        }
+        return ok;
+    }
+
+    /** The acceptable ones of several shared files, or null if none is. */
+    private java.util.ArrayList<Uri> acceptableShares(java.util.ArrayList<Uri> uris) {
+        if (uris == null) {
+            return null;
+        }
+        java.util.ArrayList<Uri> ok = new java.util.ArrayList<>();
+        for (Uri uri : uris) {
+            if (isAcceptableShare(uri)) {
+                ok.add(uri);
+            }
+        }
+        return ok.isEmpty() ? null : ok;
     }
 
     /**
@@ -2135,9 +2078,24 @@ public class MainActivity extends Activity {
         }
 
         @Override
+        public void onPageCommitVisible(WebView view, String url) {
+            super.onPageCommitVisible(view, url);
+            // The new page is being drawn: without an error during its load, the retry screen goes (O-M4).
+            if (tabManager != null) {
+                tabManager.pageVisible(view);
+            }
+        }
+
+        @Override
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
             super.onPageStarted(view, url, favicon);
             hasInjectedProgressJs = false;
+            // A new load began. A retry screen on this tab stays until a page is drawn without an error
+            // (onPageCommitVisible above; onPageFinished as a backstop), so WebView's grey error page under it
+            // doesn't show during a retry (O-M4).
+            if (tabManager != null) {
+                tabManager.pageStarted(view);
+            }
             if (isVisibleTab(view)) {
                 progressBar.setVisibility(View.VISIBLE);
             }
@@ -2148,6 +2106,11 @@ public class MainActivity extends Activity {
             super.onPageFinished(view, url);
             if (isVisibleTab(view)) {
                 progressBar.setVisibility(View.GONE);
+            }
+            // Backstop for onPageCommitVisible (which needs a drawn frame): a load that finished without an
+            // error also removes the retry screen. A failed load reports its error before this, so it stays.
+            if (tabManager != null) {
+                tabManager.pageVisible(view);
             }
             if (isSafeMode) return;
             DesktopMode.onPageFinished(MainActivity.this, view); // wide page in desktop mode
@@ -2191,24 +2154,21 @@ public class MainActivity extends Activity {
 
         @Override
         public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                if (request.isForMainFrame() && provider.isDuck()) {
+            switch (LoadErrors.reaction(request.isForMainFrame(), provider.isDuck(),
+                    OfflineChats.isEnabled(MainActivity.this))) {
+                case SAVED_CHATS:
                     Log.d(TAG, "Connection failed for duck.ai, showing saved chats: " + error.getDescription());
                     runOnUiThread(() -> showOfflineChats(view));
                     return; // the saved chats are shown instead
-                }
+                case RETRY_SCREEN:
+                    // Instead of Chromium's raw "Webpage not available": the black retry screen (O-M4).
+                    if (tabManager != null) {
+                        tabManager.markLoadFailed(view, request.getUrl().toString());
+                    }
+                    return;
+                default:
+                    super.onReceivedError(view, request, error);
             }
-            super.onReceivedError(view, request, error);
-        }
-
-        @Override
-        public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-            if (provider.isDuck()) {
-                Log.d(TAG, "Connection failed (legacy), showing saved chats: " + description);
-                runOnUiThread(() -> showOfflineChats(view));
-                return;
-            }
-            super.onReceivedError(view, errorCode, description, failingUrl);
         }
     }
 
@@ -2417,6 +2377,14 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        // Windows still open when this screen is rebuilt (e.g. light/dark switched in the other screen) would
+        // otherwise "leak" (Android logs WindowLeaked); closing them also frees their WebViews.
+        if (scriptsWindow != null && scriptsWindow.isShowing()) {
+            scriptsWindow.dismiss();
+        }
+        if (settingsDialog != null && settingsDialog.isShowing()) {
+            settingsDialog.dismiss();
+        }
         if (tabManager != null) {
             tabManager.destroyAccountTabs();
         }
