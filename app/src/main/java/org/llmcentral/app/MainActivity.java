@@ -253,7 +253,11 @@ public class MainActivity extends Activity {
         // Android 7–9 download notification worked. That now uses a content:// address
         // (downloads/Downloader.sharedAddress), so Android's default check stays on.
         setActivityTheme();
-        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        // (Until 2026-10-17 a line from the original gptAssist code cleared FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
+        // here. Clearing a window flag in code marks it as "chosen by the app", so the theme could never turn
+        // it back on; on Android 15+, where ThemeManager.styleWindow no longer re-adds it, Android then painted
+        // the status bar black (AOSP DecorView.calculateBarColor), which looked "completely dark" in light
+        // mode. VERIFICATION.md R4-1. The drawer's see-through theme doesn't set the flag, so it's unaffected.)
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         super.onCreate(savedInstanceState);
         
