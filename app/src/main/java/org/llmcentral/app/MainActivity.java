@@ -32,6 +32,7 @@ import android.content.DialogInterface;
 import androidx.core.content.FileProvider;
 import android.provider.MediaStore;
 import android.webkit.JavascriptInterface;
+import android.webkit.MimeTypeMap;
 import java.io.File;
 import android.Manifest;
 import android.graphics.Color;
@@ -55,6 +56,7 @@ import org.llmcentral.app.storage.SharedFileQueue;
 import org.llmcentral.app.storage.SharedFiles;
 import org.llmcentral.app.storage.UploadCopies;
 import org.llmcentral.app.web.DesktopMode;
+import org.llmcentral.app.web.FileChooserTypes;
 import org.llmcentral.app.web.MicrophoneAccess;
 import org.llmcentral.app.web.DialogWebViewClient;
 import org.llmcentral.app.web.LoadErrors;
@@ -2446,6 +2448,7 @@ public class MainActivity extends Activity {
                 mUploadMessage.onReceiveValue(null);
             }
             mUploadMessage = filePathCallback;
+            chooserParams = fileChooserParams; // for openFileManager: "several files?" and the page's types (R4-13)
 
             AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
             builder.setTitle("Select Option");
@@ -2494,10 +2497,28 @@ public class MainActivity extends Activity {
         }
     }
 
+    // The page's file-field request behind the open 📎 dialog (set in onShowFileChooser).
+    private WebChromeClient.FileChooserParams chooserParams = null;
+
     private void openFileManager() {
         Intent i = new Intent(Intent.ACTION_GET_CONTENT);
         i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.setType("*/*");
+        // Follow the page's file field (R4-13): several files if it takes several (<input multiple>), and only
+        // the file types it accepts (web/FileChooserTypes; anything it can't translate = every file).
+        // Docs: https://developer.android.com/reference/android/content/Intent#EXTRA_ALLOW_MULTIPLE
+        String[] types = chooserParams == null ? new String[0] : FileChooserTypes.mimeTypes(
+                chooserParams.getAcceptTypes(), ext -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext));
+        if (types.length == 1) {
+            i.setType(types[0]);
+        } else {
+            i.setType("*/*");
+            if (types.length > 1) {
+                i.putExtra(Intent.EXTRA_MIME_TYPES, types);
+            }
+        }
+        if (chooserParams != null && chooserParams.getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
+            i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        }
         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         startActivityForResult(Intent.createChooser(i, "File Chooser"), FILE_CHOOSER_REQUEST_CODE);
     }
@@ -2510,17 +2531,25 @@ public class MainActivity extends Activity {
                 return;
             Uri[] result = null;
             if (resultCode == RESULT_OK && intent != null) {
-                try {
-                    result = WebChromeClient.FileChooserParams.parseResult(resultCode, intent);
-                } catch (Exception ignored) {}
-                if (result == null) {
-                    if (intent.getClipData() != null) {
-                        int count = intent.getClipData().getItemCount();
-                        result = new Uri[count];
-                        for (int idx = 0; idx < count; idx++) {
-                            result[idx] = intent.getClipData().getItemAt(idx).getUri();
+                // Several picked files arrive as ClipData; read it first. parseResult only ever returns the single
+                // intent.getData() (Chromium AwContentsClient.parseFileChooserResult), so a picker that sets both
+                // would otherwise attach just one of the chosen files (R4-13).
+                if (intent.getClipData() != null && intent.getClipData().getItemCount() > 0) {
+                    java.util.List<Uri> picked = new java.util.ArrayList<>();
+                    for (int idx = 0; idx < intent.getClipData().getItemCount(); idx++) {
+                        Uri uri = intent.getClipData().getItemAt(idx).getUri();
+                        if (uri != null) { // a text-only item has no address
+                            picked.add(uri);
                         }
-                    } else if (intent.getData() != null) {
+                    }
+                    result = picked.isEmpty() ? null : picked.toArray(new Uri[0]);
+                } else {
+                    try {
+                        result = WebChromeClient.FileChooserParams.parseResult(resultCode, intent);
+                    } catch (Exception ignored) {}
+                }
+                if (result == null) {
+                    if (intent.getData() != null) {
                         result = new Uri[] { intent.getData() };
                     } else if (intent.getDataString() != null) {
                         result = new Uri[] { Uri.parse(intent.getDataString()) };
