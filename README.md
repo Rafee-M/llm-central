@@ -3,12 +3,11 @@
 # LLM Central
 
 > **Status: early development.** duck.ai, ChatGPT, Claude, DeepSeek and Z.ai work as switchable tabs, with
-> several isolated accounts per provider and Material You theming. See [`PROJECT.md`](PROJECT.md) for the plan
-> and [`CHANGES.md`](CHANGES.md) for what has changed.
+> several isolated accounts per provider and Material You theming.
 
 **LLM Central** is a lightweight, privacy-focused Android app that puts several AI chat websites in one
 place: duck.ai, ChatGPT, Claude, DeepSeek, Z.ai and more, with several isolated accounts per provider and
-instant switching between them, while keeping the APK tiny (~226 KB).
+instant switching between them, while keeping the APK tiny (~250 KB).
 
 It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju, which is itself a fork of
 [gptAssist](https://github.com/woheller69/gptAssist) by woheller69.
@@ -59,7 +58,7 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 - 🧩 **User scripts**: optional custom scripts per website (off by default, with a security warning).
 - 🌐 **External links** open in your normal browser.
 
-## Planned (see PROJECT.md)
+## Planned
 
 Per-account offline history, per-account cache sizes, app lock.
 
@@ -77,8 +76,7 @@ Needs JDK 17+ and the Android SDK (platform 36). Then:
 ./gradlew assembleRelease           # release APK (unsigned)
 ```
 
-- **Understanding the code:** [`summary.md`](summary.md), a guide to every feature, file and class, with recipes.
-- **Publishing** (signing key, GitHub release, F-Droid, changing the app icon): [`RELEASE.md`](RELEASE.md).
+- **What changed in each version:** `fastlane/metadata/android/en-US/changelogs/`, also shown on each GitHub release.
 
 ## License
 
