@@ -1,6 +1,11 @@
-<img src="artwork/icon.svg" width="96" height="96" alt="LLM Central app icon: a speech bubble with five pixel sprites on green">
+<h1 align="center">
+  <br>
+  <a href=""><img src="artwork/banner.svg" alt="LLM Central" width="100%"></a>
+  <br>
+  LLM Central - Popular LLM providers under one roof
+  <br>
+</h1>
 
-# LLM Central
 
 > **Status: early development.** duck.ai, ChatGPT, Claude, DeepSeek and Z.ai work as switchable tabs, with
 > several isolated accounts per provider and Material You theming.
