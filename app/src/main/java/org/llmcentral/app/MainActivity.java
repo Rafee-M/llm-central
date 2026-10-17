@@ -51,6 +51,7 @@ import org.llmcentral.app.storage.AppCache;
 import org.llmcentral.app.storage.BackupImages;
 import org.llmcentral.app.storage.OfflineChats;
 import org.llmcentral.app.storage.StorageBridge;
+import org.llmcentral.app.storage.SharedFileQueue;
 import org.llmcentral.app.storage.SharedFiles;
 import org.llmcentral.app.storage.UploadCopies;
 import org.llmcentral.app.web.DesktopMode;
@@ -2420,9 +2421,18 @@ public class MainActivity extends Activity {
             // Files shared to the app are handed over now, as copies in the app's own storage (same
             // name, same bytes; see storage/UploadCopies for why a copy).
             if (pendingSharedFileUris != null && !pendingSharedFileUris.isEmpty()) {
-                Uri[] files = pendingSharedFileUris.toArray(new Uri[0]);
-                pendingSharedFileUris = null;
-                pendingSharedFileUri = null;
+                // Several shared files: a field that takes several gets them all; a one-file field gets the first,
+                // and the next 📎 tap the next one (storage/SharedFileQueue, R4-12).
+                boolean several = fileChooserParams != null
+                        && fileChooserParams.getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE;
+                Uri[] files = SharedFileQueue.handOver(pendingSharedFileUris, several).toArray(new Uri[0]);
+                java.util.List<Uri> rest = SharedFileQueue.remaining(pendingSharedFileUris, several);
+                pendingSharedFileUris = rest.isEmpty() ? null : rest;
+                pendingSharedFileUri = rest.isEmpty() ? null : rest.get(0);
+                if (!rest.isEmpty()) {
+                    showCustomBanner(rest.size() + (rest.size() == 1 ? " more file" : " more files")
+                            + " waiting: tap 📎 again");
+                }
                 UploadCopies.prepare(MainActivity.this, files, filePathCallback::onReceiveValue);
                 return true;
             }

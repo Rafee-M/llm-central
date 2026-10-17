@@ -48,6 +48,24 @@ public class AskActivity extends Activity {
             }
         }
 
+        if (Intent.ACTION_SEND_MULTIPLE.equals(action)) {
+            // Several files at once (R4-12): forwarded exactly like one file. Android copies the list into the
+            // intent's ClipData with the read permission when it starts the chat screen (AOSP
+            // Intent.migrateExtraStreamToClipData, which handles ACTION_SEND_MULTIPLE too).
+            java.util.ArrayList<Uri> streams = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+            if (streams != null && !streams.isEmpty()) {
+                Intent chatIntent = new Intent(this, ChatActivity.class);
+                chatIntent.setAction(Intent.ACTION_SEND_MULTIPLE);
+                chatIntent.setType(type != null ? type : "*/*");
+                chatIntent.putParcelableArrayListExtra(Intent.EXTRA_STREAM, streams);
+                chatIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                chatIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(chatIntent);
+                finish();
+                return;
+            }
+        }
+
         String sharedText = null;
 
         if (Intent.ACTION_SEND.equals(action) && "text/plain".equals(type)) {

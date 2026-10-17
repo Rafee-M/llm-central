@@ -74,6 +74,13 @@
                 <data android:mimeType="image/*" />
                 <data android:mimeType="application/pdf" />
             </intent-filter>
+            <!-- Several files shared at once (e.g. three photos from the gallery), R4-12: forwarded to the chat
+                 screen like a single file; the page's 📎 receives them. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
             <!-- The name in the text-selection menu ("Ask AI"): the text goes to the account chosen in
                  Settings → "Share & Ask AI account" (duck.ai by default), not always to duck.ai. -->
             <intent-filter android:label="@string/ask_ai">
