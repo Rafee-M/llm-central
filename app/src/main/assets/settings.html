@@ -1291,7 +1291,7 @@
                 t.addEventListener('focus', () => setTimeout(() => t.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300));
             }
             document.getElementById('offline_chats').addEventListener('change', onOfflineChatsChange);
-            // Applies to the next request at once (web/TrackerBlocking reads the setting each time).
+            // Applies to the next request at once (setBlockTrackers updates web/TrackerBlocking's kept value).
             document.getElementById('block_trackers').addEventListener('change', (e) => {
                 if (S && S.setBlockTrackers) S.setBlockTrackers(e.target.checked);
             });

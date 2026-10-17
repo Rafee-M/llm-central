@@ -935,8 +935,9 @@ public class MainActivity extends Activity {
                 }
 
                 /**
-                 * Settings → Data &amp; tools → "Block trackers" (web/TrackerBlocking). Read on every request, so it
-                 * applies at once; scripts a page already loaded stay until that page is reloaded.
+                 * Settings → Data &amp; tools → "Block trackers" (web/TrackerBlocking keeps it in memory and this
+                 * updates it), so it applies to the next request at once; scripts a page already loaded stay until
+                 * that page is reloaded.
                  */
                 @JavascriptInterface
                 public void setBlockTrackers(boolean on) {
