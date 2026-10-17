@@ -812,12 +812,21 @@ public class MainActivity extends Activity {
                 currentZoomLevel = currentZoomLevel * scale;
                 // Clamp text zoom between 50% and 300%
                 currentZoomLevel = Math.max(50f, Math.min(currentZoomLevel, 300f));
-                int newZoom = Math.round(currentZoomLevel);
-                webView.getSettings().setTextZoom(newZoom);
-                
-                SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                prefs.edit().putInt("text_zoom", newZoom).apply();
+                // While the fingers move only the tab being pinched changes (smooth: one page re-flows per step).
+                webView.getSettings().setTextZoom(Math.round(currentZoomLevel));
                 return true;
+            }
+
+            /**
+             * The pinch is over (fingers lifted or the gesture cancelled; AOSP ScaleGestureDetector calls this on
+             * ACTION_UP / ACTION_CANCEL). Until 2026-10-17 the size reached only the pinched tab, and the setting was
+             * written on every step of the pinch: now every loaded tab gets it and it is saved once (R4-10).
+             */
+            @Override
+            public void onScaleEnd(ScaleGestureDetector detector) {
+                int newZoom = Math.round(currentZoomLevel);
+                applyTextZoom(newZoom);
+                getSharedPreferences("duck_assist_prefs", MODE_PRIVATE).edit().putInt("text_zoom", newZoom).apply();
             }
         });
         scaleGestureDetector.setQuickScaleEnabled(false);
