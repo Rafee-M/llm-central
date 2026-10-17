@@ -1358,11 +1358,23 @@ public class MainActivity extends Activity {
                                 }
                             }
                         }
-                    } catch (Throwable ignore) {}
+                    } catch (OutOfMemoryError e) {
+                        throw e; // handled below: keep the older copy (R4-6)
+                    } catch (Throwable ignore) {
+                        // The older copy can't be read (damaged): the new dump replaces it.
+                    }
                 }
                 finalJsonStr = newObj.toString();
             } catch (Throwable e) {
-                Log.w(TAG, "Fetched chats merge error", e);
+                // Merging failed (realistically: out of memory with many pictures). Until 2026-10-17 the unmerged new
+                // dump was saved anyway, over an older copy that may hold chats the new one lacks; now the older copy
+                // stays and the next dump tries again (VERIFICATION.md R4-6).
+                Log.w(TAG, "Fetched chats merge error; keeping the saved copy", e);
+                if (isRequestingViewer) {
+                    isRequestingViewer = false;
+                    runOnUiThread(this::showChatsViewerDialog);
+                }
+                return;
             }
             ChatDatabaseHelper.getInstance(MainActivity.this).saveCachedChatsJson(finalJsonStr);
             if (isRequestingViewer || (chatsViewerDialog != null && chatsViewerDialog.isShowing())) {

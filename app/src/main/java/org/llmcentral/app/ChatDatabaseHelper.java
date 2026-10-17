@@ -10,10 +10,10 @@ import android.util.Log;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
+
+import org.llmcentral.app.storage.AtomicFiles;
 
 public class ChatDatabaseHelper extends SQLiteOpenHelper {
     private static final String TAG = "ChatDatabaseHelper";
@@ -60,18 +60,9 @@ public class ChatDatabaseHelper extends SQLiteOpenHelper {
 
         // 1. Save to internal app file storage (no CursorWindow 2MB limit, handles large documents & base64 attachments safely)
         try {
-            File cacheFile = new File(context.getFilesDir(), CACHE_FILE_NAME);
-            File tempFile = new File(context.getFilesDir(), CACHE_FILE_NAME + ".tmp");
-            try (OutputStreamWriter writer = new OutputStreamWriter(new FileOutputStream(tempFile), StandardCharsets.UTF_8)) {
-                writer.write(json);
-                writer.flush();
-            }
-            if (tempFile.exists()) {
-                if (cacheFile.exists()) {
-                    cacheFile.delete();
-                }
-                tempFile.renameTo(cacheFile);
-            }
+            // Written to "<name>.tmp", then swapped in with one rename, so a complete copy is always on disk
+            // (storage/AtomicFiles; until 2026-10-17 the old copy was deleted first, VERIFICATION.md R4-6).
+            AtomicFiles.writeText(new File(context.getFilesDir(), CACHE_FILE_NAME), json);
         } catch (Throwable t) {
             Log.e(TAG, "Error saving chats JSON to file storage", t);
         }
