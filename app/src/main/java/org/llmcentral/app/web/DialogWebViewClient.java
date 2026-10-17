@@ -60,23 +60,38 @@ public class DialogWebViewClient extends WebViewClient {
      */
     private boolean handleLink(WebView view, Uri uri) {
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(java.util.Locale.ROOT);
+        if (staysInside(scheme)) {
+            return false;
+        }
+        if ("javascript".equals(scheme)) {
+            return true; // never run, never handed on (R4-7)
+        }
+        // http(s), mailto:, tel:, … → hand over to the system (browser, mail app, …).
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+            intent.addCategory(Intent.CATEGORY_BROWSABLE);
+            view.getContext().startActivity(intent);
+        } catch (ActivityNotFoundException e) {
+            Log.w(TAG, "No app can open link with scheme " + scheme);
+        }
+        return true; // never load outside content inside the dialog
+    }
+
+    /**
+     * @return true for the addresses a local page may load inside its own window: our asset pages
+     *         ({@code file}), {@code about:blank}, and files the page made itself ({@code data}, {@code blob}).
+     *         {@code javascript:} is <b>not</b> one of them (until 2026-10-17 it was): a link in a saved chat's text
+     *         could otherwise run code inside the saved-chats window, which can read every saved chat (R4-7).
+     */
+    static boolean staysInside(String scheme) {
         switch (scheme) {
-            case "file":        // our own asset pages
-            case "about":       // about:blank
+            case "file":
+            case "about":
             case "data":
             case "blob":
-            case "javascript":
-                return false;
+                return true;
             default:
-                // http(s), mailto:, tel:, … → hand over to the system (browser, mail app, …).
-                try {
-                    Intent intent = new Intent(Intent.ACTION_VIEW, uri);
-                    intent.addCategory(Intent.CATEGORY_BROWSABLE);
-                    view.getContext().startActivity(intent);
-                } catch (ActivityNotFoundException e) {
-                    Log.w(TAG, "No app can open link with scheme " + scheme);
-                }
-                return true; // never load outside content inside the dialog
+                return false;
         }
     }
 

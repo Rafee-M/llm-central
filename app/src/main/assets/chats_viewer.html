@@ -945,8 +945,10 @@
             html = html.replace(/__(.*?)__/g, '<strong>$1</strong>');
             html = html.replace(/_(.*?)_/g, '<em>$1</em>');
             
-            // 5. Links
-            html = html.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank">$1</a>');
+            // 5. Links: only web addresses become links (a saved answer could hold a "javascript:" link,
+            // which would run with this window's bridge: VERIFICATION.md R4-7). Anything else stays plain text.
+            html = html.replace(/\[(.*?)\]\((.*?)\)/g, (match, text, url) =>
+                /^https?:\/\//i.test(url) ? `<a href="${url}" target="_blank">${text}</a>` : text);
 
             // 6. Tables
             const lines = html.split('\n');
@@ -1686,12 +1688,12 @@
                                 if (img.url.startsWith('data:image/') || img.url.match(/\.(jpg|jpeg|png|gif|webp|svg)/i) || !img.fileName) {
                                     imgCard.innerHTML = `
                                         <div class="generated-image-wrapper">
-                                            <img src="${escapeHTML(img.url)}" class="chat-generated-img" onclick="openLightbox('${escapeHTML(img.url)}')" alt="${escapeHTML(badge)}" />
+                                            <img src="${escapeHTML(img.url)}" class="chat-generated-img" alt="${escapeHTML(badge)}" />
                                         </div>
                                         <div class="image-card-footer">
                                             <div class="image-card-header-bar">
                                                 <span class="image-model-badge">${escapeHTML(badge)}</span>
-                                                <button type="button" class="image-download-btn" onclick="downloadImage('${escapeHTML(img.url)}', '${img.id || 'attached_image'}')">
+                                                <button type="button" class="image-download-btn">
                                                     <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                                                     Download
                                                 </button>
@@ -1704,7 +1706,7 @@
                                         <div class="image-card-footer">
                                             <div class="image-card-header-bar">
                                                 <span class="image-model-badge">📄 ${escapeHTML(img.fileName || badge)}</span>
-                                                <button type="button" class="image-download-btn" onclick="downloadImage('${escapeHTML(img.url)}', '${img.fileName || img.id || 'attached_doc'}')">
+                                                <button type="button" class="image-download-btn">
                                                     <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                                                     Download
                                                 </button>
@@ -1722,6 +1724,14 @@
                                     </div>
                                 `;
                             }
+                            // Click handlers get the values themselves, attached in code. Until 2026-10-17 they were
+                            // written into the HTML as JavaScript text: a file name with ' (e.g. "John's notes.pdf")
+                            // broke the button and could even run code (VERIFICATION.md R4-7).
+                            const pic = imgCard.querySelector('.chat-generated-img');
+                            if (pic) pic.addEventListener('click', () => openLightbox(img.url));
+                            const saveBtn = imgCard.querySelector('.image-download-btn');
+                            if (saveBtn) saveBtn.addEventListener('click', () => downloadImage(img.url,
+                                pic ? (img.id || 'attached_image') : (img.fileName || img.id || 'attached_doc')));
                             parentEl.appendChild(imgCard);
                         }
 
