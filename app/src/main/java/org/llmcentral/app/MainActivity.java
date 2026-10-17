@@ -193,7 +193,8 @@ public class MainActivity extends Activity {
     private int settingsCrashReopens = 0;
     // true between onResume and onPause (the screen is in front of the user).
     private boolean inForeground = false;
-    private boolean isRequestingViewer = false;
+    // "volatile": set on the main thread, read and cleared by onChatsFetched on the background thread (R4-5).
+    private volatile boolean isRequestingViewer = false;
 
     /** Paths of shared files still waiting for the page's 📎 button (not to be deleted as "cache"). */
     private java.util.Set<String> sharedFilesInUse() {
@@ -1416,6 +1417,11 @@ public class MainActivity extends Activity {
 
     private void showChatsViewerDialog() {
         runOnUiThread(() -> {
+            // The background merge (onChatsFetched) may ask for this after the screen was closed or rebuilt;
+            // showing a window on a destroyed screen throws BadTokenException and crashes the app (R4-5).
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
             if (chatsViewerDialog != null && chatsViewerDialog.isShowing()) {
                 chatsViewerDialog.dismiss();
             }
@@ -1483,6 +1489,14 @@ public class MainActivity extends Activity {
             webView.loadUrl("file:///android_asset/chats_viewer.html");
             // Back closes it ("cancel"); after an offline fallback that also retries duck.ai.
             chatsViewerDialog.setOnCancelListener(d -> retryDuckIfOffline());
+            // Free the window's WebView (and the saved chats it holds) when it closes, like Settings does; without
+            // this it stayed in memory until Java's garbage collector found it (R4-5).
+            chatsViewerDialog.setOnDismissListener(d -> {
+                webView.destroy();
+                if (chatsViewerDialog == d) {
+                    chatsViewerDialog = null;
+                }
+            });
             chatsViewerDialog.setContentView(webView);
             chatsViewerDialog.show();
             
@@ -1968,6 +1982,9 @@ public class MainActivity extends Activity {
 
     public void showPromptOnLaunchDialog() {
         runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
             if (promptDialog != null && promptDialog.isShowing()) {
                 promptDialog.dismiss();
             }
@@ -2032,6 +2049,12 @@ public class MainActivity extends Activity {
             // Theme colours for the page (read-only, local page only; see theme/ThemeBridge).
             webView.addJavascriptInterface(new ThemeBridge(this), "AndroidTheme");
             webView.loadUrl("file:///android_asset/prompt_dialog.html");
+            promptDialog.setOnDismissListener(d -> {
+                webView.destroy(); // free it at once (R4-5)
+                if (promptDialog == d) {
+                    promptDialog = null;
+                }
+            });
             promptDialog.setContentView(webView);
             promptDialog.show();
             
@@ -2520,6 +2543,12 @@ public class MainActivity extends Activity {
         }
         if (settingsDialog != null && settingsDialog.isShowing()) {
             settingsDialog.dismiss();
+        }
+        if (chatsViewerDialog != null && chatsViewerDialog.isShowing()) {
+            chatsViewerDialog.dismiss(); // R4-5: no WindowLeaked on a rebuild; frees its WebView
+        }
+        if (promptDialog != null && promptDialog.isShowing()) {
+            promptDialog.dismiss();
         }
         if (tabManager != null) {
             tabManager.destroyAccountTabs();
