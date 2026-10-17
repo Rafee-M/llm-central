@@ -83,6 +83,7 @@ import org.llmcentral.app.theme.AppearanceBridge;
 import org.llmcentral.app.theme.Scheme;
 import org.llmcentral.app.theme.ThemeBridge;
 import org.llmcentral.app.theme.ThemeManager;
+import org.llmcentral.app.theme.ThemeRebuild;
 import org.llmcentral.app.ui.NativeTheme;
 import org.llmcentral.app.web.PopupWindows;
 import org.llmcentral.app.web.Profiles;
@@ -1177,7 +1178,11 @@ public class MainActivity extends Activity {
                 if (settingsDialog == d) {
                     settingsDialog = null;
                 }
-                if (appliedNight != ThemeManager.isNight(MainActivity.this)) {
+                // Not when this screen is going away: onDestroy closes Settings, and Android runs this listener
+                // only afterwards, when a rebuilt screen may already exist; recreate() would rebuild that new
+                // screen a second time (theme/ThemeRebuild, VERIFICATION.md R4-3).
+                if (ThemeRebuild.onSettingsClosed(appliedNight, ThemeManager.isNight(MainActivity.this),
+                        isFinishing() || isDestroyed())) {
                     recreate();
                 }
             });
@@ -1567,9 +1572,12 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         // The theme may have been changed in the app's other screen (assistant drawer): rebuild if
-        // light/dark flipped, otherwise just repaint (palette / Material You).
+        // light/dark flipped, otherwise just repaint (palette / Material You). While Settings is open the rebuild
+        // waits until it closes (its dismiss listener below), so coming back from Recents keeps Settings on screen
+        // (theme/ThemeRebuild, VERIFICATION.md R4-2).
         if (tabManager != null) {
-            if (appliedNight != ThemeManager.isNight(this)) {
+            boolean settingsOpen = settingsDialog != null && settingsDialog.isShowing();
+            if (ThemeRebuild.onResume(appliedNight, ThemeManager.isNight(this), settingsOpen)) {
                 recreate();
                 return;
             }
