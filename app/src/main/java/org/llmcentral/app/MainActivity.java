@@ -71,6 +71,7 @@ import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
 import org.llmcentral.app.ui.AboutWindow;
 import org.llmcentral.app.ui.ScriptsWindow;
+import org.llmcentral.app.ui.SettingsRestore;
 import org.llmcentral.app.ui.ProviderBadge;
 import org.llmcentral.app.ui.SwitcherModel;
 import org.llmcentral.app.ui.SwitcherPopup;
@@ -184,6 +185,14 @@ public class MainActivity extends Activity {
     private android.app.Dialog scriptsWindow = null;
     // The open Settings window (closed in onDestroy so it can't leak when the screen is rebuilt).
     private android.app.Dialog settingsDialog = null;
+    // The section the open Settings window was opened at (null = the top), saved in onSaveInstanceState so a
+    // rebuilt screen can reopen it (ui/SettingsRestore, VERIFICATION.md R4-4).
+    private String settingsSection = null;
+    // Settings closed because its page's renderer died: reopen this section when the user is back (onResume).
+    private String settingsReopenPending = null;
+    private int settingsCrashReopens = 0;
+    // true between onResume and onPause (the screen is in front of the user).
+    private boolean inForeground = false;
     private boolean isRequestingViewer = false;
 
     /** Paths of shared files still waiting for the page's 📎 button (not to be deleted as "cache"). */
@@ -390,6 +399,16 @@ public class MainActivity extends Activity {
         }
         if (!restored) {
             handleIntent(getIntent(), false);
+        }
+        // Settings was open when Android rebuilt this screen (ui/SettingsRestore, R4-4): show it again once the
+        // screen is up (posted, so the window exists).
+        String settingsToRestore = savedInstanceState != null ? savedInstanceState.getString(SettingsRestore.KEY) : null;
+        if (settingsToRestore != null) {
+            getWindow().getDecorView().post(() -> {
+                if (!isFinishing() && !isDestroyed()) {
+                    openSettings(settingsToRestore);
+                }
+            });
         }
 
         // Normal app launch: open the account chosen in Settings → Behaviour ("Open at start"),
@@ -895,11 +914,25 @@ public class MainActivity extends Activity {
             android.app.Dialog dialog = new android.app.Dialog(MainActivity.this);
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
             settingsDialog = dialog;
+            settingsSection = SettingsRestore.safeSection(section);
             
             WebView webView = new WebView(MainActivity.this);
             // Handles "renderer died" (closes this dialog instead of the app crashing) and keeps
-            // web links opening in the browser. See web/DialogWebViewClient.java.
-            webView.setWebViewClient(new DialogWebViewClient(dialog::dismiss));
+            // web links opening in the browser. See web/DialogWebViewClient.java. Android often stops the
+            // shared renderer while the app is in the background; Settings then comes back once (R4-4).
+            webView.setWebViewClient(new DialogWebViewClient(() -> {
+                String reopen = settingsSection != null ? settingsSection : "";
+                dialog.dismiss();
+                if (!SettingsRestore.reopenAfterCrash(settingsCrashReopens) || isFinishing() || isDestroyed()) {
+                    return;
+                }
+                settingsCrashReopens++;
+                if (inForeground) {
+                    openSettings(reopen);
+                } else {
+                    settingsReopenPending = reopen; // a new page only when the user is back (no work in the background)
+                }
+            }));
             WebSettings ws = webView.getSettings();
             ws.setJavaScriptEnabled(true);
             ws.setDomStorageEnabled(true);
@@ -1202,8 +1235,8 @@ public class MainActivity extends Activity {
             });
 
             // Only a plain section name may be appended (never anything from outside the app).
-            boolean validSection = section != null && section.matches("[a-z]{1,20}");
-            webView.loadUrl("file:///android_asset/settings.html" + (validSection ? "#" + section : ""));
+            webView.loadUrl("file:///android_asset/settings.html"
+                    + (settingsSection != null ? "#" + settingsSection : ""));
             
             dialog.setContentView(webView);
             dialog.show();
@@ -1569,8 +1602,15 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onPause() {
+        super.onPause();
+        inForeground = false;
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
+        inForeground = true;
         // The theme may have been changed in the app's other screen (assistant drawer): rebuild if
         // light/dark flipped, otherwise just repaint (palette / Material You). While Settings is open the rebuild
         // waits until it closes (its dismiss listener below), so coming back from Recents keeps Settings on screen
@@ -1582,6 +1622,12 @@ public class MainActivity extends Activity {
                 return;
             }
             applyTheme();
+        }
+        // Settings closed in the background because its page's renderer was stopped: back now (R4-4).
+        if (settingsReopenPending != null) {
+            String section = settingsReopenPending;
+            settingsReopenPending = null;
+            openSettings(section);
         }
         refreshAccounts();
         if (tabManager != null) {
@@ -1670,6 +1716,11 @@ public class MainActivity extends Activity {
         super.onSaveInstanceState(outState);
         if (chatWebView != null) {
             chatWebView.saveState(outState);
+        }
+        // Dialogs aren't saved by Android: remember an open Settings window ourselves (ui/SettingsRestore, R4-4).
+        String settings = SettingsRestore.toSave(settingsDialog != null && settingsDialog.isShowing(), settingsSection);
+        if (settings != null) {
+            outState.putString(SettingsRestore.KEY, settings);
         }
     }
 

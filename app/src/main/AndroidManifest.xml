@@ -26,7 +26,7 @@
         android:theme="@android:style/Theme.DeviceDefault">
         <activity
             android:name="org.llmcentral.app.MainActivity"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode|keyboard|keyboardHidden|navigation"
             android:launchMode="singleTask"
             android:windowSoftInputMode="stateAlwaysHidden|adjustResize"
             android:exported="true">
@@ -86,7 +86,7 @@
         <activity
             android:name="org.llmcentral.app.ChatActivity"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode|keyboard|keyboardHidden|navigation"
             android:launchMode="singleTask"
             android:taskAffinity="${applicationId}.ask"
             android:windowSoftInputMode="stateAlwaysHidden|adjustResize"
