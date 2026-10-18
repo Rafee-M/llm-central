@@ -31,8 +31,13 @@ public final class AtomicFiles {
     public static void writeText(File target, String text) throws IOException {
         File temp = new File(target.getPath() + ".tmp");
         try {
-            try (Writer writer = new OutputStreamWriter(new FileOutputStream(temp), StandardCharsets.UTF_8)) {
+            try (FileOutputStream out = new FileOutputStream(temp);
+                 Writer writer = new OutputStreamWriter(out, StandardCharsets.UTF_8)) {
                 writer.write(text);
+                writer.flush();
+                // Make sure the bytes are really on the storage before the rename, or a power cut right after it could
+                // leave an empty file in place of both copies.
+                out.getFD().sync();
             }
             if (!temp.renameTo(target)) {
                 throw new IOException("Could not replace " + target.getName());

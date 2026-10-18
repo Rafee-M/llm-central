@@ -12,18 +12,26 @@ public class SettingsRestoreTest {
 
     @Test
     public void closedSettingsSavesNothing() {
-        assertNull(SettingsRestore.toSave(false, "appearance"));
+        assertNull(SettingsRestore.toSave(false, "appearance", null));
     }
 
     @Test
     public void openSettingsSavesItsSection() {
-        assertEquals("appearance", SettingsRestore.toSave(true, "appearance"));
+        assertEquals("appearance", SettingsRestore.toSave(true, "appearance", null));
     }
 
     @Test
     public void openSettingsWithoutASectionSavesTheTop() {
         // "" = open Settings at the top (null would mean "wasn't open").
-        assertEquals("", SettingsRestore.toSave(true, null));
+        assertEquals("", SettingsRestore.toSave(true, null, null));
+    }
+
+    @Test
+    public void aReopenStillWaitingIsSavedToo() {
+        // Settings' page was stopped in the background and waits to reopen; if Android rebuilds the screen before the
+        // user is back, the waiting reopen must survive the rebuild (re-check of R4-4).
+        assertEquals("appearance", SettingsRestore.toSave(false, null, "appearance"));
+        assertEquals("", SettingsRestore.toSave(false, null, ""));
     }
 
     @Test

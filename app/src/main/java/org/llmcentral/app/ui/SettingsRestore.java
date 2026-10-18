@@ -21,12 +21,15 @@ public final class SettingsRestore {
     private SettingsRestore() {
     }
 
-    /** @return what to save: null if Settings is closed, else its section ("" for the top). */
-    public static String toSave(boolean open, String section) {
-        if (!open) {
-            return null;
+    /**
+     * @param pendingReopen the section of a Settings window waiting to reopen after its page was stopped (null = none)
+     * @return what to save: null if Settings is closed and nothing waits, else its section ("" for the top)
+     */
+    public static String toSave(boolean open, String section, String pendingReopen) {
+        if (open) {
+            return section != null ? section : "";
         }
-        return section != null ? section : "";
+        return pendingReopen;
     }
 
     /**

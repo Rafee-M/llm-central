@@ -178,7 +178,8 @@ public class MainActivity extends Activity {
     private final MicrophoneAccess microphone = new MicrophoneAccess(this);
     // (Until 2026-10-15 a field here kept the whole saved-chats copy in memory for as long as the screen
     // lived, although only the saved-chats window reads it; that window now reads the file when it opens.)
-    private android.app.Dialog chatsViewerDialog = null;
+    // "volatile": read by onChatsFetched on the background thread, set to null on the main thread when it closes.
+    private volatile android.app.Dialog chatsViewerDialog = null;
     // true while duck.ai failed to load and the saved-chats window stands in for it (showOfflineChats).
     private boolean duckOffline = false;
     // Sign-outs (account/SignOuts) up to this time are already handled by this screen. Starts at the screen's
@@ -1389,7 +1390,9 @@ public class MainActivity extends Activity {
                 return;
             }
             ChatDatabaseHelper.getInstance(MainActivity.this).saveCachedChatsJson(finalJsonStr);
-            if (isRequestingViewer || (chatsViewerDialog != null && chatsViewerDialog.isShowing())) {
+            // One read of the field: the window may close (field set to null) between two reads (re-check of R4-5).
+            android.app.Dialog viewer = chatsViewerDialog;
+            if (isRequestingViewer || (viewer != null && viewer.isShowing())) {
                 isRequestingViewer = false;
                 runOnUiThread(this::showChatsViewerDialog);
             }
@@ -1643,6 +1646,9 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         inForeground = false;
+        // A new visit may reopen Settings once again after its page is stopped; a crash loop while the user watches
+        // never passes through onPause, so it still ends after one reopen (re-check of R4-4).
+        settingsCrashReopens = 0;
     }
 
     @Override
@@ -1756,7 +1762,10 @@ public class MainActivity extends Activity {
             chatWebView.saveState(outState);
         }
         // Dialogs aren't saved by Android: remember an open Settings window ourselves (ui/SettingsRestore, R4-4).
-        String settings = SettingsRestore.toSave(settingsDialog != null && settingsDialog.isShowing(), settingsSection);
+        // A reopen still waiting (page stopped in the background) is kept too, or a rebuild before the user is back
+        // would drop it (re-check of R4-4).
+        String settings = SettingsRestore.toSave(settingsDialog != null && settingsDialog.isShowing(), settingsSection,
+                settingsReopenPending);
         if (settings != null) {
             outState.putString(SettingsRestore.KEY, settings);
         }
