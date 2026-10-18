@@ -780,18 +780,30 @@
     <script>
         let allChats = [];
         let debugVisible = false;
+        // The last backup the window read (extractChats). The debug text is made from it only when the debug panel is
+        // open (tap the "Saved Chats" title): until 2026-10-18 the whole backup, base64 pictures included, was turned
+        // into text for the hidden panel on every refresh, up to 11 times while the window opened (R4-17).
+        let lastDumpData = null;
+
+        // Long strings (base64 pictures and files, often hundreds of KB) are shortened: the panel is for seeing the
+        // backup's structure, and a multi-MB text is too big for Android's clipboard anyway.
+        function debugText() {
+            if (!lastDumpData) return '';
+            return JSON.stringify(lastDumpData, (key, value) =>
+                (typeof value === 'string' && value.length > 300)
+                    ? value.slice(0, 60) + '… (' + value.length.toLocaleString('en-US') + ' characters)'
+                    : value, 2);
+        }
+
+        function showDebugText() {
+            if (debugVisible) document.getElementById('debugOutput').textContent = debugText();
+        }
 
         function toggleDebug() {
             const dbg = document.getElementById('debugContainer');
             debugVisible = !debugVisible;
             dbg.style.display = debugVisible ? 'block' : 'none';
-        }
-
-        function copyDebugInfo() {
-            if (typeof AndroidChatsViewer !== 'undefined' && AndroidChatsViewer.copyToClipboard) {
-                const text = document.getElementById('debugOutput').innerText;
-                AndroidChatsViewer.copyToClipboard(text);
-            }
+            showDebugText();
         }
 
         function getTimestamp(chat) {
@@ -1046,9 +1058,8 @@
 
         function extractChats(dumpData) {
             if (!dumpData) return [];
-            if (document.getElementById('debugOutput')) {
-                document.getElementById('debugOutput').innerText = JSON.stringify(dumpData, null, 2);
-            }
+            lastDumpData = dumpData;
+            showDebugText(); // only does work while the debug panel is open
             let chats = [];
             let allMessages = [];
             let conversationsMetadata = [];
@@ -1938,7 +1949,7 @@
         function copyDebugInfo() {
             const bridge = (typeof AndroidChatsViewer !== 'undefined') ? AndroidChatsViewer : (typeof Android !== 'undefined' ? Android : null);
             if (bridge && bridge.copyToClipboard) {
-                const text = document.getElementById('debugOutput').innerText;
+                const text = debugText(); // the panel's text (long strings shortened)
                 bridge.copyToClipboard(text);
                 showToast("Debug JSON copied");
             }
