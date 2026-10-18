@@ -13,6 +13,13 @@
     console.log('Voice chat active, suppressing auto focus');
     return;
   }
+  // The app injects this script up to three times for one page load (onPageFinished, progress 100, app opened):
+  // only the first run of a load does anything, so the new-chat shortcut and the keyboard fire once, not three
+  // times (VERIFICATION.md R4-23). The flag means "a run is in progress", not "already ran": it is cleared when the
+  // run ends, so opening the app again later still starts a new chat, as the setting promises.
+  if (window.__llmcAutoFocusRunning) return;
+  window.__llmcAutoFocusRunning = true;
+  function finished() { window.__llmcAutoFocusRunning = false; }
   console.log('Auto Focus: waiting for page progress to complete before triggering Ctrl+Shift+O');
   function sendShortcut() {
     if (window.isVoiceChatActive) return;
@@ -56,15 +63,16 @@
   }
   var attempts = 0;
   function checkAndFire() {
-    if (window.isVoiceChatActive) return true;
+    if (window.isVoiceChatActive) { finished(); return true; }
     attempts++;
     if (isPageReady() || attempts >= 25) {
-      if (window.isVoiceChatActive) return true;
+      if (window.isVoiceChatActive) { finished(); return true; }
       console.log('Page ready (attempt ' + attempts + '), firing Ctrl+Shift+O');
       sendShortcut();
       setTimeout(function() { if (!window.isVoiceChatActive) sendShortcut(); }, 400);
       setTimeout(function() { if (!window.isVoiceChatActive) focusAndOpenKeyboard(); }, 600);
       setTimeout(function() { if (!window.isVoiceChatActive) focusAndOpenKeyboard(); }, 1200);
+      setTimeout(finished, 1300); // after the run's last step
       return true;
     }
     return false;
