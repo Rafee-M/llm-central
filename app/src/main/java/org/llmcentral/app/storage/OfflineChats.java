@@ -3,9 +3,12 @@ package org.llmcentral.app.storage;
 import android.content.Context;
 
 /**
- * The setting "Offline chats (duck.ai)" (Settings → Data &amp; tools), on by default.
+ * The setting "Offline chats (duck.ai)" (Settings → Data &amp; tools), <b>off by default</b> since 2026-10-18 (owner:
+ * nothing is copied to the phone unless the user asks for it; it also saves the backup's work each time the app goes to
+ * the background). An install that never touched the switch is off too: a copy saved earlier stays on the phone,
+ * unused, until the switch is turned on (shown again) or on and off (deleted).
  *
- * <p><b>On</b> (as before): when the app goes to the background after duck.ai was used, it copies
+ * <p><b>On</b>: when the app goes to the background after duck.ai was used, it copies
  * duck.ai's chats to the phone ({@code dump_chats.js} → {@code ChatDatabaseHelper}). They can be read
  * in "Saved chats", and they stand in for duck.ai when it can't load (no internet, crashes).</p>
  *
@@ -20,7 +23,7 @@ import android.content.Context;
  */
 public final class OfflineChats {
 
-    /** Preference key in {@code duck_assist_prefs}; missing = on (the behaviour before the setting existed). */
+    /** Preference key in {@code duck_assist_prefs}; missing = off (until 2026-10-18 missing meant on). */
     public static final String PREF = "offline_chats";
 
     private OfflineChats() {
@@ -28,7 +31,7 @@ public final class OfflineChats {
 
     public static boolean isEnabled(Context context) {
         return context.getSharedPreferences("duck_assist_prefs", Context.MODE_PRIVATE)
-                .getBoolean(PREF, true);
+                .getBoolean(PREF, false);
     }
 
     public static void setEnabled(Context context, boolean on) {

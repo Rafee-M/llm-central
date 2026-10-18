@@ -53,7 +53,7 @@
         const oR = URL.revokeObjectURL;
         URL.revokeObjectURL = function(u) {
             oR.apply(URL, arguments);
-            if (window.__llmcOfflineChats === false) {
+            if (window.__llmcOfflineChats !== true) { // not set = off, like the setting (2026-10-18)
                 setTimeout(function() { window.__duckForgetBlob(u); }, 60000);
             }
         };

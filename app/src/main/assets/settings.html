@@ -1177,7 +1177,7 @@
             document.getElementById('ask_duck_suffix').value = settings.ask_duck_suffix || '';
             document.getElementById('shared_doc_suffix').value = settings.shared_doc_suffix || '';
             setMaxLiveTabs(settings.max_live_tabs || 3);
-            showOfflineChats(settings.offline_chats !== false);
+            showOfflineChats(settings.offline_chats === true); // missing = off (2026-10-18)
             document.getElementById('block_trackers').checked = settings.block_trackers !== false; // missing = on
             document.getElementById('pinch_zoom_page').checked = !!settings.pinch_zoom_page;
             // A pinch can leave values between the slider's 10 % steps (e.g. 137): shown as they are.
