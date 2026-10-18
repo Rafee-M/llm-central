@@ -1828,13 +1828,32 @@
             }, 100);
         }
 
+        // Name and type for a saved file (VERIFICATION.md R4-34). Until 2026-10-18 every file got ".jpeg" and the
+        // type image/jpeg, so "notes.pdf" was saved as the picture "notes.pdf.jpeg" (and PNGs as JPEGs). Now:
+        // the real type comes from the data: address itself ("data:application/pdf;base64,…"); a name that already
+        // has an extension keeps it; a name without one gets the extension of that type. A name must always end
+        // with an extension here: the app's duck.ai naming adds ".md" to names without one (DownloadNames.duckName).
+        const EXTENSIONS = { 'image/jpeg': 'jpeg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+            'image/svg+xml': 'svg', 'application/pdf': 'pdf', 'text/plain': 'txt', 'text/csv': 'csv' };
+        function savedFile(dataUrl, filenameHint) {
+            const match = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+)[;,]/i.exec(dataUrl);
+            const type = match ? match[1].toLowerCase() : 'image/jpeg'; // old default for anything else
+            let name = (filenameHint || 'ai_generated_image').replace(/["\\]/g, '_'); // safe inside filename="…"
+            if (!/\.[A-Za-z0-9]{1,8}$/.test(name)) {
+                const subtype = type.split('/')[1];
+                name += '.' + (EXTENSIONS[type] || (/^[a-z0-9]{1,8}$/.test(subtype) ? subtype : 'jpeg'));
+            }
+            return { name: name, type: type };
+        }
+
         function downloadImage(dataUrl, filenameHint) {
             if (!dataUrl) return;
-            const filename = (filenameHint || 'ai_generated_image') + '.jpeg';
+            const file = savedFile(dataUrl, filenameHint);
+            const filename = file.name;
             const bridge = (typeof AndroidChatsViewer !== 'undefined') ? AndroidChatsViewer : (typeof Android !== 'undefined' ? Android : null);
-            
+
             if (bridge && bridge.processBlob) {
-                bridge.processBlob(dataUrl, 'image/jpeg', `attachment; filename="${filename}"`, '');
+                bridge.processBlob(dataUrl, file.type, `attachment; filename="${filename}"`, '');
                 showToast("Saving image...");
             } else {
                 const a = document.createElement('a');
