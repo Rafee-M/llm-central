@@ -32,6 +32,7 @@ import android.content.DialogInterface;
 import androidx.core.content.FileProvider;
 import android.provider.MediaStore;
 import android.webkit.JavascriptInterface;
+import android.webkit.MimeTypeMap;
 import java.io.File;
 import android.Manifest;
 import android.graphics.Color;
@@ -51,9 +52,11 @@ import org.llmcentral.app.storage.AppCache;
 import org.llmcentral.app.storage.BackupImages;
 import org.llmcentral.app.storage.OfflineChats;
 import org.llmcentral.app.storage.StorageBridge;
+import org.llmcentral.app.storage.SharedFileQueue;
 import org.llmcentral.app.storage.SharedFiles;
 import org.llmcentral.app.storage.UploadCopies;
 import org.llmcentral.app.web.DesktopMode;
+import org.llmcentral.app.web.FileChooserTypes;
 import org.llmcentral.app.web.MicrophoneAccess;
 import org.llmcentral.app.web.DialogWebViewClient;
 import org.llmcentral.app.web.LoadErrors;
@@ -71,6 +74,7 @@ import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
 import org.llmcentral.app.ui.AboutWindow;
 import org.llmcentral.app.ui.ScriptsWindow;
+import org.llmcentral.app.ui.SettingsRestore;
 import org.llmcentral.app.ui.ProviderBadge;
 import org.llmcentral.app.ui.SwitcherModel;
 import org.llmcentral.app.ui.SwitcherPopup;
@@ -83,6 +87,7 @@ import org.llmcentral.app.theme.AppearanceBridge;
 import org.llmcentral.app.theme.Scheme;
 import org.llmcentral.app.theme.ThemeBridge;
 import org.llmcentral.app.theme.ThemeManager;
+import org.llmcentral.app.theme.ThemeRebuild;
 import org.llmcentral.app.ui.NativeTheme;
 import org.llmcentral.app.web.PopupWindows;
 import org.llmcentral.app.web.Profiles;
@@ -173,7 +178,8 @@ public class MainActivity extends Activity {
     private final MicrophoneAccess microphone = new MicrophoneAccess(this);
     // (Until 2026-10-15 a field here kept the whole saved-chats copy in memory for as long as the screen
     // lived, although only the saved-chats window reads it; that window now reads the file when it opens.)
-    private android.app.Dialog chatsViewerDialog = null;
+    // "volatile": read by onChatsFetched on the background thread, set to null on the main thread when it closes.
+    private volatile android.app.Dialog chatsViewerDialog = null;
     // true while duck.ai failed to load and the saved-chats window stands in for it (showOfflineChats).
     private boolean duckOffline = false;
     // Sign-outs (account/SignOuts) up to this time are already handled by this screen. Starts at the screen's
@@ -183,7 +189,16 @@ public class MainActivity extends Activity {
     private android.app.Dialog scriptsWindow = null;
     // The open Settings window (closed in onDestroy so it can't leak when the screen is rebuilt).
     private android.app.Dialog settingsDialog = null;
-    private boolean isRequestingViewer = false;
+    // The section the open Settings window was opened at (null = the top), saved in onSaveInstanceState so a
+    // rebuilt screen can reopen it (ui/SettingsRestore, VERIFICATION.md R4-4).
+    private String settingsSection = null;
+    // Settings closed because its page's renderer died: reopen this section when the user is back (onResume).
+    private String settingsReopenPending = null;
+    private int settingsCrashReopens = 0;
+    // true between onResume and onPause (the screen is in front of the user).
+    private boolean inForeground = false;
+    // "volatile": set on the main thread, read and cleared by onChatsFetched on the background thread (R4-5).
+    private volatile boolean isRequestingViewer = false;
 
     /** Paths of shared files still waiting for the page's 📎 button (not to be deleted as "cache"). */
     private java.util.Set<String> sharedFilesInUse() {
@@ -253,7 +268,11 @@ public class MainActivity extends Activity {
         // Android 7–9 download notification worked. That now uses a content:// address
         // (downloads/Downloader.sharedAddress), so Android's default check stays on.
         setActivityTheme();
-        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        // (Until 2026-10-17 a line from the original gptAssist code cleared FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
+        // here. Clearing a window flag in code marks it as "chosen by the app", so the theme could never turn
+        // it back on; on Android 15+, where ThemeManager.styleWindow no longer re-adds it, Android then painted
+        // the status bar black (AOSP DecorView.calculateBarColor), which looked "completely dark" in light
+        // mode. VERIFICATION.md R4-1. The drawer's see-through theme doesn't set the flag, so it's unaffected.)
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         super.onCreate(savedInstanceState);
         
@@ -385,6 +404,16 @@ public class MainActivity extends Activity {
         }
         if (!restored) {
             handleIntent(getIntent(), false);
+        }
+        // Settings was open when Android rebuilt this screen (ui/SettingsRestore, R4-4): show it again once the
+        // screen is up (posted, so the window exists).
+        String settingsToRestore = savedInstanceState != null ? savedInstanceState.getString(SettingsRestore.KEY) : null;
+        if (settingsToRestore != null) {
+            getWindow().getDecorView().post(() -> {
+                if (!isFinishing() && !isDestroyed()) {
+                    openSettings(settingsToRestore);
+                }
+            });
         }
 
         // Normal app launch: open the account chosen in Settings → Behaviour ("Open at start"),
@@ -787,12 +816,21 @@ public class MainActivity extends Activity {
                 currentZoomLevel = currentZoomLevel * scale;
                 // Clamp text zoom between 50% and 300%
                 currentZoomLevel = Math.max(50f, Math.min(currentZoomLevel, 300f));
-                int newZoom = Math.round(currentZoomLevel);
-                webView.getSettings().setTextZoom(newZoom);
-                
-                SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
-                prefs.edit().putInt("text_zoom", newZoom).apply();
+                // While the fingers move only the tab being pinched changes (smooth: one page re-flows per step).
+                webView.getSettings().setTextZoom(Math.round(currentZoomLevel));
                 return true;
+            }
+
+            /**
+             * The pinch is over (fingers lifted or the gesture cancelled; AOSP ScaleGestureDetector calls this on
+             * ACTION_UP / ACTION_CANCEL). Until 2026-10-17 the size reached only the pinched tab, and the setting was
+             * written on every step of the pinch: now every loaded tab gets it and it is saved once (R4-10).
+             */
+            @Override
+            public void onScaleEnd(ScaleGestureDetector detector) {
+                int newZoom = Math.round(currentZoomLevel);
+                applyTextZoom(newZoom);
+                getSharedPreferences("duck_assist_prefs", MODE_PRIVATE).edit().putInt("text_zoom", newZoom).apply();
             }
         });
         scaleGestureDetector.setQuickScaleEnabled(false);
@@ -890,11 +928,25 @@ public class MainActivity extends Activity {
             android.app.Dialog dialog = new android.app.Dialog(MainActivity.this);
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
             settingsDialog = dialog;
+            settingsSection = SettingsRestore.safeSection(section);
             
             WebView webView = new WebView(MainActivity.this);
             // Handles "renderer died" (closes this dialog instead of the app crashing) and keeps
-            // web links opening in the browser. See web/DialogWebViewClient.java.
-            webView.setWebViewClient(new DialogWebViewClient(dialog::dismiss));
+            // web links opening in the browser. See web/DialogWebViewClient.java. Android often stops the
+            // shared renderer while the app is in the background; Settings then comes back once (R4-4).
+            webView.setWebViewClient(new DialogWebViewClient(() -> {
+                String reopen = settingsSection != null ? settingsSection : "";
+                dialog.dismiss();
+                if (!SettingsRestore.reopenAfterCrash(settingsCrashReopens) || isFinishing() || isDestroyed()) {
+                    return;
+                }
+                settingsCrashReopens++;
+                if (inForeground) {
+                    openSettings(reopen);
+                } else {
+                    settingsReopenPending = reopen; // a new page only when the user is back (no work in the background)
+                }
+            }));
             WebSettings ws = webView.getSettings();
             ws.setJavaScriptEnabled(true);
             ws.setDomStorageEnabled(true);
@@ -1173,7 +1225,11 @@ public class MainActivity extends Activity {
                 if (settingsDialog == d) {
                     settingsDialog = null;
                 }
-                if (appliedNight != ThemeManager.isNight(MainActivity.this)) {
+                // Not when this screen is going away: onDestroy closes Settings, and Android runs this listener
+                // only afterwards, when a rebuilt screen may already exist; recreate() would rebuild that new
+                // screen a second time (theme/ThemeRebuild, VERIFICATION.md R4-3).
+                if (ThemeRebuild.onSettingsClosed(appliedNight, ThemeManager.isNight(MainActivity.this),
+                        isFinishing() || isDestroyed())) {
                     recreate();
                 }
             });
@@ -1193,8 +1249,8 @@ public class MainActivity extends Activity {
             });
 
             // Only a plain section name may be appended (never anything from outside the app).
-            boolean validSection = section != null && section.matches("[a-z]{1,20}");
-            webView.loadUrl("file:///android_asset/settings.html" + (validSection ? "#" + section : ""));
+            webView.loadUrl("file:///android_asset/settings.html"
+                    + (settingsSection != null ? "#" + settingsSection : ""));
             
             dialog.setContentView(webView);
             dialog.show();
@@ -1315,14 +1371,28 @@ public class MainActivity extends Activity {
                                 }
                             }
                         }
-                    } catch (Throwable ignore) {}
+                    } catch (OutOfMemoryError e) {
+                        throw e; // handled below: keep the older copy (R4-6)
+                    } catch (Throwable ignore) {
+                        // The older copy can't be read (damaged): the new dump replaces it.
+                    }
                 }
                 finalJsonStr = newObj.toString();
             } catch (Throwable e) {
-                Log.w(TAG, "Fetched chats merge error", e);
+                // Merging failed (realistically: out of memory with many pictures). Until 2026-10-17 the unmerged new
+                // dump was saved anyway, over an older copy that may hold chats the new one lacks; now the older copy
+                // stays and the next dump tries again (VERIFICATION.md R4-6).
+                Log.w(TAG, "Fetched chats merge error; keeping the saved copy", e);
+                if (isRequestingViewer) {
+                    isRequestingViewer = false;
+                    runOnUiThread(this::showChatsViewerDialog);
+                }
+                return;
             }
             ChatDatabaseHelper.getInstance(MainActivity.this).saveCachedChatsJson(finalJsonStr);
-            if (isRequestingViewer || (chatsViewerDialog != null && chatsViewerDialog.isShowing())) {
+            // One read of the field: the window may close (field set to null) between two reads (re-check of R4-5).
+            android.app.Dialog viewer = chatsViewerDialog;
+            if (isRequestingViewer || (viewer != null && viewer.isShowing())) {
                 isRequestingViewer = false;
                 runOnUiThread(this::showChatsViewerDialog);
             }
@@ -1374,6 +1444,11 @@ public class MainActivity extends Activity {
 
     private void showChatsViewerDialog() {
         runOnUiThread(() -> {
+            // The background merge (onChatsFetched) may ask for this after the screen was closed or rebuilt;
+            // showing a window on a destroyed screen throws BadTokenException and crashes the app (R4-5).
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
             if (chatsViewerDialog != null && chatsViewerDialog.isShowing()) {
                 chatsViewerDialog.dismiss();
             }
@@ -1441,6 +1516,14 @@ public class MainActivity extends Activity {
             webView.loadUrl("file:///android_asset/chats_viewer.html");
             // Back closes it ("cancel"); after an offline fallback that also retries duck.ai.
             chatsViewerDialog.setOnCancelListener(d -> retryDuckIfOffline());
+            // Free the window's WebView (and the saved chats it holds) when it closes, like Settings does; without
+            // this it stayed in memory until Java's garbage collector found it (R4-5).
+            chatsViewerDialog.setOnDismissListener(d -> {
+                webView.destroy();
+                if (chatsViewerDialog == d) {
+                    chatsViewerDialog = null;
+                }
+            });
             chatsViewerDialog.setContentView(webView);
             chatsViewerDialog.show();
             
@@ -1560,16 +1643,35 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onPause() {
+        super.onPause();
+        inForeground = false;
+        // A new visit may reopen Settings once again after its page is stopped; a crash loop while the user watches
+        // never passes through onPause, so it still ends after one reopen (re-check of R4-4).
+        settingsCrashReopens = 0;
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
+        inForeground = true;
         // The theme may have been changed in the app's other screen (assistant drawer): rebuild if
-        // light/dark flipped, otherwise just repaint (palette / Material You).
+        // light/dark flipped, otherwise just repaint (palette / Material You). While Settings is open the rebuild
+        // waits until it closes (its dismiss listener below), so coming back from Recents keeps Settings on screen
+        // (theme/ThemeRebuild, VERIFICATION.md R4-2).
         if (tabManager != null) {
-            if (appliedNight != ThemeManager.isNight(this)) {
+            boolean settingsOpen = settingsDialog != null && settingsDialog.isShowing();
+            if (ThemeRebuild.onResume(appliedNight, ThemeManager.isNight(this), settingsOpen)) {
                 recreate();
                 return;
             }
             applyTheme();
+        }
+        // Settings closed in the background because its page's renderer was stopped: back now (R4-4).
+        if (settingsReopenPending != null) {
+            String section = settingsReopenPending;
+            settingsReopenPending = null;
+            openSettings(section);
         }
         refreshAccounts();
         if (tabManager != null) {
@@ -1658,6 +1760,14 @@ public class MainActivity extends Activity {
         super.onSaveInstanceState(outState);
         if (chatWebView != null) {
             chatWebView.saveState(outState);
+        }
+        // Dialogs aren't saved by Android: remember an open Settings window ourselves (ui/SettingsRestore, R4-4).
+        // A reopen still waiting (page stopped in the background) is kept too, or a rebuild before the user is back
+        // would drop it (re-check of R4-4).
+        String settings = SettingsRestore.toSave(settingsDialog != null && settingsDialog.isShowing(), settingsSection,
+                settingsReopenPending);
+        if (settings != null) {
+            outState.putString(SettingsRestore.KEY, settings);
         }
     }
 
@@ -1905,6 +2015,9 @@ public class MainActivity extends Activity {
 
     public void showPromptOnLaunchDialog() {
         runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
             if (promptDialog != null && promptDialog.isShowing()) {
                 promptDialog.dismiss();
             }
@@ -1969,6 +2082,12 @@ public class MainActivity extends Activity {
             // Theme colours for the page (read-only, local page only; see theme/ThemeBridge).
             webView.addJavascriptInterface(new ThemeBridge(this), "AndroidTheme");
             webView.loadUrl("file:///android_asset/prompt_dialog.html");
+            promptDialog.setOnDismissListener(d -> {
+                webView.destroy(); // free it at once (R4-5)
+                if (promptDialog == d) {
+                    promptDialog = null;
+                }
+            });
             promptDialog.setContentView(webView);
             promptDialog.show();
             
@@ -2313,9 +2432,18 @@ public class MainActivity extends Activity {
             // Files shared to the app are handed over now, as copies in the app's own storage (same
             // name, same bytes; see storage/UploadCopies for why a copy).
             if (pendingSharedFileUris != null && !pendingSharedFileUris.isEmpty()) {
-                Uri[] files = pendingSharedFileUris.toArray(new Uri[0]);
-                pendingSharedFileUris = null;
-                pendingSharedFileUri = null;
+                // Several shared files: a field that takes several gets them all; a one-file field gets the first,
+                // and the next 📎 tap the next one (storage/SharedFileQueue, R4-12).
+                boolean several = fileChooserParams != null
+                        && fileChooserParams.getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE;
+                Uri[] files = SharedFileQueue.handOver(pendingSharedFileUris, several).toArray(new Uri[0]);
+                java.util.List<Uri> rest = SharedFileQueue.remaining(pendingSharedFileUris, several);
+                pendingSharedFileUris = rest.isEmpty() ? null : rest;
+                pendingSharedFileUri = rest.isEmpty() ? null : rest.get(0);
+                if (!rest.isEmpty()) {
+                    showCustomBanner(rest.size() + (rest.size() == 1 ? " more file" : " more files")
+                            + " waiting: tap 📎 again");
+                }
                 UploadCopies.prepare(MainActivity.this, files, filePathCallback::onReceiveValue);
                 return true;
             }
@@ -2329,6 +2457,7 @@ public class MainActivity extends Activity {
                 mUploadMessage.onReceiveValue(null);
             }
             mUploadMessage = filePathCallback;
+            chooserParams = fileChooserParams; // for openFileManager: "several files?" and the page's types (R4-13)
 
             AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
             builder.setTitle("Select Option");
@@ -2377,10 +2506,28 @@ public class MainActivity extends Activity {
         }
     }
 
+    // The page's file-field request behind the open 📎 dialog (set in onShowFileChooser).
+    private WebChromeClient.FileChooserParams chooserParams = null;
+
     private void openFileManager() {
         Intent i = new Intent(Intent.ACTION_GET_CONTENT);
         i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.setType("*/*");
+        // Follow the page's file field (R4-13): several files if it takes several (<input multiple>), and only
+        // the file types it accepts (web/FileChooserTypes; anything it can't translate = every file).
+        // Docs: https://developer.android.com/reference/android/content/Intent#EXTRA_ALLOW_MULTIPLE
+        String[] types = chooserParams == null ? new String[0] : FileChooserTypes.mimeTypes(
+                chooserParams.getAcceptTypes(), ext -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext));
+        if (types.length == 1) {
+            i.setType(types[0]);
+        } else {
+            i.setType("*/*");
+            if (types.length > 1) {
+                i.putExtra(Intent.EXTRA_MIME_TYPES, types);
+            }
+        }
+        if (chooserParams != null && chooserParams.getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
+            i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        }
         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         startActivityForResult(Intent.createChooser(i, "File Chooser"), FILE_CHOOSER_REQUEST_CODE);
     }
@@ -2393,17 +2540,25 @@ public class MainActivity extends Activity {
                 return;
             Uri[] result = null;
             if (resultCode == RESULT_OK && intent != null) {
-                try {
-                    result = WebChromeClient.FileChooserParams.parseResult(resultCode, intent);
-                } catch (Exception ignored) {}
-                if (result == null) {
-                    if (intent.getClipData() != null) {
-                        int count = intent.getClipData().getItemCount();
-                        result = new Uri[count];
-                        for (int idx = 0; idx < count; idx++) {
-                            result[idx] = intent.getClipData().getItemAt(idx).getUri();
+                // Several picked files arrive as ClipData; read it first. parseResult only ever returns the single
+                // intent.getData() (Chromium AwContentsClient.parseFileChooserResult), so a picker that sets both
+                // would otherwise attach just one of the chosen files (R4-13).
+                if (intent.getClipData() != null && intent.getClipData().getItemCount() > 0) {
+                    java.util.List<Uri> picked = new java.util.ArrayList<>();
+                    for (int idx = 0; idx < intent.getClipData().getItemCount(); idx++) {
+                        Uri uri = intent.getClipData().getItemAt(idx).getUri();
+                        if (uri != null) { // a text-only item has no address
+                            picked.add(uri);
                         }
-                    } else if (intent.getData() != null) {
+                    }
+                    result = picked.isEmpty() ? null : picked.toArray(new Uri[0]);
+                } else {
+                    try {
+                        result = WebChromeClient.FileChooserParams.parseResult(resultCode, intent);
+                    } catch (Exception ignored) {}
+                }
+                if (result == null) {
+                    if (intent.getData() != null) {
                         result = new Uri[] { intent.getData() };
                     } else if (intent.getDataString() != null) {
                         result = new Uri[] { Uri.parse(intent.getDataString()) };
@@ -2457,6 +2612,12 @@ public class MainActivity extends Activity {
         }
         if (settingsDialog != null && settingsDialog.isShowing()) {
             settingsDialog.dismiss();
+        }
+        if (chatsViewerDialog != null && chatsViewerDialog.isShowing()) {
+            chatsViewerDialog.dismiss(); // R4-5: no WindowLeaked on a rebuild; frees its WebView
+        }
+        if (promptDialog != null && promptDialog.isShowing()) {
+            promptDialog.dismiss();
         }
         if (tabManager != null) {
             tabManager.destroyAccountTabs();

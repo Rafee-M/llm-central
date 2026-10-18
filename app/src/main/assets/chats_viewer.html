@@ -780,18 +780,30 @@
     <script>
         let allChats = [];
         let debugVisible = false;
+        // The last backup the window read (extractChats). The debug text is made from it only when the debug panel is
+        // open (tap the "Saved Chats" title): until 2026-10-18 the whole backup, base64 pictures included, was turned
+        // into text for the hidden panel on every refresh, up to 11 times while the window opened (R4-17).
+        let lastDumpData = null;
+
+        // Long strings (base64 pictures and files, often hundreds of KB) are shortened: the panel is for seeing the
+        // backup's structure, and a multi-MB text is too big for Android's clipboard anyway.
+        function debugText() {
+            if (!lastDumpData) return '';
+            return JSON.stringify(lastDumpData, (key, value) =>
+                (typeof value === 'string' && value.length > 300)
+                    ? value.slice(0, 60) + '… (' + value.length.toLocaleString('en-US') + ' characters)'
+                    : value, 2);
+        }
+
+        function showDebugText() {
+            if (debugVisible) document.getElementById('debugOutput').textContent = debugText();
+        }
 
         function toggleDebug() {
             const dbg = document.getElementById('debugContainer');
             debugVisible = !debugVisible;
             dbg.style.display = debugVisible ? 'block' : 'none';
-        }
-
-        function copyDebugInfo() {
-            if (typeof AndroidChatsViewer !== 'undefined' && AndroidChatsViewer.copyToClipboard) {
-                const text = document.getElementById('debugOutput').innerText;
-                AndroidChatsViewer.copyToClipboard(text);
-            }
+            showDebugText();
         }
 
         function getTimestamp(chat) {
@@ -945,8 +957,10 @@
             html = html.replace(/__(.*?)__/g, '<strong>$1</strong>');
             html = html.replace(/_(.*?)_/g, '<em>$1</em>');
             
-            // 5. Links
-            html = html.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank">$1</a>');
+            // 5. Links: only web addresses become links (a saved answer could hold a "javascript:" link,
+            // which would run with this window's bridge: VERIFICATION.md R4-7). Anything else stays plain text.
+            html = html.replace(/\[(.*?)\]\((.*?)\)/g, (match, text, url) =>
+                /^https?:\/\//i.test(url) ? `<a href="${url}" target="_blank">${text}</a>` : text);
 
             // 6. Tables
             const lines = html.split('\n');
@@ -1044,9 +1058,8 @@
 
         function extractChats(dumpData) {
             if (!dumpData) return [];
-            if (document.getElementById('debugOutput')) {
-                document.getElementById('debugOutput').innerText = JSON.stringify(dumpData, null, 2);
-            }
+            lastDumpData = dumpData;
+            showDebugText(); // only does work while the debug panel is open
             let chats = [];
             let allMessages = [];
             let conversationsMetadata = [];
@@ -1686,12 +1699,12 @@
                                 if (img.url.startsWith('data:image/') || img.url.match(/\.(jpg|jpeg|png|gif|webp|svg)/i) || !img.fileName) {
                                     imgCard.innerHTML = `
                                         <div class="generated-image-wrapper">
-                                            <img src="${escapeHTML(img.url)}" class="chat-generated-img" onclick="openLightbox('${escapeHTML(img.url)}')" alt="${escapeHTML(badge)}" />
+                                            <img src="${escapeHTML(img.url)}" class="chat-generated-img" alt="${escapeHTML(badge)}" />
                                         </div>
                                         <div class="image-card-footer">
                                             <div class="image-card-header-bar">
                                                 <span class="image-model-badge">${escapeHTML(badge)}</span>
-                                                <button type="button" class="image-download-btn" onclick="downloadImage('${escapeHTML(img.url)}', '${img.id || 'attached_image'}')">
+                                                <button type="button" class="image-download-btn">
                                                     <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                                                     Download
                                                 </button>
@@ -1704,7 +1717,7 @@
                                         <div class="image-card-footer">
                                             <div class="image-card-header-bar">
                                                 <span class="image-model-badge">📄 ${escapeHTML(img.fileName || badge)}</span>
-                                                <button type="button" class="image-download-btn" onclick="downloadImage('${escapeHTML(img.url)}', '${img.fileName || img.id || 'attached_doc'}')">
+                                                <button type="button" class="image-download-btn">
                                                     <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                                                     Download
                                                 </button>
@@ -1722,6 +1735,14 @@
                                     </div>
                                 `;
                             }
+                            // Click handlers get the values themselves, attached in code. Until 2026-10-17 they were
+                            // written into the HTML as JavaScript text: a file name with ' (e.g. "John's notes.pdf")
+                            // broke the button and could even run code (VERIFICATION.md R4-7).
+                            const pic = imgCard.querySelector('.chat-generated-img');
+                            if (pic) pic.addEventListener('click', () => openLightbox(img.url));
+                            const saveBtn = imgCard.querySelector('.image-download-btn');
+                            if (saveBtn) saveBtn.addEventListener('click', () => downloadImage(img.url,
+                                pic ? (img.id || 'attached_image') : (img.fileName || img.id || 'attached_doc')));
                             parentEl.appendChild(imgCard);
                         }
 
@@ -1818,13 +1839,32 @@
             }, 100);
         }
 
+        // Name and type for a saved file (VERIFICATION.md R4-34). Until 2026-10-18 every file got ".jpeg" and the
+        // type image/jpeg, so "notes.pdf" was saved as the picture "notes.pdf.jpeg" (and PNGs as JPEGs). Now:
+        // the real type comes from the data: address itself ("data:application/pdf;base64,…"); a name that already
+        // has an extension keeps it; a name without one gets the extension of that type. A name must always end
+        // with an extension here: the app's duck.ai naming adds ".md" to names without one (DownloadNames.duckName).
+        const EXTENSIONS = { 'image/jpeg': 'jpeg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+            'image/svg+xml': 'svg', 'application/pdf': 'pdf', 'text/plain': 'txt', 'text/csv': 'csv' };
+        function savedFile(dataUrl, filenameHint) {
+            const match = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+)[;,]/i.exec(dataUrl);
+            const type = match ? match[1].toLowerCase() : 'image/jpeg'; // old default for anything else
+            let name = (filenameHint || 'ai_generated_image').replace(/["\\]/g, '_'); // safe inside filename="…"
+            if (!/\.[A-Za-z0-9]{1,8}$/.test(name)) {
+                const subtype = type.split('/')[1];
+                name += '.' + (EXTENSIONS[type] || (/^[a-z0-9]{1,8}$/.test(subtype) ? subtype : 'jpeg'));
+            }
+            return { name: name, type: type };
+        }
+
         function downloadImage(dataUrl, filenameHint) {
             if (!dataUrl) return;
-            const filename = (filenameHint || 'ai_generated_image') + '.jpeg';
+            const file = savedFile(dataUrl, filenameHint);
+            const filename = file.name;
             const bridge = (typeof AndroidChatsViewer !== 'undefined') ? AndroidChatsViewer : (typeof Android !== 'undefined' ? Android : null);
-            
+
             if (bridge && bridge.processBlob) {
-                bridge.processBlob(dataUrl, 'image/jpeg', `attachment; filename="${filename}"`, '');
+                bridge.processBlob(dataUrl, file.type, `attachment; filename="${filename}"`, '');
                 showToast("Saving image...");
             } else {
                 const a = document.createElement('a');
@@ -1909,7 +1949,7 @@
         function copyDebugInfo() {
             const bridge = (typeof AndroidChatsViewer !== 'undefined') ? AndroidChatsViewer : (typeof Android !== 'undefined' ? Android : null);
             if (bridge && bridge.copyToClipboard) {
-                const text = document.getElementById('debugOutput').innerText;
+                const text = debugText(); // the panel's text (long strings shortened)
                 bridge.copyToClipboard(text);
                 showToast("Debug JSON copied");
             }
