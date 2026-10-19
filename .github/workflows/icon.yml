@@ -7,7 +7,7 @@ name: App icon
 #   1. By hand (Actions tab → "App icon" → "Run workflow" → pick the branch where you changed the SVG):
 #      generates the files and, if they changed, commits them to that same branch. Then it starts "Android CI"
 #      for that commit, so you get an APK with the new icon (artifact apks-<sha>). Untick "commit" to only look:
-#      the generated files are uploaded as the artifact "icon-files" either way.
+#      the generated files and preview.png (launcher shapes, themed icon) are in the artifact "icon-files" either way.
 #   2. Check mode, on every push that touches the artwork, the tool or this file (any branch, also an edit made
 #      in GitHub's web editor): generates the files and FAILS if they differ from the pushed ones ("you changed the
 #      SVG but not the icon files"). The fix is to run this workflow by hand on that branch. (Its own commit
@@ -96,6 +96,12 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           rm generator-output.txt
 
+      # tools/icon/preview.png: the generated icon in launcher shapes, the themed (monochrome) version and the
+      # safe zone. Git-ignored; it goes into the "icon-files" artifact below.
+      - name: Draw the preview
+        working-directory: tools/icon
+        run: npm run --silent preview
+
       - name: Compare with the committed files
         id: compare
         run: |
@@ -128,6 +134,7 @@ jobs:
             app/src/main/res/drawable/ic_launcher_monochrome.xml
             app/src/main/res/mipmap-*/ic_launcher.png
             fastlane/metadata/android/en-US/images/icon.png
+            tools/icon/preview.png
 
       # Check mode: a push must carry icon files that match its artwork.
       - name: Fail if the pushed icon files are out of date

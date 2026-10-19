@@ -1,1 +1,3 @@
 node_modules/
+# made by "npm run preview"; the App icon workflow uploads it, it is never committed
+preview.png

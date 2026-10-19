@@ -12,6 +12,10 @@ on:
   # Allows running the workflow manually from the Actions tab.
   workflow_dispatch:
 
+# Read-only token: this workflow only checks out the code and uploads artifacts.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
