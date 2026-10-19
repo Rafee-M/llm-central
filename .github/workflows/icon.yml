@@ -43,6 +43,11 @@ concurrency:
 jobs:
   icon:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        # Naming bash makes GitHub add "-o pipefail": without it, "npm run generate | tee" would report tee's
+        # success even when the generator stops with an error (seen in a test with an unsupported SVG element).
+        shell: bash
     permissions:
       contents: write   # push the commit (manual run only)
       actions: write    # start "Android CI" for that commit (manual run only)
