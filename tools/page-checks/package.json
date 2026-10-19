@@ -1,0 +1,8 @@
+{
+  "name": "llmcentral-page-checks",
+  "private": true,
+  "description": "Development-time checks: open the app's local HTML pages and injected scripts in Chromium with stand-in Android bridges and check what they show and send. Not part of the app.",
+  "type": "module",
+  "scripts": { "check": "node run-all.mjs" },
+  "dependencies": { "playwright": "1.56.1" }
+}
