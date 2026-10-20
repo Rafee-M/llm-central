@@ -1,0 +1,177 @@
+name: App icon
+
+# Turns artwork/icon.svg into every icon file the app and F-Droid need, on GitHub, so you don't need Node.js
+# on your own computer. It runs tools/icon/generate.mjs, the same tool as RELEASE.md section 2.
+#
+# Two ways it runs:
+#   1. By hand (Actions tab → "App icon" → "Run workflow" → pick the branch where you changed the SVG):
+#      generates the files and, if they changed, commits them to that same branch. Then it starts "Android CI"
+#      for that commit, so you get an APK with the new icon (artifact apks-<sha>). Untick "commit" to only look:
+#      the generated files and preview.png (launcher shapes, themed icon) are in the artifact "icon-files" either way.
+#   2. Check mode, on every push that touches the artwork, the tool or this file (any branch, also an edit made
+#      in GitHub's web editor): generates the files and FAILS if they differ from the pushed ones ("you changed the
+#      SVG but not the icon files"). The fix is to run this workflow by hand on that branch. (Its own commit
+#      doesn't start check mode again: see the next paragraph.) A pull request shows this check too.
+#
+# Why "Android CI" is started by hand below: a push made with the workflow's own GITHUB_TOKEN never starts other
+# workflows (GitHub's guard against endless loops); workflow_dispatch is the one documented exception.
+# https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication#using-the-github_token-in-a-workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Commit the new icon files to the chosen branch (untick = only generate and upload them)'
+        type: boolean
+        default: true
+  push:
+    # Branches only: path filters are not checked for tag pushes, so without this every release tag would run it.
+    branches: [ '**' ]
+    paths:
+      - 'artwork/icon.svg'
+      - 'tools/icon/**'
+      - '.github/workflows/icon.yml'
+
+# Nothing by default; the one job below asks only for what it needs.
+permissions: {}
+
+# Two runs on the same branch would race to push; let them queue instead.
+concurrency:
+  group: icon-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  icon:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # Naming bash makes GitHub add "-o pipefail": without it, "npm run generate | tee" would report tee's
+        # success even when the generator stops with an error (seen in a test with an unsupported SVG element).
+        shell: bash
+    permissions:
+      contents: write   # push the commit (manual run only)
+      actions: write    # start "Android CI" for that commit (manual run only)
+    env:
+      # Every file the generator writes (tools/icon/generate.mjs header). Only these are ever committed.
+      ICON_FILES: >-
+        app/src/main/res/values/ic_launcher_background.xml
+        app/src/main/res/drawable/ic_launcher_foreground.xml
+        app/src/main/res/drawable/ic_launcher_monochrome.xml
+        app/src/main/res/mipmap-mdpi/ic_launcher.png
+        app/src/main/res/mipmap-hdpi/ic_launcher.png
+        app/src/main/res/mipmap-xhdpi/ic_launcher.png
+        app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+        app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+        fastlane/metadata/android/en-US/images/icon.png
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Keep the write token out of .git/config; only the push step below uses it.
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # Exact versions from package-lock.json (Playwright 1.56.1). --ignore-scripts: no package install scripts run
+      # (Playwright needs none; its browser is installed explicitly in the next step).
+      - name: Install the generator
+        working-directory: tools/icon
+        run: npm ci --ignore-scripts
+
+      # The Chromium build that belongs to Playwright 1.56.1, plus the Linux libraries it needs.
+      - name: Install Chromium
+        working-directory: tools/icon
+        run: npx playwright install --with-deps chromium
+
+      - name: Generate the icon files
+        working-directory: tools/icon
+        run: |
+          npm run --silent generate | tee generator-output.txt
+          {
+            echo '### Generator output'
+            echo '```'
+            cat generator-output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          rm generator-output.txt
+
+      # tools/icon/preview.png: the generated icon in launcher shapes, the themed (monochrome) version and the
+      # safe zone. Git-ignored; it goes into the "icon-files" artifact below.
+      - name: Draw the preview
+        working-directory: tools/icon
+        run: npm run --silent preview
+
+      - name: Compare with the committed files
+        id: compare
+        run: |
+          # shellcheck disable=SC2086  # ICON_FILES is a space-separated list on purpose
+          CHANGED=$(git status --porcelain -- $ICON_FILES)
+          # Anything else changed means the generator wrote a file this workflow doesn't know about.
+          EXCLUDE=(':!tools/icon/node_modules')
+          for f in $ICON_FILES; do EXCLUDE+=(":!$f"); done
+          OTHER=$(git status --porcelain --untracked-files=all -- . "${EXCLUDE[@]}")
+          if [ -n "$OTHER" ]; then
+            echo "::error::The generator changed files outside the known icon list (update ICON_FILES in icon.yml):"
+            echo "$OTHER"
+            exit 1
+          fi
+          if [ -z "$CHANGED" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "The icon files are up to date with artwork/icon.svg." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            { echo 'Icon files that differ from artwork/icon.svg:'; echo '```'; echo "$CHANGED"; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the generated files
+        uses: actions/upload-artifact@v7
+        with:
+          name: icon-files
+          path: |
+            app/src/main/res/values/ic_launcher_background.xml
+            app/src/main/res/drawable/ic_launcher_foreground.xml
+            app/src/main/res/drawable/ic_launcher_monochrome.xml
+            app/src/main/res/mipmap-*/ic_launcher.png
+            fastlane/metadata/android/en-US/images/icon.png
+            tools/icon/preview.png
+
+      # Check mode: a push must carry icon files that match its artwork.
+      - name: Fail if the pushed icon files are out of date
+        if: github.event_name == 'push' && steps.compare.outputs.changed == 'true'
+        env:
+          # A branch name is text chosen by whoever pushes: pass it as data, never inside the script.
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          echo "::error::artwork/icon.svg and the icon files don't match. Run Actions → App icon → Run workflow on branch '${BRANCH}' (or run tools/icon yourself, RELEASE.md section 2)."
+          exit 1
+
+      - name: Commit and push the new icon files
+        if: github.event_name == 'workflow_dispatch' && inputs.commit && steps.compare.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if [ "$REF_TYPE" != "branch" ]; then
+            echo "::error::Pick a branch (not a tag) in 'Use workflow from'."
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # shellcheck disable=SC2086
+          git add -- $ICON_FILES
+          git commit -m 'Regenerate the app icon files from artwork/icon.svg' \
+                     -m "Made by the \"App icon\" workflow (tools/icon/generate.mjs), run ${{ github.run_id }}."
+          # Fails (on purpose) if someone pushed to the branch while this ran: run the workflow again.
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" "HEAD:refs/heads/${BRANCH}"
+          echo "Committed $(git rev-parse --short HEAD) to ${BRANCH}." | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Build an APK with the new icon (start Android CI)
+        if: github.event_name == 'workflow_dispatch' && inputs.commit && steps.compare.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          gh workflow run main.yml --repo "${{ github.repository }}" --ref "$BRANCH"
+          echo "Started \"Android CI\" on ${BRANCH}: its artifact apks-<sha> has the APK to try on your phone." | tee -a "$GITHUB_STEP_SUMMARY"

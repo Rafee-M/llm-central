@@ -47,6 +47,12 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# Naming bash makes GitHub run every step with "-o pipefail": without it, "apksigner verify … | tee" would report
+# tee's success even if the verification failed (GitHub's default step shell is "bash -e" only).
+defaults:
+  run:
+    shell: bash
+
 env:
   BUILD_TOOLS: '34.0.0'        # apksigner version: 34, never 35 (see top)
   APKSIGCOPIER: '1.1.1'        # the version F-Droid's check was rehearsed with
@@ -97,7 +103,9 @@ jobs:
 
       - name: Install apksigner ${{ env.BUILD_TOOLS }} and apksigcopier ${{ env.APKSIGCOPIER }}
         run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;$BUILD_TOOLS" > /dev/null
+          # "yes" answers the licence questions; it is always stopped by a broken pipe when sdkmanager ends, which
+          # pipefail would count as a failure. "|| true" ignores only that; a failing sdkmanager still fails the step.
+          { yes 2>/dev/null || true; } | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;$BUILD_TOOLS" > /dev/null
           pip install --quiet "apksigcopier==$APKSIGCOPIER"
 
       # Key and passwords exist only inside this one step (never in $GITHUB_ENV, so later steps can't see them);
@@ -157,6 +165,9 @@ jobs:
           APK: ${{ steps.sign.outputs.apk }}
         run: |
           FP=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' verify.txt)
+          if [ -z "$FP" ]; then
+            echo "::error::No signer fingerprint in apksigner's output (verify.txt)"; exit 1
+          fi
           {
             echo "APK: \`$APK\`, $(stat -c %s "$APK") bytes"
             echo "APK SHA-256: \`$(sha256sum "$APK" | cut -d' ' -f1)\`"
