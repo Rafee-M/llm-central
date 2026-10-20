@@ -248,7 +248,8 @@ function circleInRoundRect(px, py, radius, s) {
 // shape (alpha) counts. It mirrors the light/dark areas of the colour icon:
 //   cream speech bubble → drawn, as a ring (the dark screen is cut out of it);
 //   bubble tail         → drawn;
-//   coloured sprites    → drawn inside the cut-out.
+//   coloured sprites    → drawn inside the cut-out;
+//   details on a sprite → holes in that sprite (e.g. the 2026-10-20 artwork's black square eyes; see cutDetails).
 // The tail's top corners reach under the screen (hidden in colour, because the screen is painted over them).
 // In one colour they would show, so this layer slides them along their own edges into the middle of the cream
 // frame. The tail edges below the bubble are on the same lines, so the visible tail does not change.
@@ -258,11 +259,19 @@ function monochromeShapes(fg) {
     // tail, screen circle). Always in this order: bubble, tail, screen, then the sprites.
     const roundish = s => s?.kind === 'roundRect' || s?.kind === 'circle';
     const isTail = s => s?.kind === 'polygons' && s.stroke && s.polys.length === 1;
-    let bubble, tail, screen, sprites;
-    if (roundish(fg[0]) && isTail(fg[1]) && roundish(fg[2])) [bubble, tail, screen, ...sprites] = fg;
+    let bubble, tail, screen, sprites, rest = [];
+    if (roundish(fg[0]) && isTail(fg[1]) && roundish(fg[2])) [bubble, tail, screen, ...rest] = fg;
+    // Sprites = the unstroked paths right after the screen. Anything after them (2026-10-20 artwork: two black
+    // square eyes) is a detail painted on top of one sprite; one colour can't show it, so it becomes a hole there.
+    const isSprite = s => s.kind === 'polygons' && !s.stroke;
+    let n = 0;
+    while (n < rest.length && isSprite(rest[n])) n++;
+    sprites = rest.slice(0, n);
+    const details = rest.slice(n);
     const ok = bubble && screen && bubble.kind === screen.kind && sprites.length > 0
-        && sprites.every(s => s.kind === 'polygons' && !s.stroke);
-    if (!ok) fail('the foreground is expected as: bubble (rect or circle), tail (stroked path), screen (same kind as the bubble), then sprite paths');
+        && details.every(s => !s.stroke && (s.kind === 'polygons' || (s.kind === 'roundRect' && s.r === 0)));
+    if (!ok) fail('the foreground is expected as: bubble (rect or circle), tail (stroked path), screen (same kind as the bubble), '
+        + 'sprite paths, then optional details on the sprites (paths or square-cornered rects, no stroke)');
     const circles = bubble.kind === 'circle';
     const inside = (outer, inner) => circles
         ? Math.hypot(inner.cx - outer.cx, inner.cy - outer.cy) + inner.r <= outer.r
@@ -273,6 +282,7 @@ function monochromeShapes(fg) {
     for (const s of sprites) for (const [x, y] of s.polys.flat()) {
         if (!inScreen(x, y)) stop('sprites must lie inside the screen');
     }
+    sprites = cutDetails(sprites, details);
     if (circles) {
         // Round layout: the tail's corners must already lie outside the screen (in the white ring or beyond),
         // because one colour would show a corner hidden under the screen. Moving them is only done for rects.
@@ -302,6 +312,38 @@ function monochromeShapes(fg) {
         if (!(circleInRoundRect(x, y, r, ring) && y - r > screenBottom)) stop('the moved tail corner does not fit in the cream frame (is the frame thinner than the tail outline?)');
     }
     return { bubble, screen, tail: { ...tail, polys: [moved] }, sprites, yMid };
+}
+
+// A detail (e.g. an eye) painted on a sprite becomes a hole in that sprite in the one-colour layer: its outline is
+// added to the sprite's path, drawn with the even-odd rule (a point inside two outlines is left empty). Refused
+// unless the detail lies completely inside exactly one sprite, so a hole never cuts across a sprite's edge.
+function cutDetails(sprites, details) {
+    const out = sprites.map(s => ({ ...s, polys: [...s.polys] }));
+    // even-odd test over all of a sprite's outlines (also right for a one-outline sprite drawn with non-zero)
+    const inSprite = (s, [x, y]) => s.polys.reduce((odd, poly) => {
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+            const [xi, yi] = poly[i], [xj, yj] = poly[j];
+            if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) odd = !odd;
+        }
+        return odd;
+    }, false);
+    for (const d of details) {
+        const polys = d.kind === 'roundRect'
+            ? [[[d.x, d.y], [d.x + d.w, d.y], [d.x + d.w, d.y + d.h], [d.x, d.y + d.h]]]
+            : d.polys;
+        const pts = polys.flat();
+        const [x0, x1] = [Math.min(...pts.map(p => p[0])), Math.max(...pts.map(p => p[0]))];
+        const [y0, y1] = [Math.min(...pts.map(p => p[1])), Math.max(...pts.map(p => p[1]))];
+        const hosts = out.filter(s => pts.every(p => inSprite(s, p))
+            // no corner of the sprite may poke into the detail (that would mean the hole crosses its edge)
+            && !s.polys.flat().some(([x, y]) => x > x0 && x < x1 && y > y0 && y < y1));
+        if (hosts.length !== 1) stop('a detail after the sprites (e.g. an eye) must lie completely inside exactly one sprite');
+        const host = hosts[0];
+        if (!host.evenOdd && host.polys.length > 1) stop('a sprite made of several outlines can only get holes if it uses fill-rule: evenodd');
+        host.polys.push(...polys);
+        host.evenOdd = true;
+    }
+    return out;
 }
 
 // ---------- 6. main ----------
