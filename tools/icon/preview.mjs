@@ -3,7 +3,8 @@
 // Run after the generator: cd tools/icon && npm run preview   (the "App icon" workflow runs it too)
 //
 // What it reads (made by generate.mjs; the preview never looks at artwork/icon.svg, so it shows what Android gets):
-//   res/values/ic_launcher_background.xml, res/drawable/ic_launcher_foreground.xml,
+//   res/drawable/ic_launcher_background.xml (flat or a linear gradient; older outputs: res/values/…, a colour),
+//   res/drawable/ic_launcher_foreground.xml (fillAlpha = a translucent part, e.g. a shadow),
 //   res/drawable/ic_launcher_monochrome.xml, res/mipmap-mdpi/ic_launcher.png, fastlane …/images/icon.png
 //
 // How Android draws an adaptive icon (AOSP AdaptiveIconDrawable: MASK_SIZE 100, EXTRA_INSET_PERCENTAGE 1/4,
@@ -16,7 +17,7 @@
 // Real phones take those colours from the wallpaper; the preview uses AOSP's default values (colors.xml, android13).
 
 import { chromium } from 'playwright';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -54,7 +55,7 @@ function readVector(file) {
 function svgPath(p, tint) {
     const fill = p.fillColor ? (tint || argbToCss(p.fillColor)) : 'none';
     const stroke = p.strokeColor ? (tint || argbToCss(p.strokeColor)) : 'none';
-    return `<path d="${p.pathData}" fill="${fill}" fill-rule="${p.fillType === 'evenOdd' ? 'evenodd' : 'nonzero'}"`
+    return `<path d="${p.pathData}" fill="${fill}" fill-opacity="${p.fillAlpha || 1}" fill-rule="${p.fillType === 'evenOdd' ? 'evenodd' : 'nonzero'}"`
         + ` stroke="${stroke}" stroke-width="${p.strokeWidth || 0}" stroke-linejoin="${(p.strokeLineJoin || 'miter')}"`
         + ` stroke-linecap="${p.strokeLineCap || 'butt'}"/>`;
 }
@@ -67,8 +68,29 @@ function argbToCss(c) {
     return c;
 }
 
-const background = argbToCss(readFileSync(join(RES, 'values', 'ic_launcher_background.xml'), 'utf8')
-    .match(/<color name="ic_launcher_background">([^<]+)</)[1].trim());
+// The background layer: drawable/ic_launcher_background.xml (one path over the whole 108 dp layer, a flat colour or
+// an aapt linear gradient), or, from generators before 2026-10-22, only the colour in values/. A gradient becomes
+// one SVG <linearGradient> in the coordinates icon() draws the background in (the 100-unit mask box, layer at 1.5 x).
+let background, backgroundDefs = '';
+const bgDrawable = join(RES, 'drawable', 'ic_launcher_background.xml');
+if (existsSync(bgDrawable)) {
+    const xml = readFileSync(bgDrawable, 'utf8').replace(/<!--[\s\S]*?-->/g, '');
+    const g = /<gradient([^>]*)>([\s\S]*?)<\/gradient>/.exec(xml);
+    if (g) {
+        const a = attrs(g[1]), toBox = v => -25 + Number(v) * 150 / 108;
+        if (a.type !== 'linear') throw new Error(`${bgDrawable}: preview.mjs draws only linear gradients`);
+        const stops = [...g[2].matchAll(/<item([^>]*)\/>/g)].map(m => attrs(m[1]))
+            .map(st => `<stop offset="${st.offset}" stop-color="${argbToCss(st.color)}"/>`).join('');
+        backgroundDefs = `<svg width="0" height="0" style="position:absolute"><defs><linearGradient id="bg" gradientUnits="userSpaceOnUse"`
+            + ` x1="${toBox(a.startX)}" y1="${toBox(a.startY)}" x2="${toBox(a.endX)}" y2="${toBox(a.endY)}">${stops}</linearGradient></defs></svg>`;
+        background = 'url(#bg)';
+    } else {
+        background = argbToCss(attrs(xml.match(/<path[^>]*>/)[0]).fillColor);
+    }
+} else {
+    background = argbToCss(readFileSync(join(RES, 'values', 'ic_launcher_background.xml'), 'utf8')
+        .match(/<color name="ic_launcher_background"[^>]*>([^<]+)</)[1].trim());
+}
 const foreground = readVector(join(RES, 'drawable', 'ic_launcher_foreground.xml'));
 const monochrome = readVector(join(RES, 'drawable', 'ic_launcher_monochrome.xml'));
 const pngData = f => 'data:image/png;base64,' + readFileSync(f).toString('base64');
@@ -102,6 +124,7 @@ const html = `<!doctype html><meta charset="utf-8"><style>
   figure.dark { background: #121316; color: #e3e2e6; }
   figcaption { font-size: 11px; margin-top: 6px; }
 </style>
+${backgroundDefs}
 <h2>Adaptive icon (Android 8+) in launcher shapes</h2>
 <div class="row">${SHAPES.map(([n, d]) => tile(n, icon(112, d, fg, background))).join('')}</div>
 <h2>Themed icon (Android 13+, monochrome layer)</h2>
@@ -137,7 +160,7 @@ async function main() {
         await page.setContent(html);
         if (errors.length) throw new Error('preview page error: ' + errors[0]);
         await page.screenshot({ path: OUT, fullPage: true });
-        console.log(`preview written: ${OUT} (${foreground.length} foreground + ${monochrome.length} monochrome paths, background ${background})`);
+        console.log(`preview written: ${OUT} (${foreground.length} foreground + ${monochrome.length} monochrome paths, background ${background === 'url(#bg)' ? 'gradient' : background})`);
     } finally {
         await browser.close();
     }

@@ -53,8 +53,12 @@ jobs:
       actions: write    # start "Android CI" for that commit (manual run only)
     env:
       # Every file the generator writes (tools/icon/generate.mjs header). Only these are ever committed.
+      # The last entry is a pattern: the adaptive-icon files already in res/mipmap-anydpi*/ (or the one the generator
+      # creates there) get their background pointed at drawable/ic_launcher_background.xml. The shell expands it
+      # below to the files that exist.
       ICON_FILES: >-
         app/src/main/res/values/ic_launcher_background.xml
+        app/src/main/res/drawable/ic_launcher_background.xml
         app/src/main/res/drawable/ic_launcher_foreground.xml
         app/src/main/res/drawable/ic_launcher_monochrome.xml
         app/src/main/res/mipmap-mdpi/ic_launcher.png
@@ -63,6 +67,7 @@ jobs:
         app/src/main/res/mipmap-xxhdpi/ic_launcher.png
         app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
         fastlane/metadata/android/en-US/images/icon.png
+        app/src/main/res/mipmap-anydpi*/ic_launcher*.xml
     steps:
       - uses: actions/checkout@v7
         with:
@@ -98,9 +103,11 @@ jobs:
 
       # tools/icon/preview.png: the generated icon in launcher shapes, the themed (monochrome) version and the
       # safe zone. Git-ignored; it goes into the "icon-files" artifact below.
+      # Only a picture for you to look at, not part of the app: if it cannot be drawn (for example it does not
+      # understand a new SVG feature), that is a warning, and the icon files are still generated and committed.
       - name: Draw the preview
         working-directory: tools/icon
-        run: npm run --silent preview
+        run: npm run --silent preview || echo "::warning::The preview (tools/icon/preview.png) could not be drawn; the icon files are not affected."
 
       - name: Compare with the committed files
         id: compare
@@ -130,9 +137,11 @@ jobs:
           name: icon-files
           path: |
             app/src/main/res/values/ic_launcher_background.xml
+            app/src/main/res/drawable/ic_launcher_background.xml
             app/src/main/res/drawable/ic_launcher_foreground.xml
             app/src/main/res/drawable/ic_launcher_monochrome.xml
             app/src/main/res/mipmap-*/ic_launcher.png
+            app/src/main/res/mipmap-anydpi*/ic_launcher*.xml
             fastlane/metadata/android/en-US/images/icon.png
             tools/icon/preview.png
 
