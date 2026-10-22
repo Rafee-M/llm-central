@@ -11,7 +11,8 @@
 //   app/src/main/res/mipmap-anydpi*/ic_launcher*.xml      the adaptive-icon files that already exist there get
 //                                                         their background pointed at the drawable above; if none
 //                                                         exists, mipmap-anydpi-v26/ic_launcher.xml is created
-//   app/src/main/res/mipmap-*/ic_launcher.png             ready-made pictures for Android 7 (48 to 192 px)
+//   app/src/main/res/mipmap-*/ic_launcher.png             ready-made pictures for Android 7 (48 to 192 px; rounded
+//                                                         corners added like the store icon: STORE_CORNER)
 //   fastlane/metadata/android/en-US/images/icon.png      512 px store icon for F-Droid (rounded corners added when
 //                                                         the artwork's background is square-cornered: STORE_CORNER)
 //
@@ -50,8 +51,9 @@ const STORE_ICON = join(ROOT, 'fastlane', 'metadata', 'android', 'en-US', 'image
 // Legacy launcher icon = 48 dp; one PNG per screen density (mdpi = 1x … xxxhdpi = 4x).
 const LEGACY = { mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
 const STORE_PX = 512;
-// The store icon is shown as it is (no launcher cuts it). A square-cornered artwork gets rounded corners there,
-// in the proportion of the earlier artworks' background (rx 100 of 445); an artwork with its own corners keeps them.
+// The store icon and the Android 7 PNGs are shown as they are (no launcher cuts them). A square-cornered artwork gets
+// rounded corners there, in the proportion of the earlier artworks' background (rx 100 of 445); an artwork with its
+// own corners keeps them. Android 8+ uses the vector layers, which the launcher cuts itself: not affected.
 const STORE_CORNER = 100 / 445;
 
 const LAYER_DP = 108, VISIBLE_DP = 72, SAFE_RADIUS_DP = 33, VISIBLE_RADIUS_DP = 36;
@@ -691,8 +693,8 @@ async function main() {
             mkdirSync(dirname(file), { recursive: true });
             await page.screenshot({ path: file, omitBackground: true, clip: { x: 0, y: 0, width: px, height: px } });
         };
-        for (const [density, px] of Object.entries(LEGACY)) await png(px, join(RES, `mipmap-${density}`, 'ic_launcher.png'));
         const storeRounded = bg.r === 0;
+        for (const [density, px] of Object.entries(LEGACY)) await png(px, join(RES, `mipmap-${density}`, 'ic_launcher.png'), storeRounded ? STORE_CORNER : 0);
         await png(STORE_PX, STORE_ICON, storeRounded ? STORE_CORNER : 0);
 
         // the adaptive-icon files must use the background drawable
@@ -705,7 +707,7 @@ async function main() {
             + (mono.bubble ? (mono.yMid !== null ? `; monochrome tail corners moved to y=${mono.yMid.toFixed(2)} units` : '; monochrome tail unchanged')
                 : `; monochrome: ${mono.sprites.length} outline${mono.sprites.length === 1 ? '' : 's'}` + (mono.shadowsSkipped ? `, ${mono.shadowsSkipped} translucent shadow left out` : ''))
             + `; ${Object.keys(LEGACY).length} legacy PNGs + ${STORE_PX} px store icon written`
-            + (storeRounded ? ` (store icon with rounded corners, radius ${Math.round(STORE_CORNER * STORE_PX)} px)` : '') + '.'
+            + (storeRounded ? ` (rounded corners added: ${Math.round(STORE_CORNER * 100)} % radius, ${Math.round(STORE_CORNER * STORE_PX)} px on the store icon)` : '') + '.'
             + (adaptive.touched.length ? `\nadaptive icon updated: ${adaptive.touched.join(', ')}` : '')
             + adaptive.notes.map(n => `\nNOTE: ${n}`).join(''));
     } finally {
