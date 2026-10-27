@@ -127,6 +127,23 @@ public final class UploadCopies {
         return AppCache.deleteOldFolders(uploadsDir, nowMillis - KEEP_MS);
     }
 
+    /**
+     * Runs a job on this class's threads, after the usual clean-up of old copies. {@link PhotoPdf} uses it, so the
+     * PDF it makes adds no threads of its own and is cleaned up like any copy.
+     */
+    static void execute(Context app, Runnable job) {
+        copier.execute(() -> {
+            deleteExpired(new File(app.getCacheDir(), DIR), System.currentTimeMillis());
+            job.run();
+        });
+    }
+
+    /** A new folder {@code cache/uploads/<time>_<n>} for one attached file (deleted by the clean-ups above). */
+    static File newFolder(Context context) {
+        return new File(new File(context.getCacheDir(), DIR),
+                System.currentTimeMillis() + "_" + counter.incrementAndGet());
+    }
+
     /** For tests: lets {@link #cleanUpAtStart} run again. */
     static void resetForTest() {
         startCleanUpDone.set(false);
@@ -137,8 +154,7 @@ public final class UploadCopies {
         if (uri == null || !ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())) {
             return uri; // already a plain file (e.g. one of ours)
         }
-        File folder = new File(new File(context.getCacheDir(), DIR),
-                System.currentTimeMillis() + "_" + counter.incrementAndGet());
+        File folder = newFolder(context);
         try {
             if (!folder.mkdirs()) {
                 return uri;

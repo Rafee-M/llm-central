@@ -58,7 +58,8 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 - 🚀 **"Ask AI" text action**: select text in any app → overflow menu → *Ask AI*.
 - 📁 **File support**: upload files/photos, download attachments to your Downloads folder.
 - 📄 **Share any file**: files shared to the app (documents, PDFs, images…) reach the chat exactly as
-  they are, same name and content; tap 📎 on the page to attach them.
+  they are, same name and content; tap 📎 on the page to attach them. On duck.ai, 📎 → "Photos as PDF (sharper)"
+  sends photos at full quality (duck.ai shrinks plain image attachments to 512 px).
 - 💬 **Offline chat history** for duck.ai, shown automatically when there's no connection (off by default: switch it on in Settings → Data & tools).
 - 🧩 **User scripts**: optional custom scripts per website (off by default, with a security warning).
 - 🌐 **External links** open in your normal browser.

@@ -2,11 +2,19 @@
 // F-Droid need. Not part of the app. Run: cd tools/icon && npm install && npm run generate
 //
 // What it writes (all overwritten each run, so never edit them by hand):
-//   app/src/main/res/values/ic_launcher_background.xml   adaptive icon background colour (Android 8+)
+//   app/src/main/res/drawable/ic_launcher_background.xml  adaptive icon background, a vector drawable: flat or a
+//                                                         linear gradient (Android 8+)
+//   app/src/main/res/values/ic_launcher_background.xml   the background as one flat colour (for a gradient: its
+//                                                         middle colour), for anything that wants a colour
 //   app/src/main/res/drawable/ic_launcher_foreground.xml  adaptive icon foreground, a vector drawable (Android 8+)
 //   app/src/main/res/drawable/ic_launcher_monochrome.xml  one-colour layer for "Themed icons" (Android 13+)
-//   app/src/main/res/mipmap-*/ic_launcher.png             ready-made pictures for Android 7 (48 to 192 px)
-//   fastlane/metadata/android/en-US/images/icon.png      512 px store icon for F-Droid
+//   app/src/main/res/mipmap-anydpi*/ic_launcher*.xml      the adaptive-icon files that already exist there get
+//                                                         their background pointed at the drawable above; if none
+//                                                         exists, mipmap-anydpi-v26/ic_launcher.xml is created
+//   app/src/main/res/mipmap-*/ic_launcher.png             ready-made pictures for Android 7 (48 to 192 px; rounded
+//                                                         corners added like the store icon: STORE_CORNER)
+//   fastlane/metadata/android/en-US/images/icon.png      512 px store icon for F-Droid (rounded corners added when
+//                                                         the artwork's background is square-cornered: STORE_CORNER)
 //
 // How the artwork maps onto an adaptive icon
 // (https://developer.android.com/develop/ui/views/launch/icon_design_adaptive):
@@ -21,12 +29,18 @@
 //
 // The SVG reader is deliberately small: it understands what SVGMaker writes for this artwork (rect with
 // rounded corners, circle, path with M/L/H/V/Z, group transforms that scale evenly and move) and stops with a
-// clear message on anything else, instead of guessing.
+// clear message on anything else, instead of guessing. Three more things are understood because the 2026-10-21
+// artwork needs them:
+//   - the background rect may be filled with a <linearGradient> (two or more opaque stops, pad spread);
+//   - a path may have clip-path="url(#id)" naming a <clipPath> with ONE convex <polygon> or <rect> (the two
+//     coloured halves of the creature). The clip is applied to the geometry here, not written as an Android
+//     <clip-path>, because VectorDrawable clip paths are not anti-aliased (a diagonal edge would be jagged).
+//   - fill transparency (opacity / fill-opacity on a shape without stroke) becomes android:fillAlpha.
 //
 // The rendering (SVG reading, PNG pictures) uses Chromium through Playwright, the same engine as a browser.
 
 import { chromium } from 'playwright';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -37,6 +51,10 @@ const STORE_ICON = join(ROOT, 'fastlane', 'metadata', 'android', 'en-US', 'image
 // Legacy launcher icon = 48 dp; one PNG per screen density (mdpi = 1x … xxxhdpi = 4x).
 const LEGACY = { mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
 const STORE_PX = 512;
+// The store icon and the Android 7 PNGs are shown as they are (no launcher cuts them). A square-cornered artwork gets
+// rounded corners there, in the proportion of the earlier artworks' background (rx 100 of 445); an artwork with its
+// own corners keeps them. Android 8+ uses the vector layers, which the launcher cuts itself: not affected.
+const STORE_CORNER = 100 / 445;
 
 const LAYER_DP = 108, VISIBLE_DP = 72, SAFE_RADIUS_DP = 33, VISIBLE_RADIUS_DP = 36;
 // Points of the same path closer than this (in artwork units) are treated as the same line. SVGMaker leaves
@@ -55,13 +73,65 @@ async function readArtwork(page, svgText) {
         const vb = svg.viewBox.baseVal;
         const shapes = [];
         // things this reader does not understand: report them instead of drawing something wrong
-        const unsupported = [...svg.querySelectorAll('clipPath, mask, pattern, linearGradient, radialGradient, filter, use, image, text, symbol, marker, foreignObject')]
+        // (<linearGradient> and <clipPath> are understood, but only where a shape uses them: see below)
+        const unsupported = [...svg.querySelectorAll('mask, pattern, radialGradient, filter, use, image, text, symbol, marker, foreignObject')]
             .map(el => el.tagName);
+        const refId = css => { const m = /^url\(\s*["']?#([^"')]+)["']?\s*\)/.exec(css); return m ? m[1] : null; };
+        const byId = id => document.getElementById(id);
+
+        const readGradient = id => {
+            const el = byId(id);
+            if (!el || el.localName !== 'linearGradient') return { error: `fill url(#${id}) is not a <linearGradient>` };
+            if (el.hasAttribute('gradientTransform') || el.hasAttribute('href') || el.hasAttribute('xlink:href')) {
+                return { error: `<linearGradient id="${id}"> uses gradientTransform or href` };
+            }
+            const stops = [...el.querySelectorAll('stop')].map(st => {
+                const c = getComputedStyle(st);
+                return { offset: st.offset.baseVal, color: c.stopColor, opacity: Number(c.stopOpacity) };
+            });
+            const a = n => el.getAttribute(n);
+            return { id, units: a('gradientUnits') || 'objectBoundingBox', spread: a('spreadMethod') || 'pad',
+                     x1: a('x1'), y1: a('y1'), x2: a('x2'), y2: a('y2'), stops };
+        };
+
+        const readClip = id => {
+            const el = byId(id);
+            if (!el || el.localName !== 'clipPath') return { error: `clip-path url(#${id}) is not a <clipPath>` };
+            if (el.getAttribute('clipPathUnits') === 'objectBoundingBox' || el.hasAttribute('transform') || el.hasAttribute('clip-path')) {
+                return { error: `<clipPath id="${id}"> uses clipPathUnits=objectBoundingBox, transform or clip-path` };
+            }
+            const kids = [...el.children];
+            if (kids.length !== 1) return { error: `<clipPath id="${id}"> must contain exactly one shape (it has ${kids.length})` };
+            const k = kids[0], tag = k.localName;
+            if (k.hasAttribute('transform') || k.hasAttribute('clip-path')) return { error: `the shape in <clipPath id="${id}"> has a transform or clip-path` };
+            if (tag === 'polygon') {
+                return { points: Array.from({ length: k.points.numberOfItems }, (_, i) => { const q = k.points.getItem(i); return [q.x, q.y]; }) };
+            }
+            if (tag === 'rect' && !k.hasAttribute('rx') && !k.hasAttribute('ry')) {
+                const n = name => Number(k.getAttribute(name) || 0), x = n('x'), y = n('y'), w = n('width'), h = n('height');
+                return { points: [[x, y], [x + w, y], [x + w, y + h], [x, y + h]] };
+            }
+            return { error: `<${tag}> inside <clipPath id="${id}"> (only a <polygon> or a square-cornered <rect>)` };
+        };
+
         for (const el of svg.querySelectorAll('*')) {
             const tag = el.tagName.toLowerCase();
             if (!['rect', 'path', 'circle', 'ellipse', 'line', 'polygon', 'polyline', 'text', 'image', 'use'].includes(tag)) continue;
             const cs = getComputedStyle(el);
-            if (cs.visibility === 'hidden' || cs.display === 'none' || el.closest('defs')) continue;
+            if (cs.visibility === 'hidden' || cs.display === 'none' || el.closest('defs, clipPath')) continue;
+            // effects on a parent group would change how the shape looks and are not inherited in computed style
+            let effect = null;
+            for (let g = el.parentElement; g && !effect; g = g.parentElement) {
+                const gs = getComputedStyle(g);
+                if (Number(gs.opacity) !== 1) effect = `opacity on <${g.localName}>`;
+                else if (gs.clipPath !== 'none') effect = `clip-path on <${g.localName}>`;
+                else if (gs.mask !== 'none' && gs.mask !== '') effect = `mask on <${g.localName}>`;
+                else if (gs.filter !== 'none') effect = `filter on <${g.localName}>`;
+                if (g === svg) break;
+            }
+            if (!effect && cs.mask !== 'none' && cs.mask !== '') effect = 'mask';
+            if (!effect && cs.filter !== 'none') effect = 'filter';
+            const fillId = refId(cs.fill), clipId = refId(cs.clipPath);
             const m = el.getCTM();
             shapes.push({
                 tag,
@@ -69,6 +139,9 @@ async function readArtwork(page, svgText) {
                 attr: Object.fromEntries([...el.attributes].map(a => [a.name, a.value])),
                 fill: cs.fill, fillRule: cs.fillRule, stroke: cs.stroke, strokeWidth: parseFloat(cs.strokeWidth),
                 lineJoin: cs.strokeLinejoin, opacity: [cs.opacity, cs.fillOpacity, cs.strokeOpacity].map(Number),
+                effect,
+                gradient: fillId ? readGradient(fillId) : null,
+                clip: clipId ? readClip(clipId) : (cs.clipPath !== 'none' ? { error: `clip-path "${cs.clipPath}"` } : null),
             });
         }
         return { viewBox: [vb.x, vb.y, vb.width, vb.height], shapes, unsupported };
@@ -142,11 +215,110 @@ function snap(polys) {
     return polys;
 }
 
-/** One visible artwork shape → { kind: 'roundRect' | 'polygons', … } in artwork units, colours as #RRGGBB. */
+/**
+ * Sutherland-Hodgman: the part of `poly` that lies inside the CONVEX polygon `clip`. Right for a concave `poly`
+ * too, as long as the result is one piece (when the clip line would split it into several pieces the pieces get
+ * joined by edges lying on the clip line, which enclose no area). Returns [] when nothing is left.
+ */
+function isConvex(poly) {
+    // convex and simple: every turn goes the same way and the turns add up to exactly one full circle
+    let sign = 0, turn = 0;
+    for (let i = 0; i < poly.length; i++) {
+        const [ax, ay] = poly[i], [bx, by] = poly[(i + 1) % poly.length], [cx, cy] = poly[(i + 2) % poly.length];
+        const ux = bx - ax, uy = by - ay, vx = cx - bx, vy = cy - by;
+        const lu = Math.hypot(ux, uy), lv = Math.hypot(vx, vy);
+        if (lu < 1e-12 || lv < 1e-12) continue;                           // repeated point
+        const cross = ux * vy - uy * vx, dot = ux * vx + uy * vy;
+        if (Math.abs(cross) <= 1e-9 * lu * lv) { if (dot < 0) return false; continue; }   // straight on / doubles back
+        if (sign && Math.sign(cross) !== sign) return false;
+        sign = Math.sign(cross);
+        turn += Math.atan2(cross, dot);
+    }
+    return sign !== 0 && Math.abs(Math.abs(turn) - 2 * Math.PI) < 1e-6;
+}
+
+function clipConvex(poly, clip) {
+    if (!isConvex(clip)) fail('a clip-path polygon is not convex (only convex clip polygons are supported)');
+    const area = clip.reduce((a, [x, y], i) => { const [nx, ny] = clip[(i + 1) % clip.length]; return a + x * ny - nx * y; }, 0);
+    if (Math.abs(area) < 1e-9) fail('a clip-path polygon has no area');
+    const c = area > 0 ? clip : [...clip].reverse();      // inside = left of every edge a→b (cross product ≥ 0)
+    let out = poly;
+    for (let i = 0; i < c.length && out.length; i++) {
+        const [ax, ay] = c[i], [bx, by] = c[(i + 1) % c.length];
+        const side = ([x, y]) => (bx - ax) * (y - ay) - (by - ay) * (x - ax);
+        const next = [];
+        for (let j = 0; j < out.length; j++) {
+            const p = out[j], q = out[(j + 1) % out.length], sp = side(p), sq = side(q);
+            if (sp >= 0) next.push(p);
+            if ((sp >= 0) !== (sq >= 0)) { const t = sp / (sp - sq); next.push([p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])]); }
+        }
+        out = next;
+    }
+    out = out.filter((p, i) => { const q = out[(i + out.length - 1) % out.length]; return Math.hypot(p[0] - q[0], p[1] - q[1]) > 1e-9; });
+    const a = out.reduce((s2, [x, y], i) => { const [nx, ny] = out[(i + 1) % out.length]; return s2 + x * ny - nx * y; }, 0);
+    return out.length >= 3 && Math.abs(a) > 1e-9 ? out : [];
+}
+
+/** <linearGradient> as read in the page → start/end points in artwork units + stops (#RRGGBB, offset 0..1). */
+function gradientOf(g, box, t) {
+    if (g.error) fail(g.error);
+    if (g.spread !== 'pad') fail(`<linearGradient id="${g.id}"> has spreadMethod="${g.spread}" (only pad is supported)`);
+    if (g.units !== 'objectBoundingBox' && g.units !== 'userSpaceOnUse') fail(`gradientUnits="${g.units}"`);
+    const bbox = g.units === 'objectBoundingBox';
+    const coord = (raw, def, axis) => {
+        const m = /^\s*(-?(?:\d+\.?\d*|\.\d+))(%?)\s*$/.exec(raw ?? def);
+        if (!m) fail(`gradient coordinate "${raw}"`);
+        const n = Number(m[1]);
+        if (bbox) return (axis === 'x' ? box.x : box.y) + (m[2] ? n / 100 : n) * (axis === 'x' ? box.w : box.h);
+        if (m[2]) fail('a gradient with percentages needs gradientUnits="objectBoundingBox"');
+        return null;                                          // userSpaceOnUse: mapped as a pair below
+    };
+    let start, end;
+    if (bbox) {
+        start = [coord(g.x1, '0%', 'x'), coord(g.y1, '0%', 'y')];
+        end = [coord(g.x2, '100%', 'x'), coord(g.y2, '0%', 'y')];
+    } else {
+        if ([g.x1, g.y1, g.x2, g.y2].some(v => v == null)) {
+            fail(`<linearGradient id="${g.id}"> with gradientUnits="userSpaceOnUse" must give x1, y1, x2 and y2 (its defaults are percentages of the viewport)`);
+        }
+        const raw = v => { coord(v, '0', 'x'); return Number(v); };
+        start = t.map(raw(g.x1), raw(g.y1));
+        end = t.map(raw(g.x2), raw(g.y2));
+    }
+    if (g.stops.length < 2) fail(`<linearGradient id="${g.id}"> needs at least two <stop>s`);
+    let last = 0;
+    const stops = g.stops.map(st => {
+        if (st.opacity !== 1) fail('gradient stops must be opaque (stop-opacity 1)');
+        const offset = Math.min(1, Math.max(0, st.offset, last)); last = offset;
+        return { offset, color: colourOf(st.color, 'gradient stop') };
+    });
+    if (Math.hypot(end[0] - start[0], end[1] - start[1]) < 1e-9) fail('a gradient has the same start and end point');
+    return { start, end, stops };
+}
+
+/** The colour at position p (0..1) along a gradient, as #RRGGBB: used for the flat fallback colour. */
+function colourAtGradient(stops, p) {
+    const rgb = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+    let a = stops[0], b = stops[stops.length - 1];
+    for (let i = 0; i + 1 < stops.length; i++) if (p >= stops[i].offset && p <= stops[i + 1].offset) { a = stops[i]; b = stops[i + 1]; break; }
+    const k = b.offset === a.offset ? 0 : Math.min(1, Math.max(0, (p - a.offset) / (b.offset - a.offset)));
+    return '#' + rgb(a.color).map((v, i) => Math.round(v + k * (rgb(b.color)[i] - v)).toString(16).padStart(2, '0').toUpperCase()).join('');
+}
+
+/** One visible artwork shape → { kind: 'roundRect' | 'circle' | 'polygons', … } in artwork units, colours as #RRGGBB. */
 function toShape(s) {
-    if (s.opacity.some(o => o !== 1)) fail(`<${s.tag}> is partly transparent`);
+    if (s.effect) fail(`<${s.tag}> is affected by ${s.effect}`);
     const t = transformOf(s);
-    const fill = colourOf(s.fill, 'fill'), stroke = colourOf(s.stroke, 'stroke');
+    const stroke = colourOf(s.stroke, 'stroke');
+    const [opacity, fillOpacity, strokeOpacity] = s.opacity;
+    // Transparency: with a fill only, opacity and fill-opacity are the same thing as one fill alpha. With a
+    // stroke the two overlap and Android's fillAlpha/strokeAlpha would not look the same, so that is refused.
+    if (stroke && (opacity !== 1 || fillOpacity !== 1 || strokeOpacity !== 1)) fail(`<${s.tag}> has a stroke and is partly transparent`);
+    const alpha = Math.round(opacity * fillOpacity * 1000) / 1000;
+    if (alpha <= 0) fail(`<${s.tag}> is fully transparent`);
+    if (s.gradient && s.tag !== 'rect') fail(`a gradient fill on <${s.tag}> (only the background rect may have one)`);
+    if (s.clip && s.tag !== 'path') fail(`clip-path on <${s.tag}> (only on a path)`);
+    const fill = s.gradient ? null : colourOf(s.fill, 'fill');
     const strokeWidth = stroke ? s.strokeWidth * t.k : 0;
     const evenOdd = s.fillRule === 'evenodd';
     if (stroke && s.lineJoin !== 'round') fail(`stroke corners must be round (stroke-linejoin: round)`);
@@ -156,16 +328,25 @@ function toShape(s) {
         if (Math.abs(rx - ry) > 1e-6) fail('rect corners must be circular (rx = ry)');
         const [x, y] = t.map(n('x'), n('y'));
         const w = n('width') * t.k, h = n('height') * t.k;
-        return { kind: 'roundRect', x, y, w, h, r: Math.min(rx * t.k, w / 2, h / 2), fill, stroke, strokeWidth, evenOdd };
+        const gradient = s.gradient ? gradientOf(s.gradient, { x, y, w, h }, t) : null;
+        return { kind: 'roundRect', x, y, w, h, r: Math.min(rx * t.k, w / 2, h / 2), fill, gradient, alpha, stroke, strokeWidth, evenOdd };
     }
     if (s.tag === 'circle') {
         const n = k => Number(s.attr[k] || 0);
         const [cx, cy] = t.map(n('cx'), n('cy'));
-        return { kind: 'circle', cx, cy, r: n('r') * t.k, fill, stroke, strokeWidth, evenOdd };
+        return { kind: 'circle', cx, cy, r: n('r') * t.k, fill, alpha, stroke, strokeWidth, evenOdd };
     }
     if (s.tag === 'path') {
-        const polys = snap(parsePolygons(s.attr.d).map(p => p.map(([x, y]) => t.map(x, y))));
-        return { kind: 'polygons', polys, fill, stroke, strokeWidth, evenOdd };
+        let polys = snap(parsePolygons(s.attr.d).map(p => p.map(([x, y]) => t.map(x, y))));
+        let whole = null;
+        if (s.clip) {
+            if (s.clip.error) fail(s.clip.error);
+            whole = polys;                                    // kept: the one-colour layer draws the unclipped outline
+            const clip = s.clip.points.map(([x, y]) => t.map(x, y));
+            polys = polys.map(p => clipConvex(p, clip)).filter(p => p.length);
+            if (!polys.length) stop('a clip-path removes the whole shape');
+        }
+        return { kind: 'polygons', polys, whole, fill, alpha, stroke, strokeWidth, evenOdd };
     }
     fail(`<${s.tag}> elements`);
 }
@@ -180,6 +361,7 @@ function writer(canvas, fit = 1) {
     const f = v => { const n = Math.round(v * 1000) / 1000; return Object.is(n, -0) ? '0' : String(n); };
     const roundRect = ({ x, y, w, h, r }) => {
         const [x0, y0, x1, y1, R] = [dp(x), dp(y), dp(x + w), dp(y + h), r * scale];
+        if (r === 0) return `M${f(x0)} ${f(y0)}H${f(x1)}V${f(y1)}H${f(x0)}Z`;   // square corners: no zero-radius arcs
         const a = (ex, ey) => `A${f(R)} ${f(R)} 0 0 1 ${f(ex)} ${f(ey)}`;
         return `M${f(x0 + R)} ${f(y0)}H${f(x1 - R)}${a(x1, y0 + R)}V${f(y1 - R)}${a(x1 - R, y1)}`
             + `H${f(x0 + R)}${a(x0, y1 - R)}V${f(y0 + R)}${a(x0 + R, y0)}Z`;
@@ -200,18 +382,35 @@ function writer(canvas, fit = 1) {
         return `M${f(x - R)} ${f(y)}A${f(R)} ${f(R)} 0 1 0 ${f(x + R)} ${f(y)}A${f(R)} ${f(R)} 0 1 0 ${f(x - R)} ${f(y)}Z`;
     };
     const pathData = s => s.kind === 'roundRect' ? roundRect(s) : s.kind === 'circle' ? circle(s) : polygons(s.polys);
-    const pathXml = (data, { fill, stroke, strokeWidth, evenOdd }) => '    <path\n'
+    const pathXml = (data, { fill, alpha = 1, stroke, strokeWidth, evenOdd }) => '    <path\n'
         + (fill ? `        android:fillColor="${fill}"\n` : '')
+        + (fill && alpha !== 1 ? `        android:fillAlpha="${f(alpha)}"\n` : '')
         + (evenOdd ? '        android:fillType="evenOdd"\n' : '')
         + (stroke ? `        android:strokeColor="${stroke}"\n        android:strokeWidth="${f(strokeWidth * scale)}"\n`
             + '        android:strokeLineJoin="round"\n        android:strokeLineCap="round"\n' : '')
         + `        android:pathData="${data}" />\n`;
-    const vector = paths => '<?xml version="1.0" encoding="utf-8"?>\n' + HEADER
-        + '<vector xmlns:android="http://schemas.android.com/apk/res/android"\n'
+    const vector = (paths, extraNamespaces = '') => '<?xml version="1.0" encoding="utf-8"?>\n' + HEADER
+        + '<vector xmlns:android="http://schemas.android.com/apk/res/android"' + extraNamespaces + '\n'
         + `    android:width="${LAYER_DP}dp"\n    android:height="${LAYER_DP}dp"\n`
         + `    android:viewportWidth="${LAYER_DP}"\n    android:viewportHeight="${LAYER_DP}">\n`
         + paths.join('') + '</vector>\n';
-    return { scale, pathData, pathXml, vector };
+    // The background layer is always the whole 108 x 108 dp layer (launchers may move it a little, and masks show
+    // only the middle). A gradient keeps its direction: the artwork's canvas is the middle 72 dp, and the colours
+    // before the first / after the last stop carry on outwards (Android's default clamp = SVG's spreadMethod pad).
+    const background = bg => {
+        const whole = `M0 0H${LAYER_DP}V${LAYER_DP}H0Z`;
+        if (!bg.gradient) return vector([pathXml(whole, { fill: bg.fill })]);
+        const { start, end, stops } = bg.gradient;
+        return vector(['    <path android:pathData="' + whole + '">\n'
+            + '        <aapt:attr name="android:fillColor">\n'
+            + '            <gradient\n'
+            + `                android:startX="${f(dp(start[0]))}"\n                android:startY="${f(dp(start[1]))}"\n`
+            + `                android:endX="${f(dp(end[0]))}"\n                android:endY="${f(dp(end[1]))}"\n`
+            + '                android:type="linear">\n'
+            + stops.map(st => `                <item android:offset="${f(st.offset)}" android:color="${st.color}" />\n`).join('')
+            + '            </gradient>\n        </aapt:attr>\n    </path>\n'], '\n    xmlns:aapt="http://schemas.android.com/aapt"');
+    };
+    return { scale, pathData, pathXml, vector, background };
 }
 
 // ---------- 4. checks on the geometry ----------
@@ -255,12 +454,54 @@ function circleInRoundRect(px, py, radius, s) {
 // frame. The tail edges below the bubble are on the same lines, so the visible tail does not change.
 
 function monochromeShapes(fg) {
-    // Two layouts: the 2026-10-02 artwork (bubble, tail, screen: rects) and the 2026-10-16 one (bubble circle,
-    // tail, screen circle). Always in this order: bubble, tail, screen, then the sprites.
+    // Three layouts. The speech-bubble artworks (2026-10-02: bubble, tail, screen as rects; 2026-10-16: bubble
+    // circle, tail, screen circle), always in this order: bubble, tail, screen, then the sprites. And the
+    // 2026-10-21 creature artwork (see monochromeCreature).
     const roundish = s => s?.kind === 'roundRect' || s?.kind === 'circle';
     const isTail = s => s?.kind === 'polygons' && s.stroke && s.polys.length === 1;
+    if (roundish(fg[0]) && isTail(fg[1]) && roundish(fg[2])) return monochromeBubble(fg);
+    return monochromeCreature(fg);
+}
+
+// 2026-10-21 artwork: [translucent shadow], the creature drawn as one or more filled outlines (here two copies of
+// the same outline, each clipped to one colour half), then details painted on it (two black square eyes).
+// In one colour: the shadow is left out (a translucent copy would look like a ghost, not a shadow, on a dark
+// themed background), the halves are drawn as the whole unclipped outline, and the details are holes in it.
+function monochromeCreature(fg) {
+    const translucent = s => s.alpha !== 1;
+    const isSprite = s => s.kind === 'polygons' && !s.stroke && !translucent(s);
+    let i = 0;
+    while (i < fg.length && fg[i].kind === 'polygons' && !fg[i].stroke && translucent(fg[i])) i++;   // shadows
+    const first = i;
+    while (i < fg.length && isSprite(fg[i])) i++;
+    const body = fg.slice(first, i), details = fg.slice(i);
+    if (!body.length || !details.every(d => !d.stroke && !translucent(d) && (d.kind === 'polygons' || (d.kind === 'roundRect' && d.r === 0)))) {
+        fail('the foreground is expected as one of two layouts. (1) bubble (rect or circle), tail (stroked path), screen (same kind '
+            + 'as the bubble), sprite paths, then optional details on the sprites. (2) optional translucent shadow paths, the filled '
+            + 'body path(s), then optional opaque details on the body (paths or square-cornered rects). No strokes on sprites or details.');
+    }
+    // body parts that are clipped copies of one outline become that one whole outline
+    // ...but only when there are at least two copies of that outline (the halves). A lone clipped path stays clipped,
+    // so the themed icon shows what the colour icon shows.
+    const keyOf = polys => JSON.stringify(polys.map(p => p.map(q => q.map(v => Math.round(v * 1000)))));
+    const copies = new Map();
+    for (const b of body) if (b.whole) copies.set(keyOf(b.whole), (copies.get(keyOf(b.whole)) ?? 0) + 1);
+    const seen = new Set();
+    const sprites = [];
+    for (const b of body) {
+        const polys = b.whole && copies.get(keyOf(b.whole)) > 1 ? b.whole : b.polys;
+        const key = keyOf(polys);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        sprites.push({ ...b, polys: polys.map(p => [...p]) });
+    }
+    return { sprites: cutDetails(sprites, details), yMid: null, shadowsSkipped: first };
+}
+
+function monochromeBubble(fg) {
+    if (fg.some(s => s.alpha !== 1)) fail('transparency is only supported in the creature layout (see monochromeCreature)');
     let bubble, tail, screen, sprites, rest = [];
-    if (roundish(fg[0]) && isTail(fg[1]) && roundish(fg[2])) [bubble, tail, screen, ...rest] = fg;
+    [bubble, tail, screen, ...rest] = fg;
     // Sprites = the unstroked paths right after the screen. Anything after them (2026-10-20 artwork: two black
     // square eyes) is a detail painted on top of one sprite; one colour can't show it, so it becomes a hole there.
     const isSprite = s => s.kind === 'polygons' && !s.stroke;
@@ -346,7 +587,43 @@ function cutDetails(sprites, details) {
     return out;
 }
 
-// ---------- 6. main ----------
+// ---------- 6. the adaptive-icon files (res/mipmap-anydpi*/ic_launcher*.xml) ----------
+//
+// They tie the three drawables together and are not part of the artwork, so they are not rewritten, except for the
+// one thing that changed: the background is now a drawable (it can be a gradient), not a <color>. Files that
+// already exist get "@color/ic_launcher_background" replaced by "@drawable/ic_launcher_background"; when no
+// adaptive icon exists at all, mipmap-anydpi-v26/ic_launcher.xml is written. Returns notes for things to look at.
+
+function updateAdaptiveIcons() {
+    const notes = [], touched = [];
+    const dirs = readdirSync(RES).filter(d => /^mipmap-anydpi(-v\d+)?$/.test(d)).map(d => join(RES, d));
+    const files = dirs.flatMap(d => ['ic_launcher.xml', 'ic_launcher_round.xml'].map(f => join(d, f))).filter(existsSync);
+    if (!files.length) {
+        const dir = join(RES, 'mipmap-anydpi-v26');
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, 'ic_launcher.xml'), '<?xml version="1.0" encoding="utf-8"?>\n' + HEADER
+            + '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
+            + '    <background android:drawable="@drawable/ic_launcher_background" />\n'
+            + '    <foreground android:drawable="@drawable/ic_launcher_foreground" />\n'
+            + '    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />\n'
+            + '</adaptive-icon>\n');
+        touched.push('mipmap-anydpi-v26/ic_launcher.xml (new)');
+        return { notes, touched };
+    }
+    for (const file of files) {
+        const name = file.slice(RES.length + 1);
+        let xml = readFileSync(file, 'utf8');
+        const before = xml;
+        xml = xml.replaceAll('@color/ic_launcher_background', '@drawable/ic_launcher_background');
+        if (xml !== before) { writeFileSync(file, xml); touched.push(name); }
+        if (!xml.includes('@drawable/ic_launcher_background')) notes.push(`${name} does not use @drawable/ic_launcher_background: its background is not the artwork's`);
+        if (!xml.includes('@drawable/ic_launcher_foreground')) notes.push(`${name} does not use @drawable/ic_launcher_foreground`);
+        if (!xml.includes('@drawable/ic_launcher_monochrome')) notes.push(`${name} has no <monochrome> layer, so Android 13+ themed icons will not use ic_launcher_monochrome.xml`);
+    }
+    return { notes, touched };
+}
+
+// ---------- 7. main ----------
 
 async function main() {
     const svgText = readFileSync(SOURCE, 'utf8');
@@ -361,9 +638,11 @@ async function main() {
         const [bgRaw, ...fgRaw] = art.shapes;
         const bg = bgRaw && toShape(bgRaw);
         if (!bg || bg.kind !== 'roundRect' || Math.abs(bg.x) > 1e-6 || Math.abs(bg.y) > 1e-6
-            || Math.abs(bg.w - W) > 1e-6 || Math.abs(bg.h - H) > 1e-6 || bg.stroke) {
-            fail('the first shape must be the background: a rect covering the whole canvas, without a stroke');
+            || Math.abs(bg.w - W) > 1e-6 || Math.abs(bg.h - H) > 1e-6 || bg.stroke || bg.alpha !== 1 || !(bg.fill || bg.gradient)) {
+            fail('the first shape must be the background: an opaque rect covering the whole canvas, without a stroke');
         }
+        const bgColour = bg.fill ?? colourAtGradient(bg.gradient.stops, 0.5);
+        for (const s of fgRaw) if (s.gradient) fail('only the background may have a gradient fill');
         const fg = fgRaw.map(toShape);
 
         // nothing may be cut by a circular launcher mask: shrink the foreground just enough if it reaches past 36 dp
@@ -371,45 +650,66 @@ async function main() {
         const fit = far > VISIBLE_RADIUS_DP ? VISIBLE_RADIUS_DP / far : 1;
         const out = writer(W, fit);
         const reach = far * fit;
+        // translucent parts (a shadow) may lie in the 33-36 dp ring; only opaque artwork counts as key content
+        const keyReach = farthest(fg.filter(s => s.alpha === 1), W / 2) * VISIBLE_DP / W * fit;
 
-        // background colour
+        for (const d of ['values', 'drawable']) mkdirSync(join(RES, d), { recursive: true });
+        // background: the layer itself (flat or gradient) and, besides it, one flat colour
+        writeFileSync(join(RES, 'drawable', 'ic_launcher_background.xml'), writer(W, 1).background(bg));
         writeFileSync(join(RES, 'values', 'ic_launcher_background.xml'), '<?xml version="1.0" encoding="utf-8"?>\n' + HEADER
-            + `<resources>\n    <color name="ic_launcher_background">${bg.fill}</color>\n</resources>\n`);
+            + (bg.gradient ? '<!-- The background is a gradient (drawable/ic_launcher_background.xml); this is its middle colour. -->\n' : '')
+            + '<!-- Not used by the app since the adaptive icon takes drawable/ic_launcher_background.xml; kept as the flat colour. -->\n'
+            + `<resources xmlns:tools="http://schemas.android.com/tools">\n`
+            + `    <color name="ic_launcher_background" tools:ignore="UnusedResources">${bgColour}</color>\n</resources>\n`);
 
         // foreground: every shape in order, own colours
         const fgXml = out.vector(fg.map(s => out.pathXml(out.pathData(s), s)));
         writeFileSync(join(RES, 'drawable', 'ic_launcher_foreground.xml'), fgXml);
 
-        // monochrome: ring (bubble with the screen cut out, even-odd fill), tail, sprites; one colour
+        // monochrome: [ring (bubble with the screen cut out, even-odd fill), tail,] sprites; one colour
         const mono = monochromeShapes(fg), white = { fill: '#FFFFFF' };
         const monoXml = out.vector([
-            out.pathXml(out.pathData(mono.bubble) + out.pathData(mono.screen), { ...white, evenOdd: true }),
-            out.pathXml(out.pathData(mono.tail), { ...white, stroke: '#FFFFFF', strokeWidth: mono.tail.strokeWidth }),
+            ...(mono.bubble ? [
+                out.pathXml(out.pathData(mono.bubble) + out.pathData(mono.screen), { ...white, evenOdd: true }),
+                out.pathXml(out.pathData(mono.tail), { ...white, stroke: '#FFFFFF', strokeWidth: mono.tail.strokeWidth }),
+            ] : []),
             // one path per sprite colour, as in the foreground (lint's VectorPath warns about very long paths)
             ...mono.sprites.map(s => out.pathXml(out.pathData(s), { ...white, evenOdd: s.evenOdd })),
         ]);
         writeFileSync(join(RES, 'drawable', 'ic_launcher_monochrome.xml'), monoXml);
 
         // PNGs: the artwork itself (with its rounded background), drawn by Chromium straight at each size
-        const png = async (px, file) => {
+        const png = async (px, file, cornerFraction = 0) => {
             // draw the SVG at exactly px x px: replace its own width/height (the viewBox keeps the drawing the same)
             const open = /<svg\b[^>]*>/.exec(svgText)[0];
             if (!/\swidth="[^"]*"/.test(open) || !/\sheight="[^"]*"/.test(open)) fail('the <svg> tag needs width and height');
             const sized = svgText.replace(/<\?xml[^>]*>|<!DOCTYPE[^>]*>/g, '')
                 .replace(open, open.replace(/\swidth="[^"]*"/, ` width="${px}"`).replace(/\sheight="[^"]*"/, ` height="${px}"`));
             await page.setViewportSize({ width: px, height: px });
-            await page.setContent(`<!doctype html><body style="margin:0;background:transparent">${sized.replace('<svg ', '<svg style="display:block" ')}</body>`);
+            // rounded corners (store icon only): Chromium clips the picture to an anti-aliased rounded square
+            const corner = cornerFraction ? `border-radius:${cornerFraction * px}px;overflow:hidden;` : '';
+            await page.setContent(`<!doctype html><body style="margin:0;background:transparent"><div style="width:${px}px;height:${px}px;${corner}">`
+                + `${sized.replace('<svg ', '<svg style="display:block" ')}</div></body>`);
             mkdirSync(dirname(file), { recursive: true });
             await page.screenshot({ path: file, omitBackground: true, clip: { x: 0, y: 0, width: px, height: px } });
         };
-        for (const [density, px] of Object.entries(LEGACY)) await png(px, join(RES, `mipmap-${density}`, 'ic_launcher.png'));
-        await png(STORE_PX, STORE_ICON);
+        const storeRounded = bg.r === 0;
+        for (const [density, px] of Object.entries(LEGACY)) await png(px, join(RES, `mipmap-${density}`, 'ic_launcher.png'), storeRounded ? STORE_CORNER : 0);
+        await png(STORE_PX, STORE_ICON, storeRounded ? STORE_CORNER : 0);
 
-        console.log(`background ${bg.fill}; ${fg.length} foreground shapes; farthest point ${far.toFixed(2)} dp`
+        // the adaptive-icon files must use the background drawable
+        const adaptive = updateAdaptiveIcons();
+
+        console.log(`background ${bg.gradient ? `gradient ${bg.gradient.stops.map(st => st.color).join(' → ')} (middle ${bgColour})` : bg.fill}; ${fg.length} foreground shapes; farthest point ${far.toFixed(2)} dp`
             + (fit < 1 ? `, foreground scaled by ${fit.toFixed(4)} to ${reach.toFixed(2)} dp (visible circle ${VISIBLE_RADIUS_DP} dp)` : '')
-            + (reach > SAFE_RADIUS_DP ? `; NOTE: reaches past the ${SAFE_RADIUS_DP} dp safe zone (fine for a tail tip, not for key content)` : '')
-            + (mono.yMid !== null ? `; monochrome tail corners moved to y=${mono.yMid.toFixed(2)} units` : '; monochrome tail unchanged')
-            + `; ${Object.keys(LEGACY).length} legacy PNGs + ${STORE_PX} px store icon written.`);
+            + `; opaque artwork reaches ${keyReach.toFixed(2)} dp`
+            + (keyReach > SAFE_RADIUS_DP ? `; NOTE: reaches past the ${SAFE_RADIUS_DP} dp safe zone (fine for a tail tip, not for key content)` : '')
+            + (mono.bubble ? (mono.yMid !== null ? `; monochrome tail corners moved to y=${mono.yMid.toFixed(2)} units` : '; monochrome tail unchanged')
+                : `; monochrome: ${mono.sprites.length} outline${mono.sprites.length === 1 ? '' : 's'}` + (mono.shadowsSkipped ? `, ${mono.shadowsSkipped} translucent shadow left out` : ''))
+            + `; ${Object.keys(LEGACY).length} legacy PNGs + ${STORE_PX} px store icon written`
+            + (storeRounded ? ` (rounded corners added: ${Math.round(STORE_CORNER * 100)} % radius, ${Math.round(STORE_CORNER * STORE_PX)} px on the store icon)` : '') + '.'
+            + (adaptive.touched.length ? `\nadaptive icon updated: ${adaptive.touched.join(', ')}` : '')
+            + adaptive.notes.map(n => `\nNOTE: ${n}`).join(''));
     } finally {
         await browser.close();
     }
