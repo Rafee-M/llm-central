@@ -54,6 +54,8 @@ import org.llmcentral.app.storage.OfflineChats;
 import org.llmcentral.app.storage.StorageBridge;
 import org.llmcentral.app.storage.SharedFileQueue;
 import org.llmcentral.app.storage.SharedFiles;
+import org.llmcentral.app.storage.ImagePdf;
+import org.llmcentral.app.storage.PhotoPdf;
 import org.llmcentral.app.storage.UploadCopies;
 import org.llmcentral.app.web.DesktopMode;
 import org.llmcentral.app.web.FileChooserTypes;
@@ -103,6 +105,7 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> mUploadMessage;
     private final static int FILE_CHOOSER_REQUEST_CODE = 1;
     private final static int CAMERA_REQUEST_CODE = 2;
+    private final static int PHOTO_PDF_REQUEST_CODE = 3;
     private final static int CAMERA_PERMISSION_REQUEST_CODE = 124;
     private Uri cameraImageUri = null;
     private final String TAG = "LLMCentral";
@@ -2459,9 +2462,17 @@ public class MainActivity extends Activity {
             mUploadMessage = filePathCallback;
             chooserParams = fileChooserParams; // for openFileManager: "several files?" and the page's types (R4-13)
 
+            // duck.ai shrinks attached pictures to 512 px (1024 px on paid models) before sending them, but sends a
+            // PDF unchanged, so on duck.ai photos can go as one PDF (storage/PhotoPdf). Only offered there, and only
+            // when the file field takes PDFs (models without PDF support ask for images only).
+            boolean photoPdf = provider.isDuck() && fileChooserParams != null
+                    && ImagePdf.acceptsPdf(fileChooserParams.getAcceptTypes());
+            CharSequence[] options = photoPdf
+                    ? new CharSequence[]{"Camera", "File Manager", "Photos as PDF (sharper)"}
+                    : new CharSequence[]{"Camera", "File Manager"};
             AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
             builder.setTitle("Select Option");
-            builder.setItems(new CharSequence[]{"Camera", "File Manager"}, new DialogInterface.OnClickListener() {
+            builder.setItems(options, new DialogInterface.OnClickListener() {
                 @Override
                 public void onClick(DialogInterface dialog, int which) {
                     if (which == 0) {
@@ -2470,8 +2481,10 @@ public class MainActivity extends Activity {
                         } else {
                             openCamera();
                         }
-                    } else {
+                    } else if (which == 1) {
                         openFileManager();
+                    } else {
+                        openPhotoPicker();
                     }
                 }
             });
@@ -2532,10 +2545,52 @@ public class MainActivity extends Activity {
         startActivityForResult(Intent.createChooser(i, "File Chooser"), FILE_CHOOSER_REQUEST_CODE);
     }
 
+    /** duck.ai's "Photos as PDF": pick one or more pictures; onActivityResult turns them into one PDF. */
+    private void openPhotoPicker() {
+        Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("image/*");
+        i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true); // several photos = several pages of one PDF
+        startActivityForResult(Intent.createChooser(i, "Photos for the PDF"), PHOTO_PDF_REQUEST_CODE);
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent intent) {
         super.onActivityResult(requestCode, resultCode, intent);
-        if (requestCode == FILE_CHOOSER_REQUEST_CODE) {
+        if (requestCode == PHOTO_PDF_REQUEST_CODE) {
+            if (mUploadMessage == null) {
+                return;
+            }
+            ValueCallback<Uri[]> callback = mUploadMessage;
+            mUploadMessage = null;
+            java.util.List<Uri> photos = new java.util.ArrayList<>();
+            if (resultCode == RESULT_OK && intent != null) {
+                if (intent.getClipData() != null) {
+                    for (int idx = 0; idx < intent.getClipData().getItemCount(); idx++) {
+                        Uri uri = intent.getClipData().getItemAt(idx).getUri();
+                        if (uri != null) {
+                            photos.add(uri);
+                        }
+                    }
+                } else if (intent.getData() != null) {
+                    photos.add(intent.getData());
+                }
+            }
+            if (photos.isEmpty()) {
+                callback.onReceiveValue(null);
+                return;
+            }
+            Context app = getApplicationContext(); // not the screen: it may be rebuilt while the PDF is made
+            Toast.makeText(app, photos.size() > PhotoPdf.MAX_PAGES
+                    ? "Making a PDF of the first " + PhotoPdf.MAX_PAGES + " photos…"
+                    : "Making a PDF…", Toast.LENGTH_SHORT).show();
+            PhotoPdf.make(app, photos, (pdf, problem) -> {
+                if (problem != null) {
+                    Toast.makeText(app, problem, Toast.LENGTH_LONG).show();
+                }
+                callback.onReceiveValue(pdf == null ? null : new Uri[]{pdf});
+            });
+        } else if (requestCode == FILE_CHOOSER_REQUEST_CODE) {
             if (null == mUploadMessage)
                 return;
             Uri[] result = null;
