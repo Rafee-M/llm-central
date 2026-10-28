@@ -180,6 +180,8 @@ public class MainActivity extends Activity {
             java.util.concurrent.Executors.newSingleThreadExecutor();
     // Set when duck.ai was on screen since its chats were last saved for offline use (onStop).
     private boolean duckUsedSinceDump = false;
+    // A ✕ on duck.ai waiting for its offline backup before the page is freed (unloadDuck, web/DuckLoading).
+    private final DuckLoading.PendingUnload duckUnload = new DuckLoading.PendingUnload();
     // Saves files from the websites into Downloads (downloads/Downloader).
     private Downloader downloader;
     // Microphone for voice chat: asks Android only when a page wants it (web/MicrophoneAccess).
@@ -563,6 +565,14 @@ public class MainActivity extends Activity {
         @Override
         public void unload(String accountId) {
             boolean onScreen = accountId.equals(tabManager.current().id);
+            if (Providers.DUCK_ID.equals(accountId)) {
+                boolean wasLoaded = tabManager.isLoaded(accountId);
+                unloadDuck();
+                if (wasLoaded && onScreen && progressBar != null) {
+                    progressBar.setVisibility(View.GONE);
+                }
+                return;
+            }
             if (tabManager.unload(accountId) && onScreen && progressBar != null) {
                 progressBar.setVisibility(View.GONE); // the closed tab's loading bar must not stay
             }
@@ -681,11 +691,63 @@ public class MainActivity extends Activity {
         chip.setContentDescription(getString(R.string.switch_provider) + ": " + label);
     }
 
+    /**
+     * Swaps duck.ai's WebView for a fresh, fully set-up one without a page (after its page process died, or when
+     * the ✕ unloads duck.ai). The old one is destroyed; the new one takes its place in the layout.
+     */
+    private void replaceDuckWebView(WebView old) {
+        chatWebView = WebViewRecovery.replace(old);
+        configureWebView(chatWebView, Providers.DUCK);
+        if (accounts != null) {
+            DesktopMode.applySaved(MainActivity.this,
+                    getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), chatWebView, accounts.duck());
+        }
+        if (tabManager != null) {
+            tabManager.replaceDuckView(chatWebView); // keeps it hidden if another tab is on screen
+        }
+    }
+
+    /**
+     * The ✕ on duck.ai's row (owner, 2026-10-27). duck.ai counts as unloaded at once (black screen if it is on
+     * screen). Its page is freed right away, or, if "Offline chats" is on and duck.ai was used since the last
+     * backup, once that backup has answered or after {@link DuckLoading#UNLOAD_BACKUP_WAIT_MS}, so the chats of
+     * this visit are saved first (the backup runs inside the page).
+     */
+    private void unloadDuck() {
+        if (!tabManager.unload(Providers.DUCK_ID)) {
+            return;
+        }
+        duckOffline = false; // a fresh page is loaded next time, not the saved-chats stand-in
+        if (DuckLoading.mayDumpChats(duckUsedSinceDump, OfflineChats.isEnabled(this), true, chatWebView.getUrl())) {
+            duckUsedSinceDump = false;
+            int ticket = duckUnload.begin();
+            chatWebView.evaluateJavascript(js(Scripts.DUMP_CHATS), null);
+            getWindow().getDecorView().postDelayed(() -> {
+                if (duckUnload.finish(ticket)) {
+                    freeDuckPage();
+                }
+            }, DuckLoading.UNLOAD_BACKUP_WAIT_MS);
+        } else {
+            freeDuckPage();
+        }
+    }
+
+    /** Frees duck.ai's page: a fresh WebView without a page takes its place (see unloadDuck). */
+    private void freeDuckPage() {
+        if (isFinishing() || isDestroyed() || tabManager.isLoaded(Providers.DUCK_ID)) {
+            return; // screen closing (onDestroy frees it), or duck.ai was loaded again meanwhile
+        }
+        mUploadMessage = null; // the 📎 request belongs to the old page
+        hasInjectedProgressJs = false;
+        replaceDuckWebView(chatWebView);
+    }
+
     /** Called by TabManager after an account's tab became visible (or was renamed). */
     private void onTabShown(Account account) {
         updateTopBar(account);
         if (account.isDuck()) {
             duckUsedSinceDump = true;
+            duckUnload.cancel(); // picked again while its ✕ waited for the backup: keep the page
         }
         syncDesktopMode(account);
         if (account.isDuck() && duckOffline) {
@@ -877,6 +939,9 @@ public class MainActivity extends Activity {
             @Override
             public void onChatsFetched(String json) {
                 MainActivity.this.onChatsFetched(json);
+                if (duckUnload.finishAny()) {
+                    freeDuckPage(); // the backup has answered: the ✕ can free duck.ai's page now
+                }
             }
 
             @Override
@@ -2201,15 +2266,7 @@ public class MainActivity extends Activity {
                 progressBar.setVisibility(View.GONE);
             }
 
-            chatWebView = WebViewRecovery.replace(view);
-            configureWebView(chatWebView, Providers.DUCK);
-            if (accounts != null) {
-                DesktopMode.applySaved(MainActivity.this,
-                        getSharedPreferences("duck_assist_prefs", MODE_PRIVATE), chatWebView, accounts.duck());
-            }
-            if (tabManager != null) {
-                tabManager.replaceDuckView(chatWebView); // keeps it hidden if another tab is on screen
-            }
+            replaceDuckWebView(view);
             if (reloadUrl == null) {
                 return true; // fresh, configured and still without a page: no message, no crash-loop count
             }

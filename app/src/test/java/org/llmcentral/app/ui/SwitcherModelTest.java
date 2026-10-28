@@ -88,9 +88,10 @@ public class SwitcherModelTest {
     }
 
     @Test
-    public void duckUnloadButtonIsGreyedOut() {
-        // duck.ai's tab is pinned (never closed): its ✕ is shown, but greyed out and not usable.
-        assertEquals(SwitcherModel.UnloadButton.DISABLED, SwitcherModel.unloadButton(DUCK, true));
+    public void duckUnloadButtonWorksToo() {
+        // Since 2026-10-27 (owner) the ✕ frees duck.ai's page as well (after its offline backup, MainActivity).
+        assertEquals(SwitcherModel.UnloadButton.ENABLED, SwitcherModel.unloadButton(DUCK, true));
+        assertEquals(SwitcherModel.UnloadButton.NONE, SwitcherModel.unloadButton(DUCK, false));
     }
 
     @Test

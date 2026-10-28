@@ -289,9 +289,6 @@ public final class SwitcherPopup {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 close.setTooltipText(label);
             }
-            boolean enabled = unload == SwitcherModel.UnloadButton.ENABLED;
-            close.setEnabled(enabled);
-            close.setAlpha(enabled ? 1f : DISABLED_ALPHA);
             close.setOnClickListener(v -> onUnload.run());
             int size = ProviderBadge.dp(context, 48);
             LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(size, size);

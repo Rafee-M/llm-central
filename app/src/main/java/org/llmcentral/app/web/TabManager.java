@@ -205,13 +205,24 @@ public final class TabManager {
      * The account menu's ✕ on an account's row: closes that account's tab (its WebView is destroyed and its
      * memory freed). The account on screen stays selected, so the top bar still names it and the placeholder
      * shows; opening it again (account menu, Reload, or a tap on the placeholder) loads its home page. Any
-     * other account simply has no tab any more and loads again when it's picked. duck.ai's tab is the pinned
-     * home tab and is never unloaded.
+     * other account simply has no tab any more and loads again when it's picked.
      *
-     * @return true if a tab was unloaded; false for duck.ai or an account without a loaded tab
+     * <p><b>duck.ai</b> (since 2026-10-27, owner): only marked as "not loaded" here; its WebView belongs to
+     * MainActivity ({@code chatWebView}), which backs up its chats and then swaps it for a fresh, empty one.</p>
+     *
+     * @return true if a tab was unloaded; false for an account without a loaded tab
      */
     public boolean unload(String accountId) {
-        if (Providers.DUCK_ID.equals(accountId) || !liveTabs.containsKey(accountId)) {
+        if (Providers.DUCK_ID.equals(accountId)) {
+            if (!duckPageLoaded) {
+                return false;
+            }
+            duckPageLoaded = false;
+            lru.remove(accountId);
+            updatePlaceholder(); // shows the placeholder if duck.ai is on screen
+            return true;
+        }
+        if (!liveTabs.containsKey(accountId)) {
             return false;
         }
         closeTab(accountId);
