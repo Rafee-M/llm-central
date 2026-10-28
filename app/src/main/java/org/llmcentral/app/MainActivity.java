@@ -58,6 +58,7 @@ import org.llmcentral.app.storage.ImagePdf;
 import org.llmcentral.app.storage.PhotoPdf;
 import org.llmcentral.app.storage.UploadCopies;
 import org.llmcentral.app.web.DesktopMode;
+import org.llmcentral.app.web.DuckLoading;
 import org.llmcentral.app.web.FileChooserTypes;
 import org.llmcentral.app.web.MicrophoneAccess;
 import org.llmcentral.app.web.DialogWebViewClient;
@@ -128,6 +129,9 @@ public class MainActivity extends Activity {
     // Account shown last time, reopened on a normal launch. Round 3 saved a provider id under
     // "last_provider"; first accounts use their provider's id, so that old value still works.
     private static final String PREF_LAST_ACCOUNT = "last_account";
+    // The account this screen showed, saved when Android may rebuild it (onSaveInstanceState → onCreate). Per
+    // screen, unlike PREF_LAST_ACCOUNT, which the assistant drawer writes too.
+    private static final String STATE_TAB_ACCOUNT = "tab_account";
     private static final String PREF_LAST_PROVIDER = "last_provider";
     // Light or dark when this screen was built. If the theme setting flips it, the screen is rebuilt
     // (recreate()) so websites and system dialogs switch too. See theme/ThemeManager.
@@ -159,7 +163,8 @@ public class MainActivity extends Activity {
             
             runOnUiThread(() -> {
                 Toast.makeText(MainActivity.this, "Script crash caught! Activating Safe Mode fallback...", Toast.LENGTH_LONG).show();
-                if (chatWebView != null) {
+                // Only a loaded duck.ai is reloaded (without scripts); an unloaded one stays unloaded.
+                if (chatWebView != null && tabManager != null && tabManager.isLoaded(Providers.DUCK_ID)) {
                     chatWebView.loadUrl("https://duck.ai/");
                 }
             });
@@ -298,7 +303,7 @@ public class MainActivity extends Activity {
             isSafeMode = true;
             runOnUiThread(() -> {
                 try {
-                    if (chatWebView != null) {
+                    if (chatWebView != null && tabManager != null && tabManager.isLoaded(Providers.DUCK_ID)) {
                         chatWebView.loadUrl("https://duck.ai/");
                     }
                 } catch (Throwable ignored) {}
@@ -399,14 +404,33 @@ public class MainActivity extends Activity {
 
         // The microphone is no longer asked for here: web/MicrophoneAccess asks when a page wants it.
 
-        boolean restored = false;
         if (savedInstanceState != null) {
+            // Android rebuilt this screen (light/dark switch, or the app was closed in the background): reopen the
+            // account it showed, nothing else. "Rebuilt" must come from savedInstanceState, not from restoreState:
+            // a duck.ai that never loaded a page has no saved state (Chromium saves none), and re-running
+            // handleIntent would load duck.ai and ask "prompt on launch" again (web/DuckLoading).
             if (chatWebView.restoreState(savedInstanceState) != null) {
-                restored = true;
+                tabManager.markDuckLoaded();
             }
-        }
-        if (!restored) {
-            handleIntent(getIntent(), false);
+            Account onScreen = DuckLoading.accountAfterRebuild(accounts, savedInstanceState.getString(STATE_TAB_ACCOUNT));
+            if (!onScreen.isDuck()) {
+                tabManager.show(onScreen);
+            } // duck.ai without its page stays unloaded (black "Tap to load" screen), as it was
+        } else {
+            // Normal app launch: open the account chosen in Settings → Behaviour ("Open at start"), by default
+            // the one used last time (account/DefaultAccounts). Shown BEFORE handleIntent, so a start account
+            // other than duck.ai is already on screen there and duck.ai's page isn't loaded for nothing.
+            String launchAction = getIntent() != null ? getIntent().getAction() : null;
+            if (DefaultAccounts.purposeOf(launchAction) == DefaultAccounts.Purpose.LAUNCH) {
+                String lastId = prefs.getString(PREF_LAST_ACCOUNT,
+                        prefs.getString(PREF_LAST_PROVIDER, Providers.DUCK_ID));
+                Account start = DefaultAccounts.launchAccount(accounts,
+                        prefs.getString(DefaultAccounts.PREF_LAUNCH, DefaultAccounts.LAUNCH_LAST), lastId);
+                if (!start.isDuck()) {
+                    tabManager.show(start);
+                }
+            }
+            handleIntent(getIntent(), false); // a launch with duck.ai as start account loads it here, once
         }
         // Settings was open when Android rebuilt this screen (ui/SettingsRestore, R4-4): show it again once the
         // screen is up (posted, so the window exists).
@@ -417,21 +441,6 @@ public class MainActivity extends Activity {
                     openSettings(settingsToRestore);
                 }
             });
-        }
-
-        // Normal app launch: open the account chosen in Settings → Behaviour ("Open at start"),
-        // by default the one the user was using last time (see account/DefaultAccounts). When the
-        // screen is only being rebuilt (e.g. after switching light/dark), stay on the account in use.
-        String launchAction = getIntent() != null ? getIntent().getAction() : null;
-        if (DefaultAccounts.purposeOf(launchAction) == DefaultAccounts.Purpose.LAUNCH) {
-            String lastId = prefs.getString(PREF_LAST_ACCOUNT,
-                    prefs.getString(PREF_LAST_PROVIDER, Providers.DUCK_ID));
-            String choice = restored ? DefaultAccounts.LAUNCH_LAST
-                    : prefs.getString(DefaultAccounts.PREF_LAUNCH, DefaultAccounts.LAUNCH_LAST);
-            Account start = DefaultAccounts.launchAccount(accounts, choice, lastId);
-            if (!start.isDuck()) {
-                tabManager.show(start);
-            }
         }
     }
 
@@ -1044,6 +1053,9 @@ public class MainActivity extends Activity {
                         });
                         if (newRtl != oldRtl && chatWebView != null) {
                             runOnUiThread(() -> {
+                                if (!tabManager.isLoaded(Providers.DUCK_ID)) {
+                                    return; // no duck.ai page yet: its next load applies the setting
+                                }
                                 if (newRtl) {
                                     safeEvaluateJavascript(chatWebView, js(Scripts.RTL_RESOLVER));
                                 } else {
@@ -1097,6 +1109,9 @@ public class MainActivity extends Activity {
                         });
                         if (newRtl != oldRtl && chatWebView != null) {
                             runOnUiThread(() -> {
+                                if (!tabManager.isLoaded(Providers.DUCK_ID)) {
+                                    return; // no duck.ai page yet: its next load applies the setting
+                                }
                                 if (newRtl) {
                                     safeEvaluateJavascript(chatWebView, js(Scripts.RTL_RESOLVER));
                                 } else {
@@ -1127,7 +1142,7 @@ public class MainActivity extends Activity {
                         background.execute(() -> ChatDatabaseHelper.getInstance(MainActivity.this).deleteAll());
                     }
                     runOnUiThread(() -> {
-                        if (chatWebView != null) {
+                        if (chatWebView != null && tabManager.isLoaded(Providers.DUCK_ID)) {
                             safeEvaluateJavascript(chatWebView, OfflineChats.pageSwitch(on));
                         }
                         if (!on) {
@@ -1751,8 +1766,8 @@ public class MainActivity extends Activity {
         // Save duck.ai's chats for offline reading, but only if duck.ai was used since the last save:
         // the dump reads every chat and image, too much work to repeat when only other accounts were
         // used (round 6).
-        if (duckUsedSinceDump && OfflineChats.isEnabled(this) && chatWebView != null && chatWebView.getUrl() != null
-                && chatWebView.getUrl().startsWith("https://duck")) {
+        if (chatWebView != null && tabManager != null && DuckLoading.mayDumpChats(duckUsedSinceDump,
+                OfflineChats.isEnabled(this), tabManager.isLoaded(Providers.DUCK_ID), chatWebView.getUrl())) {
             duckUsedSinceDump = false;
             chatWebView.evaluateJavascript(js(Scripts.DUMP_CHATS), null);
         }
@@ -1761,8 +1776,12 @@ public class MainActivity extends Activity {
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        if (chatWebView != null) {
+        // duck.ai's page only if it is loaded: an unloaded duck.ai must stay unloaded after the rebuild.
+        if (chatWebView != null && tabManager != null && tabManager.isLoaded(Providers.DUCK_ID)) {
             chatWebView.saveState(outState);
+        }
+        if (tabManager != null) {
+            outState.putString(STATE_TAB_ACCOUNT, tabManager.current().id);
         }
         // Dialogs aren't saved by Android: remember an open Settings window ourselves (ui/SettingsRestore, R4-4).
         // A reopen still waiting (page stopped in the background) is kept too, or a rebuild before the user is back
@@ -1805,10 +1824,13 @@ public class MainActivity extends Activity {
         final Account target = DefaultAccounts.target(accounts, purpose,
                 choices.getString(DefaultAccounts.PREF_ASSISTANT, null),
                 choices.getString(DefaultAccounts.PREF_SHARE, null));
-        if (purpose == DefaultAccounts.Purpose.ASSISTANT || purpose == DefaultAccounts.Purpose.LINK
+        // Read before anything below shows duck.ai: was its page already there? (web/DuckLoading; showing an
+        // unloaded duck.ai loads its page, so the branches below must not load it a second time.)
+        final boolean duckWasLoaded = tabManager.isLoaded(Providers.DUCK_ID);
+        if (purpose == DefaultAccounts.Purpose.ASSISTANT
                 || (purpose == DefaultAccounts.Purpose.SHARE && tabManager.isLoaded(target.id))) {
             // (A share to an account whose tab isn't loaded yet opens it below, straight at the new
-            // chat page, instead of loading its home page first.)
+            // chat page, instead of loading its home page first. A link (VIEW) does the same with its address.)
             tabManager.show(target);
         }
 
@@ -1822,7 +1844,7 @@ public class MainActivity extends Activity {
                     if (continueLastChat) {
                         pendingContinueLastChat = true;
                     }
-                    chatWebView.loadUrl(PromptPrefill.duckUrl(query, false));
+                    tabManager.show(accounts.duck(), PromptPrefill.duckUrl(query, false));
                 } else {
                     // Other apps can open this screen with any address (the activity is "exported").
                     // Only load chat-site addresses in-app; everything else (javascript:, file:, other
@@ -1830,18 +1852,18 @@ public class MainActivity extends Activity {
                     String requested = data.toString();
                     String safeUrl = NavigationPolicy.toInAppUrl(requested);
                     if (safeUrl != null) {
-                        chatWebView.loadUrl(safeUrl);
+                        tabManager.show(accounts.duck(), safeUrl);
                     } else if (BuildConfig.DEBUG && NavigationPolicy.isRendererTestUrl(requested)) {
                         // Debug builds only: lets the owner test renderer-crash recovery with
                         // adb (see CHANGES.md, "How to test the crash recovery").
-                        chatWebView.loadUrl(requested);
+                        tabManager.show(accounts.duck(), requested);
                     } else {
                         Log.w(TAG, "Refused to load a non-chat address requested by another app");
-                        chatWebView.loadUrl("https://duck.ai/");
+                        tabManager.show(accounts.duck(), "https://duck.ai/");
                     }
                 }
             } else {
-                chatWebView.loadUrl("https://duck.ai/");
+                tabManager.show(accounts.duck(), "https://duck.ai/");
             }
         } else if (Intent.ACTION_SEND.equals(action) || Intent.ACTION_SEND_MULTIPLE.equals(action) || Intent.ACTION_PROCESS_TEXT.equals(action)) {
             String sharedText = null;
@@ -1879,7 +1901,7 @@ public class MainActivity extends Activity {
             } else if (sharedText != null) {
                 sendPrompt(target, sharedText);
             } else if (target.isDuck()) {
-                chatWebView.loadUrl("https://duck.ai/");
+                tabManager.show(target, "https://duck.ai/");
             } else {
                 tabManager.show(target);
             }
@@ -1894,28 +1916,39 @@ public class MainActivity extends Activity {
             boolean triggerVoice = prefs.getBoolean("trigger_voice_assistant", true);
             if (triggerVoice) {
                 pendingVoiceChat = true;
-                String currentUrl = chatWebView.getUrl();
-                if (currentUrl != null && currentUrl.startsWith("https://duck.ai")) {
+                if (DuckLoading.voiceNeedsOwnLoad(duckWasLoaded, chatWebView.getUrl())) {
+                    chatWebView.loadUrl("https://duck.ai/"); // onPageFinished starts the voice chat
+                } else if (duckWasLoaded) {
                     safeEvaluateJavascript(chatWebView, "window.isVoiceChatActive = true;");
                     chatWebView.evaluateJavascript(js(Scripts.VOICE_CHAT), null);
-                } else {
-                    chatWebView.loadUrl("https://duck.ai/");
-                }
+                } // else: showing duck.ai above has just loaded its page; onPageFinished starts the voice chat
             } else {
                 pendingVoiceChat = false;
-                if (chatWebView.getUrl() == null || chatWebView.getUrl().isEmpty()
-                        || chatWebView.getUrl().equals("about:blank")) {
+                if (duckWasLoaded && (chatWebView.getUrl() == null || chatWebView.getUrl().isEmpty()
+                        || chatWebView.getUrl().equals("about:blank"))) {
                     chatWebView.loadUrl("https://duck.ai/");
                 }
             }
         } else if (Intent.ACTION_MAIN.equals(action) || action == null) {
             pendingVoiceChat = false;
-            safeEvaluateJavascript(chatWebView, "window.isVoiceChatActive = false;");
+            if (duckWasLoaded) {
+                safeEvaluateJavascript(chatWebView, "window.isVoiceChatActive = false;");
+            }
             SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
             // "Auto-focus keyboard" only applies while duck.ai is the tab on screen.
             boolean autoFocus = prefs.getBoolean("auto_focus_keyboard", false)
                     && (tabManager == null || tabManager.current().isDuck());
-            if (autoFocus) {
+            if (!duckWasLoaded) {
+                // duck.ai has no page yet (web/DuckLoading): load it only when it is the start account of a fresh
+                // launch (onCreate shows any other start account before this). Returning to the app leaves an
+                // unloaded duck.ai unloaded, like any other account.
+                if (!isResuming && tabManager.current().isDuck()) {
+                    if (autoFocus) {
+                        pendingAutoFocus = true; // set before the load: onPageFinished focuses the chat box
+                    }
+                    tabManager.show(accounts.duck());
+                }
+            } else if (autoFocus) {
                 String currentUrl = chatWebView.getUrl();
                 if (currentUrl != null && currentUrl.startsWith("https://duck.ai")) {
                     chatWebView.evaluateJavascript(js(Scripts.AUTO_FOCUS), null);
@@ -1932,11 +1965,13 @@ public class MainActivity extends Activity {
             if (prefs.getBoolean("prompt_on_launch", false)) {
                 showPromptOnLaunchDialog();
             }
-        } else {
+        } else if (duckWasLoaded) {
             if (chatWebView.getUrl() == null || chatWebView.getUrl().isEmpty()
                     || chatWebView.getUrl().equals("about:blank")) {
                 chatWebView.loadUrl("https://duck.ai/");
             }
+        } else if (!isResuming && tabManager.current().isDuck()) {
+            tabManager.show(accounts.duck()); // the same rule as the MAIN branch above
         }
     }
 
@@ -2043,11 +2078,13 @@ public class MainActivity extends Activity {
                 @JavascriptInterface
                 public void sendPrompt(String text) {
                     runOnUiThread(() -> {
-                        showDuckTab();
                         if (promptDialog != null && promptDialog.isShowing()) {
                             promptDialog.dismiss();
                         }
-                        if (text == null || text.trim().isEmpty()) return;
+                        if (text == null || text.trim().isEmpty()) {
+                            showDuckTab();
+                            return;
+                        }
                         
                         SharedPreferences prefs = getSharedPreferences("duck_assist_prefs", MODE_PRIVATE);
                         String suffix = prefs.getString("ask_duck_suffix", "");
@@ -2056,7 +2093,8 @@ public class MainActivity extends Activity {
                             promptText = promptText + "\n\n" + suffix;
                         }
                         
-                        chatWebView.loadUrl(PromptPrefill.duckUrl(promptText, true));
+                        // Shows duck.ai and opens the prompt there: one load, also when duck.ai had no page yet.
+                        tabManager.show(accounts.duck(), PromptPrefill.duckUrl(promptText, true));
                     });
                 }
 
@@ -2151,6 +2189,10 @@ public class MainActivity extends Activity {
             }
 
             String lastUrl = view.getUrl(); // read before the dead view is destroyed
+            // Which page the new WebView loads (web/DuckLoading): none if duck.ai had no page (it may be hit when
+            // another tab's page process dies; it must not be loaded as a side effect).
+            String reloadUrl = DuckLoading.reloadAfterCrash(
+                    tabManager == null || tabManager.isLoaded(Providers.DUCK_ID), lastUrl);
 
             // The old file-picker callback belongs to the dead WebView: forget it (don't call it).
             mUploadMessage = null;
@@ -2167,6 +2209,9 @@ public class MainActivity extends Activity {
             }
             if (tabManager != null) {
                 tabManager.replaceDuckView(chatWebView); // keeps it hidden if another tab is on screen
+            }
+            if (reloadUrl == null) {
+                return true; // fresh, configured and still without a page: no message, no crash-loop count
             }
 
             // Crash-loop guard: keep only recoveries from the last 60 seconds.
@@ -2188,10 +2233,8 @@ public class MainActivity extends Activity {
                     Toast.makeText(MainActivity.this,
                             "The chat page stopped unexpectedly and was reloaded.", Toast.LENGTH_SHORT).show();
                 }
-                // Only reload real web pages; anything else (or nothing) → start page.
-                boolean isWebPage = lastUrl != null
-                        && (lastUrl.startsWith("https://") || lastUrl.startsWith("http://"));
-                chatWebView.loadUrl(isWebPage ? lastUrl : "https://duck.ai/");
+                // Only real web pages are reloaded; anything else (or nothing) → start page (DuckLoading).
+                chatWebView.loadUrl(reloadUrl);
             }
             return true;
         }

@@ -70,6 +70,9 @@ public final class TabManager {
     private View placeholder;
     // Shown instead of a page that failed to load (see markLoadFailed, O-M4); may be null.
     private View retryPlaceholder;
+    // duck.ai's WebView exists from the start (it's in the layout), but its page loads only when duck.ai is needed
+    // (web/DuckLoading): until then, and after the ✕ unloads it, duck.ai counts as "not loaded".
+    private boolean duckPageLoaded;
 
     /**
      * @param duckView    the WebView from the layout, already configured; becomes the duck.ai tab
@@ -85,7 +88,8 @@ public final class TabManager {
         this.current = duck;
         liveTabs.put(duck.id, duckView);
         liveAccounts.put(duck.id, duck);
-        lru.touch(duck.id);
+        // Not lru.touch(duck.id) yet: a duck.ai without a page must not take one of the "kept loaded" places.
+        // show() counts it once its page loads.
         lowerPriorityWhenHidden(duckView);
     }
 
@@ -194,7 +198,7 @@ public final class TabManager {
 
     /** @return true if the account on screen has no loaded tab (it was unloaded; the placeholder shows). */
     public boolean isCurrentUnloaded() {
-        return !liveTabs.containsKey(current.id);
+        return !isLoaded(current.id);
     }
 
     /**
@@ -217,7 +221,20 @@ public final class TabManager {
 
     /** @return true if the account's tab is loaded (showing it won't load a page). */
     public boolean isLoaded(String accountId) {
+        if (Providers.DUCK_ID.equals(accountId)) {
+            return duckPageLoaded; // its WebView always exists; what counts is whether its page was loaded
+        }
         return liveTabs.containsKey(accountId);
+    }
+
+    /**
+     * duck.ai's page came back without a load (MainActivity: {@code restoreState} after Android rebuilt the screen):
+     * it counts as loaded again.
+     */
+    public void markDuckLoaded() {
+        duckPageLoaded = true;
+        lru.touch(Providers.DUCK_ID);
+        updatePlaceholder();
     }
 
     /** @return the account a WebView belongs to, or null if it isn't one of our tabs. */
@@ -249,9 +266,13 @@ public final class TabManager {
      */
     public WebView show(Account account, String startUrl) {
         WebView target = liveTabs.get(account.id);
-        boolean isNew = target == null;
-        if (isNew) {
+        // "New" = its page must be loaded now: a tab that doesn't exist yet, or duck.ai's WebView without a page.
+        boolean isNew = target == null || (account.isDuck() && !duckPageLoaded);
+        if (target == null) {
             target = createTab(account);
+        }
+        if (account.isDuck()) {
+            duckPageLoaded = true; // set before the load below, so callbacks during it already see "loaded"
         }
         liveAccounts.put(account.id, account); // keep the newest name
         if (!account.id.equals(current.id)) {
