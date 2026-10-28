@@ -37,7 +37,7 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 - 📥 **Downloads on every provider**, including files the chat creates itself (e.g. a CSV), saved to
   `Downloads/<Provider>/`.
 - 🗂️ **Account menu tools**: Desktop site, 🔄 Reload page, Reset text size, **Hide status bar** and Clear cache as one
-  icon row; a **✕ on every loaded account** unloads it (frees memory; duck.ai stays loaded); an **Active accounts** switch
+  icon row; a **✕ on every loaded account** unloads it (frees memory; duck.ai too, after saving its offline chats; duck.ai also loads only when needed); an **Active accounts** switch
   lists only the loaded accounts.
 - 🔁 **Tap to retry**: a page that can't be loaded (e.g. no connection) shows a calm black screen instead of Chromium's
   error page; tap it to try again.

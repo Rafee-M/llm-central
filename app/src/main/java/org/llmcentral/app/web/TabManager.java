@@ -32,7 +32,8 @@ import java.util.Map;
  * exceed that, the least recently used one is closed and simply reloads when opened again
  * (see {@link TabLru}). Hidden tabs are paused and marked "less important", so Android frees their
  * memory first when it runs low. duck.ai is the "home" tab: it's the WebView from the layout, it
- * carries the app's extra features, and it's never closed.</p>
+ * carries the app's extra features, and its WebView is never closed; its <i>page</i> loads only when
+ * duck.ai is needed and can be unloaded with the ✕ (web/DuckLoading, 2026-10-27).</p>
  *
  * <p><b>Unloading:</b> the ✕ on an account's row in the account menu closes that account's tab to free
  * its memory ({@link #unload}). The account on screen stays selected; a placeholder
