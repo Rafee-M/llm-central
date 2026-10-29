@@ -774,6 +774,49 @@ public class MainActivity extends Activity {
     }
 
     /**
+     * A tab (or one of its pop-ups, web/PopupWindows) wants to download a file. Files the page made itself
+     * (blob:, data:) are read inside the tab; a normal link is fetched by Android's download manager with the
+     * account's login cookies.
+     *
+     * @param webView       the tab; for a pop-up, the tab that opened it (same account and cookies)
+     * @param cookieManager the account's cookies (web/Profiles)
+     */
+    private void startDownload(WebView webView, ProviderSpec provider, CookieManager cookieManager, String url,
+                               String userAgent, String contentDisposition, String mimetype) {
+        if (url.startsWith("blob:")) {
+            // A file the page made itself: only the page can read it, so a small script
+            // (blob_fetch.js) reads it and hands it over through the tab's bridge (web/AppBridge;
+            // duck.ai: the full bridge, other providers: the downloads-only one).
+            if (!AppBridge.isSupported()) {
+                Toast.makeText(MainActivity.this, R.string.download_needs_newer_webview, Toast.LENGTH_LONG).show();
+                return;
+            }
+            // The script (assets/js/blob_fetch.js) is one function; the three values from the web
+            // page are passed in as safe JS string literals made by JSONObject.quote(), which
+            // escapes quotes, backslashes and line breaks, so a crafted file name can't inject
+            // its own JavaScript (PROJECT.md P8).
+            String args = "(" + org.json.JSONObject.quote(url) + ","
+                    + org.json.JSONObject.quote(contentDisposition != null ? contentDisposition : "") + ","
+                    + org.json.JSONObject.quote(mimetype != null ? mimetype : "") + ")";
+            webView.evaluateJavascript(js(Scripts.BLOB_FETCH) + args, null); // in the tab it came from
+            return;
+        } else if (url.startsWith("data:")) {
+            if (provider.isDuck()) {
+                downloader.saveDataUrl(provider, url, mimetype, contentDisposition, url, null);
+            } else {
+                // WebView doesn't pass on the name the page gave the file (<a download="…">), but
+                // blob_capture.js noted it when the page clicked the link: ask the page for it
+                // (evaluateJavascript hands the script's answer back), then save.
+                webView.evaluateJavascript(js(Scripts.DOWNLOAD_NAME), name ->
+                        downloader.saveDataUrl(provider, url, mimetype, contentDisposition, url, jsString(name)));
+            }
+            return;
+        }
+        // A normal link: Android's download manager fetches it with this tab's login cookies.
+        downloader.download(provider, cookieManager, url, userAgent, contentDisposition, mimetype);
+    }
+
+    /**
      * Applies all settings, listeners and bridges to a provider's WebView ("tab").
      *
      * <p>Called for duck.ai's WebView from the layout (onCreate), for every other provider's WebView
@@ -838,39 +881,8 @@ public class MainActivity extends Activity {
             PopupWindows.enable(webSettings);
         }
 
-        webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
-            if (url.startsWith("blob:")) {
-                // A file the page made itself: only the page can read it, so a small script
-                // (blob_fetch.js) reads it and hands it over through the tab's bridge (web/AppBridge;
-                // duck.ai: the full bridge, other providers: the downloads-only one).
-                if (!AppBridge.isSupported()) {
-                    Toast.makeText(MainActivity.this, R.string.download_needs_newer_webview, Toast.LENGTH_LONG).show();
-                    return;
-                }
-                // The script (assets/js/blob_fetch.js) is one function; the three values from the web
-                // page are passed in as safe JS string literals made by JSONObject.quote(), which
-                // escapes quotes, backslashes and line breaks, so a crafted file name can't inject
-                // its own JavaScript (PROJECT.md P8).
-                String args = "(" + org.json.JSONObject.quote(url) + ","
-                        + org.json.JSONObject.quote(contentDisposition != null ? contentDisposition : "") + ","
-                        + org.json.JSONObject.quote(mimetype != null ? mimetype : "") + ")";
-                webView.evaluateJavascript(js(Scripts.BLOB_FETCH) + args, null); // in the tab it came from
-                return;
-            } else if (url.startsWith("data:")) {
-                if (provider.isDuck()) {
-                    downloader.saveDataUrl(provider, url, mimetype, contentDisposition, url, null);
-                } else {
-                    // WebView doesn't pass on the name the page gave the file (<a download="…">), but
-                    // blob_capture.js noted it when the page clicked the link: ask the page for it
-                    // (evaluateJavascript hands the script's answer back), then save.
-                    webView.evaluateJavascript(js(Scripts.DOWNLOAD_NAME), name ->
-                            downloader.saveDataUrl(provider, url, mimetype, contentDisposition, url, jsString(name)));
-                }
-                return;
-            }
-            // A normal link: Android's download manager fetches it with this tab's login cookies.
-            downloader.download(provider, cookieManager, url, userAgent, contentDisposition, mimetype);
-        });
+        webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) ->
+                startDownload(webView, provider, cookieManager, url, userAgent, contentDisposition, mimetype));
 
         if (provider.isDuck()) {
             // duck.ai's helper scripts talk to the app through a message bridge that only duck.ai's
