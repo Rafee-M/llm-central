@@ -2517,7 +2517,11 @@ public class MainActivity extends Activity {
             if (provider.isDuck() || account == null) {
                 return false;
             }
-            return PopupWindows.open(view, provider, account, isUserGesture, resultMsg);
+            // A file the pop-up opens (e.g. Claude's uploaded files) is downloaded by the opener tab's code: same
+            // account and cookies; blob:/data: files are read in the tab (web/PopupWindows "Downloads").
+            return PopupWindows.open(view, provider, account, isUserGesture, resultMsg,
+                    (url, userAgent, contentDisposition, mimetype, contentLength) -> startDownload(view, provider,
+                            Profiles.cookieManager(view), url, userAgent, contentDisposition, mimetype));
         }
 
         @Override

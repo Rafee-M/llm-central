@@ -1,6 +1,8 @@
 package org.llmcentral.app.web;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 import org.llmcentral.app.provider.Providers;
@@ -33,5 +35,20 @@ public class PopupWindowsTest {
         assertEquals(Decision.BLOCK, PopupWindows.decide("intent://x#Intent;end", Providers.CHATGPT, false, true));
         assertEquals(Decision.BLOCK, PopupWindows.decide("javascript:alert(1)", Providers.CHATGPT, false, true));
         assertEquals(Decision.BLOCK, PopupWindows.decide("not a url", Providers.CHATGPT, false, true));
+    }
+
+    /**
+     * Only a web page counts as "the pop-up showed something": a pop-up that only ever committed about:blank (or a
+     * page-made blob:/data: document) and then turned into a download must still close its empty sheet.
+     */
+    @Test
+    public void onlyHttpPagesCountAsShown() {
+        assertTrue(PopupWindows.isWebPage("https://claude.ai/login"));
+        assertTrue(PopupWindows.isWebPage("HTTP://example.com/"));
+        assertFalse(PopupWindows.isWebPage("about:blank"));
+        assertFalse(PopupWindows.isWebPage("blob:https://claude.ai/1234"));
+        assertFalse(PopupWindows.isWebPage("data:text/plain,x"));
+        assertFalse(PopupWindows.isWebPage(null));
+        assertFalse(PopupWindows.isWebPage("::"));
     }
 }

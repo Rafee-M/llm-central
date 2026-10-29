@@ -19,6 +19,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
+import android.webkit.DownloadListener;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -60,6 +61,15 @@ import org.llmcentral.app.ui.ProviderBadge;
  * <p>The page closing its window ({@code window.close()} → {@code onCloseWindow}), the close button
  * and Back all close the sheet. Docs:
  * https://developer.android.com/reference/android/webkit/WebChromeClient#onCreateWindow(android.webkit.WebView,%20boolean,%20boolean,%20android.os.Message)</p>
+ *
+ * <p><b>Downloads</b> (2026-10-29): some links open a file in a new window, e.g. Claude's uploaded files
+ * ({@code claude.ai/api/…/files/…}). The address is the provider's, so the sheet appears, but the answer is a file:
+ * WebView turns the navigation into a download and hands it to the pop-up's {@code DownloadListener}, and calls
+ * nothing at all when there is none (Chromium {@code WebViewContentsClientAdapter.onDownloadStart}). So the pop-up
+ * gets a listener that passes the file to the tab that opened it (same account, same cookies: {@code
+ * MainActivity.startDownload}), and the sheet closes again if it never showed a web page: a download never "commits"
+ * a page, so {@code onPageCommitVisible} never comes for it (Chromium {@code AwWebContentsObserver}). A short flash of
+ * the sheet before it closes is expected. A sign-in page the user is looking at stays open.</p>
  *
  * <p>[unverified] Whether each provider's sign-in pop-up works inside WebView must be tried on a
  * phone; the androidx.webkit docs say nothing about pop-ups and profiles.</p>
@@ -111,6 +121,14 @@ public final class PopupWindows {
         return web && (isUserGesture || shown) ? Decision.BROWSER : Decision.BLOCK;
     }
 
+    /**
+     * @return true for an http(s) address: only such a page counts as "the pop-up showed something" (not the blank
+     *         start page or a page-made blob:/data: document).
+     */
+    static boolean isWebPage(String url) {
+        return url != null && (url.regionMatches(true, 0, "https:", 0, 6) || url.regionMatches(true, 0, "http:", 0, 5));
+    }
+
     /** Lets a provider tab open pop-up windows (call while configuring the tab). */
     public static void enable(WebSettings settings) {
         settings.setSupportMultipleWindows(true);
@@ -125,10 +143,11 @@ public final class PopupWindows {
      * @param account       the tab's account (its container is used for the pop-up too)
      * @param isUserGesture true if the user tapped something to open it
      * @param resultMsg     WebView's message carrying the {@code WebViewTransport}
+     * @param downloads     handles files the pop-up downloads (the opener tab's download code)
      * @return true if a pop-up was created (WebView then loads the page into it)
      */
     public static boolean open(WebView opener, ProviderSpec provider, Account account,
-                               boolean isUserGesture, Message resultMsg) {
+                               boolean isUserGesture, Message resultMsg, DownloadListener downloads) {
         Context context = opener.getContext();
         WebView popup = new WebView(context);
         try {
@@ -142,6 +161,10 @@ public final class PopupWindows {
         PopupSheet sheet = new PopupSheet(context, popup, provider, isUserGesture);
         popup.setWebViewClient(sheet.client);
         popup.setWebChromeClient(sheet.chrome);
+        popup.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
+            downloads.onDownloadStart(url, userAgent, contentDisposition, mimetype, contentLength);
+            sheet.closeIfNoPage(); // the file was all it opened: don't leave an empty sheet behind
+        });
 
         WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
         transport.setWebView(popup);
@@ -175,6 +198,7 @@ public final class PopupWindows {
         private Dialog dialog;       // created when the first page turns out to be the provider's
         private TextView title;
         private boolean decided;     // first page seen?
+        private boolean pageShown;   // a web page was committed and drawn (a download never is)
         private boolean closed;
 
         PopupSheet(Context context, WebView popup, ProviderSpec provider, boolean isUserGesture) {
@@ -205,6 +229,13 @@ public final class PopupWindows {
             }
 
             @Override
+            public void onPageCommitVisible(WebView view, String url) {
+                if (isWebPage(url)) {
+                    pageShown = true;
+                }
+            }
+
+            @Override
             @RequiresApi(Build.VERSION_CODES.O)
             public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
                 close(); // never let a dead pop-up take the app down (all WebViews share one renderer)
@@ -228,7 +259,7 @@ public final class PopupWindows {
                 return false;
             }
             Decision decision = decide(uri.toString(), provider, decided, isUserGesture);
-            boolean isPage = "https".equals(uri.getScheme()) || "http".equals(uri.getScheme());
+            boolean isPage = isWebPage(uri.toString());
             if (decision == Decision.LOAD) {
                 if (!decided && isPage) {
                     decided = true; // the first real page is the provider's: show the pop-up
@@ -310,6 +341,12 @@ public final class PopupWindows {
 
         void closeIfNeverShown() {
             if (!decided) {
+                close();
+            }
+        }
+
+        void closeIfNoPage() {
+            if (!pageShown) {
                 close();
             }
         }
