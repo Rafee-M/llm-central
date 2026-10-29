@@ -7,11 +7,11 @@
 </h1>
 
 
-> **Status: early development.** duck.ai, ChatGPT, Claude, DeepSeek and Z.ai work as switchable tabs, with
+> **Status: early development.** duck.ai, ChatGPT, Claude, DeepSeek, Z.ai and Gemini work as switchable tabs, with
 > several isolated accounts per provider and Material You theming.
 
 **LLM Central** is a lightweight, privacy-focused Android app that puts several AI chat websites in one
-place: duck.ai, ChatGPT, Claude, DeepSeek, Z.ai and more, with several isolated accounts per provider and
+place: duck.ai, ChatGPT, Claude, DeepSeek, Z.ai, Gemini and more, with several isolated accounts per provider and
 instant switching between them, while keeping the APK tiny (~250 KB).
 
 It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju, which is itself a fork of
@@ -19,7 +19,7 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 
 ## Features available today
 
-- 🔀 **Several AI providers in one app**: duck.ai, ChatGPT, Claude, DeepSeek and Z.ai. Tap the chip in the
+- 🔀 **Several AI providers in one app**: duck.ai, ChatGPT, Claude, DeepSeek, Z.ai and Gemini. Tap the chip in the
   top bar to switch; up to 3 accounts (changeable in Settings, 1–10) stay loaded, so switching back is instant.
 - 👥 **Several accounts per provider** (e.g. ChatGPT "Work" and "Personal"), each in its own container with
   separate logins, cookies and site data. Name them, choose which ones appear in the menu, sign out or remove
@@ -45,7 +45,7 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
   fingerprinting requests get no answer. A small list built from real measurements on each site; sign-in, captchas
   and chats are never blocked.
 - 🍪 **Third-party cookies blocked** (Settings → Data & tools → "Allow third-party cookies", off by default): sites
-  embedded in ChatGPT, Claude, DeepSeek and Z.ai can't use cookies; your logins are unaffected. duck.ai: always blocked.
+  embedded in ChatGPT, Claude, DeepSeek, Z.ai and Gemini can't use cookies; your logins are unaffected. duck.ai: always blocked.
 - 🧹 **Clear cache** (Settings → Data & tools; logins stay).
 - ⚙️ **Settings button on every provider** in the top bar; a minimal Material 3 settings screen, with an
   **About** page (version, developer, source code link).

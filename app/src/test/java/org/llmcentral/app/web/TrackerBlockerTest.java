@@ -185,6 +185,17 @@ public class TrackerBlockerTest {
         }
     }
 
+    /** play.google.com/log is a path prefix: a sign-in or log-out *page* on that host must still open (pages never blocked). */
+    @Test
+    public void googlePlayPagesStillOpen() throws IOException {
+        TrackerBlocker list = realList();
+        assertTrue(list.shouldBlock(false, "play.google.com", "/log", "format=json"));
+        assertFalse(list.shouldBlock(true, "play.google.com", "/log", null));
+        assertFalse(list.shouldBlock(true, "play.google.com", "/login", null));
+        assertFalse(list.shouldBlock(false, "play.google.com", "/store/apps/details", "id=x"));
+        assertFalse(list.shouldBlock(false, "play.google.com", "/", null));
+    }
+
     @Test
     public void realListIsSmall() throws IOException {
         int size = realList().size();
