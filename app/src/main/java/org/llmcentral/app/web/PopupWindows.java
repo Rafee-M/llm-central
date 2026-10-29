@@ -19,6 +19,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
+import android.webkit.CookieManager;
+import android.webkit.DownloadListener;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -53,13 +55,22 @@ import org.llmcentral.app.ui.ProviderBadge;
  *       so the login's cookies land in the right account;</li>
  *   <li>hands it to WebView through the {@code WebViewTransport} "envelope" in the message;</li>
  *   <li>waits for the pop-up's first page. If it belongs to the provider (its own or its login
- *       sites, {@link ProviderSpec#ownsHost}), the pop-up is shown as a full-screen sheet with a
+ *       sites, or the shared Apple/Google sign-in pages: {@link ProviderSpec#loadsInApp}), the pop-up is shown as a full-screen sheet with a
  *       close button. Anything else was just a link that opens a new window: it goes to the
  *       browser (only if the user tapped something) and the pop-up is thrown away unseen.</li>
  * </ol>
  * <p>The page closing its window ({@code window.close()} → {@code onCloseWindow}), the close button
  * and Back all close the sheet. Docs:
  * https://developer.android.com/reference/android/webkit/WebChromeClient#onCreateWindow(android.webkit.WebView,%20boolean,%20boolean,%20android.os.Message)</p>
+ *
+ * <p><b>Downloads</b> (2026-10-29): some links open a file in a new window, e.g. Claude's uploaded files
+ * ({@code claude.ai/api/…/files/…}). The address is the provider's, so the sheet appears, but the answer is a file:
+ * WebView turns the navigation into a download and hands it to the pop-up's {@code DownloadListener}, and calls
+ * nothing at all when there is none (Chromium {@code WebViewContentsClientAdapter.onDownloadStart}). So the pop-up
+ * gets a listener that passes the file to the tab that opened it (same account, same cookies: {@code
+ * MainActivity.startDownload}), and the sheet closes again if it never showed a web page: a download never "commits"
+ * a page, so {@code onPageCommitVisible} never comes for it (Chromium {@code AwWebContentsObserver}). A short flash of
+ * the sheet before it closes is expected. A sign-in page the user is looking at stays open.</p>
  *
  * <p>[unverified] Whether each provider's sign-in pop-up works inside WebView must be tried on a
  * phone; the androidx.webkit docs say nothing about pop-ups and profiles.</p>
@@ -102,13 +113,21 @@ public final class PopupWindows {
         if (scheme.equals("about") || scheme.equals("blob") || scheme.equals("data")) {
             return Decision.LOAD; // blank start page or page-made content: stays in the pop-up
         }
-        if ((scheme.equals("https") || scheme.equals("http")) && provider.ownsHost(host)) {
+        if ((scheme.equals("https") || scheme.equals("http")) && provider.loadsInApp(host)) {
             return Decision.LOAD;
         }
         // Another website (or another kind of link). After a tap, or from a sign-in page the user
         // is looking at: the browser. From a script nobody asked for (perhaps an advert): ignore.
         boolean web = scheme.equals("https") || scheme.equals("http");
         return web && (isUserGesture || shown) ? Decision.BROWSER : Decision.BLOCK;
+    }
+
+    /**
+     * @return true for an http(s) address: only such a page counts as "the pop-up showed something" (not the blank
+     *         start page or a page-made blob:/data: document).
+     */
+    static boolean isWebPage(String url) {
+        return url != null && (url.regionMatches(true, 0, "https:", 0, 6) || url.regionMatches(true, 0, "http:", 0, 5));
     }
 
     /** Lets a provider tab open pop-up windows (call while configuring the tab). */
@@ -125,10 +144,11 @@ public final class PopupWindows {
      * @param account       the tab's account (its container is used for the pop-up too)
      * @param isUserGesture true if the user tapped something to open it
      * @param resultMsg     WebView's message carrying the {@code WebViewTransport}
+     * @param downloads     handles files the pop-up downloads (the opener tab's download code)
      * @return true if a pop-up was created (WebView then loads the page into it)
      */
     public static boolean open(WebView opener, ProviderSpec provider, Account account,
-                               boolean isUserGesture, Message resultMsg) {
+                               boolean isUserGesture, Message resultMsg, DownloadListener downloads) {
         Context context = opener.getContext();
         WebView popup = new WebView(context);
         try {
@@ -138,10 +158,14 @@ public final class PopupWindows {
             popup.destroy();
             return false; // the page's window.open() gets null, as with a pop-up blocker
         }
-        configure(popup);
+        configure(popup, opener);
         PopupSheet sheet = new PopupSheet(context, popup, provider, isUserGesture);
         popup.setWebViewClient(sheet.client);
         popup.setWebChromeClient(sheet.chrome);
+        popup.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
+            downloads.onDownloadStart(url, userAgent, contentDisposition, mimetype, contentLength);
+            sheet.closeIfNoPage(); // the file was all it opened: don't leave an empty sheet behind
+        });
 
         WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
         transport.setWebView(popup);
@@ -153,7 +177,7 @@ public final class PopupWindows {
 
     // The pop-up shows the provider's own pages, which need JavaScript (like the tab itself).
     @SuppressLint("SetJavaScriptEnabled")
-    private static void configure(WebView popup) {
+    private static void configure(WebView popup, WebView opener) {
         WebSettings s = popup.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -162,8 +186,10 @@ public final class PopupWindows {
         s.setAllowContentAccess(false);
         s.setSaveFormData(false);
         s.setGeolocationEnabled(false);
-        // Same third-party cookie rule as provider tabs (sign-in checks run in embedded frames).
-        Profiles.cookieManager(popup).setAcceptThirdPartyCookies(popup, true);
+        // The same third-party cookie choice as the tab that opened it (Settings → "Allow third-party cookies",
+        // web/ThirdPartyCookies; the tabs are kept up to date, so this copies the current setting).
+        CookieManager cookies = Profiles.cookieManager(popup);
+        cookies.setAcceptThirdPartyCookies(popup, cookies.acceptThirdPartyCookies(opener));
     }
 
     /** One pop-up: its WebView, the sheet it's shown in, and its clients. */
@@ -175,6 +201,7 @@ public final class PopupWindows {
         private Dialog dialog;       // created when the first page turns out to be the provider's
         private TextView title;
         private boolean decided;     // first page seen?
+        private boolean pageShown;   // a web page was committed and drawn (a download never is)
         private boolean closed;
 
         PopupSheet(Context context, WebView popup, ProviderSpec provider, boolean isUserGesture) {
@@ -187,7 +214,17 @@ public final class PopupWindows {
         final WebViewClient client = new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                return !allow(request.getUrl());
+                if (!allow(request.getUrl())) {
+                    return true;
+                }
+                // Google's sign-in page: a browser's user agent while it is shown (web/SignInUserAgent); the switch
+                // applies to the next load, so the same address starts again.
+                String url = request.getUrl().toString();
+                if (SignInUserAgent.apply(view, url) != SignInUserAgent.Change.NONE) {
+                    view.loadUrl(url);
+                    return true;
+                }
+                return false;
             }
 
             @Override
@@ -201,6 +238,19 @@ public final class PopupWindows {
                 }
                 if (title != null && uri.getHost() != null) {
                     title.setText(uri.getHost());
+                }
+                // A new window's first address (often Google's sign-in) doesn't pass through shouldOverrideUrlLoading:
+                // switch the user agent here and start it again (switching back never restarts: could be a POST).
+                if (SignInUserAgent.apply(view, url) == SignInUserAgent.Change.DISGUISE) {
+                    view.stopLoading();
+                    view.loadUrl(url);
+                }
+            }
+
+            @Override
+            public void onPageCommitVisible(WebView view, String url) {
+                if (isWebPage(url)) {
+                    pageShown = true;
                 }
             }
 
@@ -228,7 +278,7 @@ public final class PopupWindows {
                 return false;
             }
             Decision decision = decide(uri.toString(), provider, decided, isUserGesture);
-            boolean isPage = "https".equals(uri.getScheme()) || "http".equals(uri.getScheme());
+            boolean isPage = isWebPage(uri.toString());
             if (decision == Decision.LOAD) {
                 if (!decided && isPage) {
                     decided = true; // the first real page is the provider's: show the pop-up
@@ -310,6 +360,12 @@ public final class PopupWindows {
 
         void closeIfNeverShown() {
             if (!decided) {
+                close();
+            }
+        }
+
+        void closeIfNoPage() {
+            if (!pageShown) {
                 close();
             }
         }

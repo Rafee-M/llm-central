@@ -112,12 +112,32 @@ public class TrackerBlockerTest {
             {"o1.ingest.sentry.io", "/api/1/envelope/", null},
             {"browser-intake-datadoghq.com", "/api/v2/rum", null},
             {"some-proxy.example", "/rum", "ddsource=browser"},
+            // Gemini, measured 2026-10-29 on gemini.google.com and Google's sign-in page (Chromium, list simulated):
+            // Google's client telemetry (4 per Gemini load, 2 on the sign-in page), and the analytics GTM would load.
+            {"play.google.com", "/log", "format=json&hasfast=true"},
+            {"www.googletagmanager.com", "/gtag/js", "id=G-X"},
+            {"stats.g.doubleclick.net", "/g/collect", "v=2"},
+            {"www.google-analytics.com", "/g/collect", "v=2"},
     };
 
     /** What the sites need (sign-in, captcha, bot checks, pages, API, CDNs), from the same phone log. */
     private static final String[][] NEEDED = {
             {"chatgpt.com", "/backend-api/conversation", null},
             {"chatgpt.com", "/", null},
+            // Gemini (2026-10-29, measured on gemini.google.com): the site, its files and API, Google's bot checks
+            {"gemini.google.com", "/app", null},
+            {"gemini.google.com", "/_/BardChatUi/data/batchexecute", "rpcids=x"},
+            {"gemini.gstatic.com", "/x.js", null},
+            {"www.gstatic.com", "/x.js", null},
+            {"geminiweb-pa.clients6.google.com", "/$rpc/x", null},
+            {"waa-pa.clients6.google.com", "/$rpc/google.internal.waa.v1.Waa/Create", null},
+            {"www.google.com", "/js/bg/x.js", null},
+            {"lh3.googleusercontent.com", "/a/default-user", null},
+            {"play.google.com", "/store/apps/details", "id=com.google.android.apps.bard"}, // only /log is telemetry
+            // Shared sign-in pages (provider/SignInHosts, 2026-10-29)
+            {"accounts.google.com", "/o/oauth2/v2/auth", null},
+            {"appleid.apple.com", "/auth/authorize", null},
+            {"idmsa.apple.com", "/appleauth/auth/signin", null},
             {"auth.openai.com", "/api/accounts/authorize", null},
             {"auth-cdn.oaistatic.com", "/assets/app.js", null},
             {"sentinel.openai.com", "/backend-api/sentinel/req", null},
@@ -163,6 +183,17 @@ public class TrackerBlockerTest {
         for (String[] r : NEEDED) {
             assertFalse(r[0] + r[1], blocked(list, r[0], r[1], r[2]));
         }
+    }
+
+    /** play.google.com/log is a path prefix: a sign-in or log-out *page* on that host must still open (pages never blocked). */
+    @Test
+    public void googlePlayPagesStillOpen() throws IOException {
+        TrackerBlocker list = realList();
+        assertTrue(list.shouldBlock(false, "play.google.com", "/log", "format=json"));
+        assertFalse(list.shouldBlock(true, "play.google.com", "/log", null));
+        assertFalse(list.shouldBlock(true, "play.google.com", "/login", null));
+        assertFalse(list.shouldBlock(false, "play.google.com", "/store/apps/details", "id=x"));
+        assertFalse(list.shouldBlock(false, "play.google.com", "/", null));
     }
 
     @Test

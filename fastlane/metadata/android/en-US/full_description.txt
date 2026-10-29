@@ -1,4 +1,4 @@
-LLM Central puts multiple AI chat websites in one small app: duck.ai, ChatGPT, Claude, DeepSeek and Z.ai. Switch between them from the top bar quicker than browser tabs.
+LLM Central puts multiple AI chat websites in one small app: duck.ai, ChatGPT, Claude, DeepSeek, Z.ai and Gemini. Switch between them from the top bar quicker than browser tabs.
 
 <b>Features</b>
 <ul>

@@ -1,4 +1,4 @@
-// prefill_prompt.js — types a prompt into a chat site's message box (ChatGPT, Claude, DeepSeek, Z.ai).
+// prefill_prompt.js — types a prompt into a chat site's message box (ChatGPT, Claude, DeepSeek, Z.ai, Gemini).
 // Run by web/PromptFiller.java every half second after a page loads, until it reports success.
 // Used for shared text, "Ask AI" and converted documents when the site has no reliable
 // "open a chat with this text" address (see provider/PromptPrefill.java). It never presses Send.
@@ -40,11 +40,18 @@
   } else {
     // Rich-text editors (ProseMirror on ChatGPT/Claude, and others) handle a "paste" well, keeping
     // line breaks. If the editor ignores it, fall back to the browser's "insert text" command.
-    var data = new DataTransfer();
-    data.setData('text/plain', text);
-    var paste = new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true });
-    box.dispatchEvent(paste);
-    if (!paste.defaultPrevented || !textOf(box).trim().length) {
+    // Not for Quill editors (Gemini: div.ql-editor): a "paste" makes Quill move the cursor into its hidden
+    // clipboard box for a moment, so the inserted text would land there and lose its line breaks (measured on
+    // gemini.google.com, 2026-10-29). Quill takes "insert text" correctly, line breaks included.
+    var pasted = false;
+    if (!(box.classList && box.classList.contains('ql-editor'))) {
+      var data = new DataTransfer();
+      data.setData('text/plain', text);
+      var paste = new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true });
+      box.dispatchEvent(paste);
+      pasted = paste.defaultPrevented && textOf(box).trim().length > 0;
+    }
+    if (!pasted) {
       document.execCommand('insertText', false, text);
     }
   }

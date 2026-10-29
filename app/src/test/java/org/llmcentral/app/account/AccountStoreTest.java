@@ -25,8 +25,8 @@ public class AccountStoreTest {
     @Test
     public void firstStartHasOneVisibleAccountPerProviderWithProviderIds() {
         AccountStore store = AccountStore.fromJson(null);
-        assertEquals("duck,chatgpt,claude,deepseek,zai", ids(store.all()));
-        assertEquals(5, store.visible().size());
+        assertEquals("duck,chatgpt,claude,deepseek,zai,gemini", ids(store.all()));
+        assertEquals(org.llmcentral.app.provider.Providers.ALL.size(), store.visible().size()); // one per provider
         assertEquals("ChatGPT", store.find("chatgpt").name);
         // duck.ai stays in WebView's default profile (keeps existing chats); others get their own.
         assertNull(store.duck().profileName());
@@ -50,10 +50,10 @@ public class AccountStoreTest {
         // The list order is the switcher menu's order; a new account is added at its end (owner, 2026-10-15).
         AccountStore store = AccountStore.fromJson(null);
         store.add("chatgpt", "Work", "chatgpt-2");
-        assertEquals("duck,chatgpt,claude,deepseek,zai,chatgpt-2", ids(store.all()));
+        assertEquals("duck,chatgpt,claude,deepseek,zai,gemini,chatgpt-2", ids(store.all()));
         store.remove("claude");
         store.add("claude", "", "claude-2");
-        assertEquals("duck,chatgpt,deepseek,zai,chatgpt-2,claude-2", ids(store.all()));
+        assertEquals("duck,chatgpt,deepseek,zai,gemini,chatgpt-2,claude-2", ids(store.all()));
     }
 
     @Test
@@ -61,18 +61,18 @@ public class AccountStoreTest {
         AccountStore store = AccountStore.fromJson(null);
         assertTrue(store.setVisible("chatgpt", false));
         assertTrue(store.setVisible("chatgpt", true));
-        assertEquals("duck,claude,deepseek,zai,chatgpt", ids(store.visible()));
+        assertEquals("duck,claude,deepseek,zai,gemini,chatgpt", ids(store.visible()));
         // Switching on an account that is already shown changes nothing.
         assertTrue(store.setVisible("claude", true));
-        assertEquals("duck,claude,deepseek,zai,chatgpt", ids(store.visible()));
+        assertEquals("duck,claude,deepseek,zai,gemini,chatgpt", ids(store.visible()));
     }
 
     @Test
     public void hidingKeepsTheOthersInPlace() {
         AccountStore store = AccountStore.fromJson(null);
         assertTrue(store.setVisible("claude", false));
-        assertEquals("duck,chatgpt,claude,deepseek,zai", ids(store.all()));
-        assertEquals("duck,chatgpt,deepseek,zai", ids(store.visible()));
+        assertEquals("duck,chatgpt,claude,deepseek,zai,gemini", ids(store.all()));
+        assertEquals("duck,chatgpt,deepseek,zai,gemini", ids(store.visible()));
     }
 
     @Test
@@ -146,7 +146,7 @@ public class AccountStoreTest {
         assertEquals("duck,c1", ids(store.all()));
         assertEquals("Claude", store.find("c1").name);
         assertEquals("duck", ids(store.visible()));
-        assertEquals("duck,chatgpt,claude,deepseek,zai", ids(AccountStore.fromJson("not json").all()));
+        assertEquals("duck,chatgpt,claude,deepseek,zai,gemini", ids(AccountStore.fromJson("not json").all()));
     }
 
     @Test
@@ -162,11 +162,11 @@ public class AccountStoreTest {
         AccountStore store = AccountStore.fromJson(null);
         store.add("chatgpt", "Work", "chatgpt-2");
         store.setVisible("deepseek", false);
-        // Visible: duck,chatgpt,claude,zai,chatgpt-2 → any order, also across providers.
-        assertTrue(store.reorder(java.util.Arrays.asList("chatgpt-2", "claude", "duck", "zai", "chatgpt")));
-        assertEquals("chatgpt-2,claude,duck,zai,chatgpt", ids(store.visible()));
-        // The hidden account keeps its place in the full list (slot 4 of 6).
-        assertEquals("chatgpt-2,claude,duck,deepseek,zai,chatgpt", ids(store.all()));
+        // Visible: duck,chatgpt,claude,zai,gemini,chatgpt-2 → any order, also across providers.
+        assertTrue(store.reorder(java.util.Arrays.asList("chatgpt-2", "claude", "duck", "zai", "gemini", "chatgpt")));
+        assertEquals("chatgpt-2,claude,duck,zai,gemini,chatgpt", ids(store.visible()));
+        // The hidden account keeps its place in the full list (slot 4 of 7).
+        assertEquals("chatgpt-2,claude,duck,deepseek,zai,gemini,chatgpt", ids(store.all()));
         // Saved: the new order survives a save and load.
         assertEquals(ids(store.all()), ids(AccountStore.fromJson(store.toJson()).all()));
     }

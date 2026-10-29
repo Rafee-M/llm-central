@@ -7,4 +7,6 @@
     <item name="tag_page_zoom" type="id" />
     <!-- web/TabManager: the address of a page that failed to load in this tab (retry screen, O-M4). -->
     <item name="tag_load_failed" type="id" />
+    <!-- web/SignInUserAgent: the user agent a tab or pop-up had before Google's sign-in page needed another one. -->
+    <item name="tag_sign_in_ua" type="id" />
 </resources>

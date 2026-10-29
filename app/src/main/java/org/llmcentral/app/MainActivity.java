@@ -66,6 +66,8 @@ import org.llmcentral.app.web.LoadErrors;
 import org.llmcentral.app.web.AppBridge;
 import org.llmcentral.app.web.NavigationPolicy;
 import org.llmcentral.app.web.PageZoom;
+import org.llmcentral.app.web.SignInUserAgent;
+import org.llmcentral.app.web.ThirdPartyCookies;
 import org.llmcentral.app.web.TrackerBlocking;
 import org.llmcentral.app.web.Scripts;
 import org.llmcentral.app.web.TabLru;
@@ -664,6 +666,23 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * Makes every open tab follow "Allow third-party cookies" (web/ThirdPartyCookies): after the switch changes, and on
+     * every return to this screen (the other screen may have changed it). WebView reads the value on each request, so
+     * no reload is needed. New tabs get it in configureWebView, pop-ups copy their tab's value (web/PopupWindows).
+     */
+    private void syncThirdPartyCookies() {
+        if (tabManager == null) {
+            return;
+        }
+        boolean on = ThirdPartyCookies.isOn(this);
+        for (WebView tab : tabManager.liveWebViews()) {
+            Account account = tabManager.accountOf(tab);
+            ProviderSpec provider = account != null ? Providers.byId(account.providerId) : Providers.DUCK;
+            Profiles.cookieManager(tab).setAcceptThirdPartyCookies(tab, ThirdPartyCookies.allowed(provider, on));
+        }
+    }
+
     /** Text size for every open tab (Settings → Appearance → Text size, or the other screen changed it). */
     private void applyTextZoom(int percent) {
         currentZoomLevel = percent;
@@ -774,6 +793,49 @@ public class MainActivity extends Activity {
     }
 
     /**
+     * A tab (or one of its pop-ups, web/PopupWindows) wants to download a file. Files the page made itself
+     * (blob:, data:) are read inside the tab; a normal link is fetched by Android's download manager with the
+     * account's login cookies.
+     *
+     * @param webView       the tab; for a pop-up, the tab that opened it (same account and cookies)
+     * @param cookieManager the account's cookies (web/Profiles)
+     */
+    private void startDownload(WebView webView, ProviderSpec provider, CookieManager cookieManager, String url,
+                               String userAgent, String contentDisposition, String mimetype) {
+        if (url.startsWith("blob:")) {
+            // A file the page made itself: only the page can read it, so a small script
+            // (blob_fetch.js) reads it and hands it over through the tab's bridge (web/AppBridge;
+            // duck.ai: the full bridge, other providers: the downloads-only one).
+            if (!AppBridge.isSupported()) {
+                Toast.makeText(MainActivity.this, R.string.download_needs_newer_webview, Toast.LENGTH_LONG).show();
+                return;
+            }
+            // The script (assets/js/blob_fetch.js) is one function; the three values from the web
+            // page are passed in as safe JS string literals made by JSONObject.quote(), which
+            // escapes quotes, backslashes and line breaks, so a crafted file name can't inject
+            // its own JavaScript (PROJECT.md P8).
+            String args = "(" + org.json.JSONObject.quote(url) + ","
+                    + org.json.JSONObject.quote(contentDisposition != null ? contentDisposition : "") + ","
+                    + org.json.JSONObject.quote(mimetype != null ? mimetype : "") + ")";
+            webView.evaluateJavascript(js(Scripts.BLOB_FETCH) + args, null); // in the tab it came from
+            return;
+        } else if (url.startsWith("data:")) {
+            if (provider.isDuck()) {
+                downloader.saveDataUrl(provider, url, mimetype, contentDisposition, url, null);
+            } else {
+                // WebView doesn't pass on the name the page gave the file (<a download="…">), but
+                // blob_capture.js noted it when the page clicked the link: ask the page for it
+                // (evaluateJavascript hands the script's answer back), then save.
+                webView.evaluateJavascript(js(Scripts.DOWNLOAD_NAME), name ->
+                        downloader.saveDataUrl(provider, url, mimetype, contentDisposition, url, jsString(name)));
+            }
+            return;
+        }
+        // A normal link: Android's download manager fetches it with this tab's login cookies.
+        downloader.download(provider, cookieManager, url, userAgent, contentDisposition, mimetype);
+    }
+
+    /**
      * Applies all settings, listeners and bridges to a provider's WebView ("tab").
      *
      * <p>Called for duck.ai's WebView from the layout (onCreate), for every other provider's WebView
@@ -823,9 +885,10 @@ public class MainActivity extends Activity {
         // WebView's profile for it instead of the app-wide CookieManager.getInstance().
         CookieManager cookieManager = Profiles.cookieManager(webView);
         cookieManager.setAcceptCookie(true);
-        // duck.ai needs no third-party cookies. Sign-in pages of other providers often use a
-        // security check (e.g. Cloudflare) inside an embedded frame, which needs them.
-        cookieManager.setAcceptThirdPartyCookies(webView, !provider.isDuck());
+        // Cookies of other sites embedded in the page: blocked unless Settings → "Allow third-party cookies" is on
+        // (a sign-in check or captcha in an embedded frame may need them); duck.ai never (web/ThirdPartyCookies).
+        cookieManager.setAcceptThirdPartyCookies(webView,
+                ThirdPartyCookies.allowed(provider, ThirdPartyCookies.isOn(this)));
 
         // Debug builds count every request for the tracker list (debug/RequestLogHooks); in a release build
         // BuildConfig.DEBUG is the constant false, so only "new MyWebViewClient" is compiled in.
@@ -838,39 +901,8 @@ public class MainActivity extends Activity {
             PopupWindows.enable(webSettings);
         }
 
-        webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
-            if (url.startsWith("blob:")) {
-                // A file the page made itself: only the page can read it, so a small script
-                // (blob_fetch.js) reads it and hands it over through the tab's bridge (web/AppBridge;
-                // duck.ai: the full bridge, other providers: the downloads-only one).
-                if (!AppBridge.isSupported()) {
-                    Toast.makeText(MainActivity.this, R.string.download_needs_newer_webview, Toast.LENGTH_LONG).show();
-                    return;
-                }
-                // The script (assets/js/blob_fetch.js) is one function; the three values from the web
-                // page are passed in as safe JS string literals made by JSONObject.quote(), which
-                // escapes quotes, backslashes and line breaks, so a crafted file name can't inject
-                // its own JavaScript (PROJECT.md P8).
-                String args = "(" + org.json.JSONObject.quote(url) + ","
-                        + org.json.JSONObject.quote(contentDisposition != null ? contentDisposition : "") + ","
-                        + org.json.JSONObject.quote(mimetype != null ? mimetype : "") + ")";
-                webView.evaluateJavascript(js(Scripts.BLOB_FETCH) + args, null); // in the tab it came from
-                return;
-            } else if (url.startsWith("data:")) {
-                if (provider.isDuck()) {
-                    downloader.saveDataUrl(provider, url, mimetype, contentDisposition, url, null);
-                } else {
-                    // WebView doesn't pass on the name the page gave the file (<a download="…">), but
-                    // blob_capture.js noted it when the page clicked the link: ask the page for it
-                    // (evaluateJavascript hands the script's answer back), then save.
-                    webView.evaluateJavascript(js(Scripts.DOWNLOAD_NAME), name ->
-                            downloader.saveDataUrl(provider, url, mimetype, contentDisposition, url, jsString(name)));
-                }
-                return;
-            }
-            // A normal link: Android's download manager fetches it with this tab's login cookies.
-            downloader.download(provider, cookieManager, url, userAgent, contentDisposition, mimetype);
-        });
+        webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) ->
+                startDownload(webView, provider, cookieManager, url, userAgent, contentDisposition, mimetype));
 
         if (provider.isDuck()) {
             // duck.ai's helper scripts talk to the app through a message bridge that only duck.ai's
@@ -1049,6 +1081,7 @@ public class MainActivity extends Activity {
                         obj.put("offline_chats", OfflineChats.isEnabled(MainActivity.this));
                         obj.put(PageZoom.PREF, PageZoom.isOn(prefs));
                         obj.put(TrackerBlocking.PREF, TrackerBlocking.isEnabled(MainActivity.this));
+                        obj.put(ThirdPartyCookies.PREF, ThirdPartyCookies.isOn(MainActivity.this));
                         obj.put("text_zoom", prefs.getInt("text_zoom", 100));
                     } catch (Exception e) {
                         Log.e(TAG, "Error generating settings JSON", e);
@@ -1071,6 +1104,13 @@ public class MainActivity extends Activity {
                 @JavascriptInterface
                 public void setBlockTrackers(boolean on) {
                     TrackerBlocking.setEnabled(MainActivity.this, on);
+                }
+
+                /** Settings → Data &amp; tools → "Allow third-party cookies" (web/ThirdPartyCookies): open tabs follow at once. */
+                @JavascriptInterface
+                public void setThirdPartyCookies(boolean on) {
+                    ThirdPartyCookies.setOn(MainActivity.this, on);
+                    runOnUiThread(MainActivity.this::syncThirdPartyCookies);
                 }
 
                 /** Settings → Appearance → Text size (50–300 %, the same value the text-size pinch sets). */
@@ -1764,6 +1804,7 @@ public class MainActivity extends Activity {
                 applyTextZoom(textZoom);
             }
             syncPageZoom();
+            syncThirdPartyCookies();
             syncDesktopMode(tabManager.current());
             if (tabManager.current().isDuck()) {
                 duckUsedSinceDump = true;
@@ -2314,9 +2355,17 @@ public class MainActivity extends Activity {
             Uri uri = Uri.parse(url);
             String host = uri.getHost();
             
-            // Only this provider's own sites and login pages load inside its tab (exact domain match,
-            // see ProviderSpec.ownsHost / PROJECT.md P14). Everything else opens in the browser.
-            if (provider.ownsHost(host)) {
+            // Only this provider's own sites and login pages, plus the shared Apple/Google sign-in pages, load
+            // inside its tab (exact domain match, see ProviderSpec.loadsInApp / PROJECT.md P14). Everything else
+            // opens in the browser.
+            if (provider.loadsInApp(host)) {
+                // Google's sign-in page refuses WebViews, so this tab borrows a browser's user agent while it shows
+                // that page and gets its own back when it leaves (web/SignInUserAgent). A switch only applies to the
+                // next load, so the same address starts again (this method never sees POST forms).
+                if (!provider.isDuck() && SignInUserAgent.apply(view, url) != SignInUserAgent.Change.NONE) {
+                    view.loadUrl(url);
+                    return true;
+                }
                 return false;
             }
 
@@ -2354,6 +2403,13 @@ public class MainActivity extends Activity {
             }
             if (isVisibleTab(view)) {
                 progressBar.setVisibility(View.VISIBLE);
+            }
+            // Backstop for loads that didn't pass shouldOverrideUrlLoading (Back/Forward, Reload): Google's sign-in
+            // page must not start with the WebView user agent. Only that switch restarts the load; switching back
+            // doesn't (it could be a sign-in form sent with POST), the next load then has the tab's own again.
+            if (!provider.isDuck() && SignInUserAgent.apply(view, url) == SignInUserAgent.Change.DISGUISE) {
+                view.stopLoading();
+                view.loadUrl(url);
             }
         }
 
@@ -2505,7 +2561,11 @@ public class MainActivity extends Activity {
             if (provider.isDuck() || account == null) {
                 return false;
             }
-            return PopupWindows.open(view, provider, account, isUserGesture, resultMsg);
+            // A file the pop-up opens (e.g. Claude's uploaded files) is downloaded by the opener tab's code: same
+            // account and cookies; blob:/data: files are read in the tab (web/PopupWindows "Downloads").
+            return PopupWindows.open(view, provider, account, isUserGesture, resultMsg,
+                    (url, userAgent, contentDisposition, mimetype, contentLength) -> startDownload(view, provider,
+                            Profiles.cookieManager(view), url, userAgent, contentDisposition, mimetype));
         }
 
         @Override

@@ -17,16 +17,17 @@ For Android the path was rewritten without arcs (same shape, 3 decimals) and spl
 The logo is a trademark of DuckDuckGo. LLM Central uses it only to show that an account is duck.ai, DuckDuckGo's
 chat service; it is not affiliated with or endorsed by DuckDuckGo.
 
-## Provider logos (ChatGPT, Claude, DeepSeek, Z.ai)
+## Provider logos (ChatGPT, Claude, DeepSeek, Z.ai, Gemini)
 
 Files: `app/src/main/res/drawable/ic_logo_chatgpt.xml`, `ic_logo_claude.xml`, `ic_logo_deepseek.xml`,
-`ic_logo_zai.xml`, and the same shapes in `app/src/main/assets/settings.html` (`LOGOS`, original paths).
+`ic_logo_zai.xml`, `ic_logo_gemini.xml`, and the same shapes in `app/src/main/assets/settings.html` (`LOGOS`, original
+paths).
 
 Source: [Lobe Icons](https://github.com/lobehub/lobe-icons) 1.95.1 (`@lobehub/icons-static-svg`,
-files `icons/openai.svg`, `icons/claude.svg`, `icons/deepseek.svg`, `icons/zai.svg`). For Android the path data
+files `icons/openai.svg`, `icons/claude.svg`, `icons/deepseek.svg`, `icons/zai.svg`, `icons/gemini.svg`). For Android the path data
 was rewritten without arcs, in relative commands (same shapes), so Android's vector reader handles it.
 
-The logos are trademarks of their owners (OpenAI, Anthropic, DeepSeek, Z.ai / Zhipu AI). LLM Central uses them only to
+The logos are trademarks of their owners (OpenAI, Anthropic, DeepSeek, Z.ai / Zhipu AI, Google). LLM Central uses them only to
 show which service an account belongs to; it is not affiliated with or endorsed by these companies.
 
 ```
