@@ -72,8 +72,11 @@ Per-account offline history, per-account cache sizes, app lock.
 
 ## Signing in to providers
 
-Google blocks "Sign in with Google" inside in-app web views. Use **email/password or email-code login**
-for each provider instead.
+**Continue with Apple** and **Continue with Google** open inside the app, in the account you are signing in to (each
+account keeps its own Apple/Google sign-in; nothing is shared between accounts). Google refuses sign-in inside in-app
+web views, so while Google's sign-in page is open, that one page sees a browser-like user agent (the method
+[geminiAssist](https://github.com/AcideFluorhydrique/geminiAssist) uses); every other page sees the normal one. Google
+may stop this at any time: **email/password or email-code login** always works.
 
 ## Building
 
