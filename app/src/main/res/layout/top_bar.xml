@@ -50,6 +50,9 @@
             android:layout_height="28dp"
             android:importantForAccessibility="no" />
 
+        <!-- maxWidth 160dp (was 200dp before the search button, 2026-10-29): chip padding 6 + badge 28 + margin 10 +
+             name 160 + arrow ~16 + padding 12, plus the bar's padding 12 and two 48dp buttons = 340dp, so everything
+             fits a 360dp-wide phone. Longer names end in "…" (ellipsize). -->
         <TextView
             android:id="@+id/providerName"
             android:layout_width="wrap_content"
@@ -57,7 +60,7 @@
             android:layout_marginStart="10dp"
             android:ellipsize="end"
             android:importantForAccessibility="no"
-            android:maxWidth="200dp"
+            android:maxWidth="160dp"
             android:singleLine="true"
             android:textColor="@color/on_surface"
             android:textSize="16sp"
