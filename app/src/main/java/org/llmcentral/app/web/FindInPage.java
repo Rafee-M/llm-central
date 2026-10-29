@@ -49,6 +49,25 @@ public final class FindInPage {
     }
 
     /**
+     * The style sheet that colours the app's find bar matches (assets/js/find_highlight.js): every match in one colour
+     * pair, the current match in another. Chromium/WebView 144+ lets a page style its find highlights with the CSS
+     * pseudo-elements {@code ::search-text} and {@code ::search-text:current} (https://chromestatus.com/feature/5195073796177920);
+     * older WebViews ignore the rules and keep Chromium's yellow/orange.
+     *
+     * @return the CSS, or "" if a colour isn't exactly "#RRGGBB" (the text goes into the page, so nothing else may)
+     */
+    public static String highlightCss(String allBackground, String allText, String currentBackground,
+                                      String currentText) {
+        for (String colour : new String[] { allBackground, allText, currentBackground, currentText }) {
+            if (colour == null || !colour.matches("#[0-9A-Fa-f]{6}")) {
+                return "";
+            }
+        }
+        return "::search-text{background-color:" + allBackground + ";color:" + allText + "}"
+                + "::search-text:current{background-color:" + currentBackground + ";color:" + currentText + "}";
+    }
+
+    /**
      * The find bar's count, e.g. "3/12".
      *
      * @param activeOrdinal the current match as WebView reports it: counted from 0

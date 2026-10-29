@@ -22,7 +22,9 @@ import android.widget.TextView;
 
 import org.llmcentral.app.R;
 import org.llmcentral.app.theme.Scheme;
+import org.json.JSONObject;
 import org.llmcentral.app.web.FindInPage;
+import org.llmcentral.app.web.Scripts;
 
 /**
  * The app's own "find in page" bar: one line at the bottom of the screen with a search box, the "3/12" count,
@@ -38,6 +40,10 @@ import org.llmcentral.app.web.FindInPage;
  *
  * <p><b>Cost when unused: nothing.</b> MainActivity creates this bar the first time it is opened; until then no view,
  * listener or script exists. While closed, the WebView has no find listener and no highlights.</p>
+ *
+ * <p><b>Colours.</b> While the bar searches, assets/js/find_highlight.js gives the page a small style sheet that
+ * colours the matches with the theme's accent ({@link FindInPage#highlightCss}; WebView 144+, older ones keep
+ * Chromium's yellow/orange). Closing the bar removes it again.</p>
  *
  * <p>One bar per screen (main screen and assistant drawer each have their own). It searches one tab: MainActivity
  * closes it when another account comes on screen, when the tab is unloaded and when the tab's page process dies.</p>
@@ -57,6 +63,8 @@ public final class FindBar {
     // The tab's address when the search last started: a different one (new page or chat) needs a fresh search,
     // because Chromium's "find next" keeps the old page's count.
     private String searchedUrl;
+    // The accent style sheet for the matches (see restyle); "" if the theme gave no usable colours.
+    private String highlightCss = "";
 
     private final WebView.FindListener listener = this::onFindResult;
 
@@ -223,11 +231,18 @@ public final class FindBar {
         previous.setImageTintList(iconColour);
         next.setImageTintList(iconColour);
         close.setImageTintList(iconColour);
+        highlightCss = FindInPage.highlightCss(Scheme.hex(scheme.get(Scheme.PRIMARY_CONTAINER)),
+                Scheme.hex(scheme.get(Scheme.ON_PRIMARY_CONTAINER)), Scheme.hex(scheme.get(Scheme.PRIMARY)),
+                Scheme.hex(scheme.get(Scheme.ON_PRIMARY)));
+        if (target != null && input.getText().length() > 0) {
+            highlight(target, highlightCss); // the theme changed while searching
+        }
     }
 
     /** Stops searching the tab: no listener, no highlights. */
     private void detach() {
         if (target != null) {
+            highlight(target, null);
             target.clearMatches();
             target.setFindListener(null);
             target = null;
@@ -248,7 +263,17 @@ public final class FindBar {
             return;
         }
         searchedUrl = target.getUrl();
+        highlight(target, highlightCss); // again on every search: a new page has lost the previous one's sheet
         target.findAllAsync(text);
+    }
+
+    /** Adds/updates (css) or removes (null) the accent style sheet in the tab's page (assets/js/find_highlight.js). */
+    private void highlight(WebView tab, String css) {
+        if (css != null && css.isEmpty()) {
+            return;
+        }
+        String argument = css == null ? "null" : JSONObject.quote(css);
+        tab.evaluateJavascript(Scripts.get(bar.getContext(), Scripts.FIND_HIGHLIGHT) + "(" + argument + ")", null);
     }
 
     /** Moves to the next (forward) or previous match; on a new page, searches it first. */

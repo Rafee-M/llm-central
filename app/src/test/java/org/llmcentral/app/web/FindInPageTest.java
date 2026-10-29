@@ -51,6 +51,22 @@ public class FindInPageTest {
     }
 
     @Test
+    public void highlightCssColoursAllMatchesAndTheCurrentOne() {
+        // Chromium's find highlights can be styled by the page since WebView 144 (CSS ::search-text): every match in
+        // the softer accent, the current one in the full accent, each with its matching text colour.
+        assertEquals("::search-text{background-color:#AABBCC;color:#112233}"
+                        + "::search-text:current{background-color:#445566;color:#FFFFFF}",
+                FindInPage.highlightCss("#AABBCC", "#112233", "#445566", "#FFFFFF"));
+    }
+
+    @Test
+    public void highlightCssOnlyAcceptsColours() {
+        // The text ends up inside the page's style sheet: anything but #RRGGBB is refused, so nothing else can get in.
+        assertEquals("", FindInPage.highlightCss("#AABBCC", "red;}body{display:none", "#445566", "#FFFFFF"));
+        assertEquals("", FindInPage.highlightCss(null, "#112233", "#445566", "#FFFFFF"));
+    }
+
+    @Test
     public void countTextShowsCurrentOfTotal() {
         // WebView's FindListener counts the active match from 0; people count from 1.
         assertEquals("1/12", FindInPage.countText(0, 12, true));
