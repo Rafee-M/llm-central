@@ -51,9 +51,17 @@ public final class Providers {
             new String[]{"z.ai", "github.com"},
             "Z", 0xFF3B3B3B);
 
+    // Google's Gemini (2026-10-29). Only the chat site is its own: Google search, Docs, Drive and the account pages open
+    // in the browser; Google's sign-in page is shared (SignInHosts) and gets a browser user agent (web/SignInUserAgent).
+    // Gemini also works signed out (fewer features). Blue = the base colour of Lobe Icons' gemini-color.svg.
+    public static final ProviderSpec GEMINI = new ProviderSpec(
+            "gemini", "Gemini", "https://gemini.google.com/app",
+            new String[]{"gemini.google.com"},
+            "Ge", 0xFF3186FF);
+
     /** All providers, in switcher order. Unmodifiable. */
     public static final List<ProviderSpec> ALL =
-            Collections.unmodifiableList(Arrays.asList(DUCK, CHATGPT, CLAUDE, DEEPSEEK, ZAI));
+            Collections.unmodifiableList(Arrays.asList(DUCK, CHATGPT, CLAUDE, DEEPSEEK, ZAI, GEMINI));
 
     private Providers() {
         // Only static members.

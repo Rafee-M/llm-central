@@ -118,6 +118,15 @@ public class TrackerBlockerTest {
     private static final String[][] NEEDED = {
             {"chatgpt.com", "/backend-api/conversation", null},
             {"chatgpt.com", "/", null},
+            // Gemini (2026-10-29, measured on gemini.google.com): the site, its files and API, Google's bot checks
+            {"gemini.google.com", "/app", null},
+            {"gemini.google.com", "/_/BardChatUi/data/batchexecute", "rpcids=x"},
+            {"gemini.gstatic.com", "/x.js", null},
+            {"www.gstatic.com", "/x.js", null},
+            {"geminiweb-pa.clients6.google.com", "/$rpc/x", null},
+            {"waa-pa.clients6.google.com", "/$rpc/google.internal.waa.v1.Waa/Create", null},
+            {"www.google.com", "/js/bg/x.js", null},
+            {"lh3.googleusercontent.com", "/a/default-user", null},
             // Shared sign-in pages (provider/SignInHosts, 2026-10-29)
             {"accounts.google.com", "/o/oauth2/v2/auth", null},
             {"appleid.apple.com", "/auth/authorize", null},

@@ -80,6 +80,8 @@ public final class ProviderBadge {
             return R.drawable.ic_logo_deepseek;
         } else if (provider == Providers.ZAI) {
             return R.drawable.ic_logo_zai;
+        } else if (provider == Providers.GEMINI) {
+            return R.drawable.ic_logo_gemini;
         }
         return 0;
     }

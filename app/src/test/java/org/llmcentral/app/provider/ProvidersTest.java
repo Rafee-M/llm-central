@@ -108,6 +108,23 @@ public class ProvidersTest {
         assertFalse(SignInHosts.needsBrowserUserAgent(null));
     }
 
+    /** Gemini (2026-10-29): only its chat site is its own; Google's other sites open in the browser. */
+    @Test
+    public void geminiOwnsOnlyItsChatSite() throws Exception {
+        assertSame(Providers.GEMINI, Providers.byId("gemini"));
+        assertTrue(Providers.ALL.contains(Providers.GEMINI));
+        assertEquals("gemini.google.com", new URI(Providers.GEMINI.homeUrl).getHost());
+        assertTrue(Providers.GEMINI.ownsHost("gemini.google.com"));
+        for (String host : new String[]{"google.com", "www.google.com", "docs.google.com", "drive.google.com",
+                "accounts.google.com", "myaccount.google.com", "gemini.app.google", "evilgemini.google.com.example"}) {
+            assertFalse(host, Providers.GEMINI.ownsHost(host));
+        }
+        // Google sign-in stays in the app (shared SignInHosts), with Google's page in the account's own container.
+        assertTrue(Providers.GEMINI.loadsInApp("accounts.google.com"));
+        assertFalse(Providers.GEMINI.loadsInApp("www.google.com"));
+        assertFalse(Providers.GEMINI.isDuck());
+    }
+
     @Test
     public void unknownIdFallsBackToDuck() {
         assertSame(Providers.CLAUDE, Providers.byId("claude"));
