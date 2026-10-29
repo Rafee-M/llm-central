@@ -405,6 +405,12 @@
                         <div class="sub">Stops the chat sites' analytics and telemetry. Sign-in and chats are never blocked</div></div>
                     <label class="switch"><input type="checkbox" role="switch" id="block_trackers" aria-labelledby="l_bt"><span class="track"><span class="thumb"></span></span></label>
                 </div>
+                <!-- Cookies of other sites embedded in ChatGPT, Claude, DeepSeek and Z.ai (web/ThirdPartyCookies). Off by default; duck.ai never. -->
+                <div class="row">
+                    <div class="text"><div class="title" id="l_tpc">Allow third-party cookies</div>
+                        <div class="sub">Off: other sites embedded in the chat sites can't use cookies. Turn on if a sign-in or captcha fails</div></div>
+                    <label class="switch"><input type="checkbox" role="switch" id="third_party_cookies" aria-labelledby="l_tpc"><span class="track"><span class="thumb"></span></span></label>
+                </div>
                 <!-- Copy duck.ai's chats to the phone (storage/OfflineChats). Off deletes the copy, so it asks first. -->
                 <div class="row">
                     <div class="text"><div class="title" id="l_oc">Offline chats (duck.ai)</div>
@@ -1179,6 +1185,7 @@
             setMaxLiveTabs(settings.max_live_tabs || 3);
             showOfflineChats(settings.offline_chats === true); // missing = off (2026-10-18)
             document.getElementById('block_trackers').checked = settings.block_trackers !== false; // missing = on
+            document.getElementById('third_party_cookies').checked = settings.third_party_cookies === true; // missing = off
             document.getElementById('pinch_zoom_page').checked = !!settings.pinch_zoom_page;
             // A pinch can leave values between the slider's 10 % steps (e.g. 137): shown as they are.
             showTextZoom(settings.text_zoom || 100);
@@ -1294,6 +1301,10 @@
             // Applies to the next request at once (setBlockTrackers updates web/TrackerBlocking's kept value).
             document.getElementById('block_trackers').addEventListener('change', (e) => {
                 if (S && S.setBlockTrackers) S.setBlockTrackers(e.target.checked);
+            });
+            // Applies to the open tabs at once (setThirdPartyCookies updates every loaded tab's WebView).
+            document.getElementById('third_party_cookies').addEventListener('change', (e) => {
+                if (S && S.setThirdPartyCookies) S.setThirdPartyCookies(e.target.checked);
             });
             // Separate calls (not autoSave): each applies itself to the open tabs right away.
             document.getElementById('pinch_zoom_page').addEventListener('change', (e) => {

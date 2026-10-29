@@ -19,6 +19,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
+import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -157,7 +158,7 @@ public final class PopupWindows {
             popup.destroy();
             return false; // the page's window.open() gets null, as with a pop-up blocker
         }
-        configure(popup);
+        configure(popup, opener);
         PopupSheet sheet = new PopupSheet(context, popup, provider, isUserGesture);
         popup.setWebViewClient(sheet.client);
         popup.setWebChromeClient(sheet.chrome);
@@ -176,7 +177,7 @@ public final class PopupWindows {
 
     // The pop-up shows the provider's own pages, which need JavaScript (like the tab itself).
     @SuppressLint("SetJavaScriptEnabled")
-    private static void configure(WebView popup) {
+    private static void configure(WebView popup, WebView opener) {
         WebSettings s = popup.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -185,8 +186,10 @@ public final class PopupWindows {
         s.setAllowContentAccess(false);
         s.setSaveFormData(false);
         s.setGeolocationEnabled(false);
-        // Same third-party cookie rule as provider tabs (sign-in checks run in embedded frames).
-        Profiles.cookieManager(popup).setAcceptThirdPartyCookies(popup, true);
+        // The same third-party cookie choice as the tab that opened it (Settings → "Allow third-party cookies",
+        // web/ThirdPartyCookies; the tabs are kept up to date, so this copies the current setting).
+        CookieManager cookies = Profiles.cookieManager(popup);
+        cookies.setAcceptThirdPartyCookies(popup, cookies.acceptThirdPartyCookies(opener));
     }
 
     /** One pop-up: its WebView, the sheet it's shown in, and its clients. */

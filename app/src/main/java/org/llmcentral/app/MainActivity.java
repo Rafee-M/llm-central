@@ -66,6 +66,7 @@ import org.llmcentral.app.web.LoadErrors;
 import org.llmcentral.app.web.AppBridge;
 import org.llmcentral.app.web.NavigationPolicy;
 import org.llmcentral.app.web.PageZoom;
+import org.llmcentral.app.web.ThirdPartyCookies;
 import org.llmcentral.app.web.TrackerBlocking;
 import org.llmcentral.app.web.Scripts;
 import org.llmcentral.app.web.TabLru;
@@ -664,6 +665,23 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * Makes every open tab follow "Allow third-party cookies" (web/ThirdPartyCookies): after the switch changes, and on
+     * every return to this screen (the other screen may have changed it). WebView reads the value on each request, so
+     * no reload is needed. New tabs get it in configureWebView, pop-ups copy their tab's value (web/PopupWindows).
+     */
+    private void syncThirdPartyCookies() {
+        if (tabManager == null) {
+            return;
+        }
+        boolean on = ThirdPartyCookies.isOn(this);
+        for (WebView tab : tabManager.liveWebViews()) {
+            Account account = tabManager.accountOf(tab);
+            ProviderSpec provider = account != null ? Providers.byId(account.providerId) : Providers.DUCK;
+            Profiles.cookieManager(tab).setAcceptThirdPartyCookies(tab, ThirdPartyCookies.allowed(provider, on));
+        }
+    }
+
     /** Text size for every open tab (Settings → Appearance → Text size, or the other screen changed it). */
     private void applyTextZoom(int percent) {
         currentZoomLevel = percent;
@@ -866,9 +884,10 @@ public class MainActivity extends Activity {
         // WebView's profile for it instead of the app-wide CookieManager.getInstance().
         CookieManager cookieManager = Profiles.cookieManager(webView);
         cookieManager.setAcceptCookie(true);
-        // duck.ai needs no third-party cookies. Sign-in pages of other providers often use a
-        // security check (e.g. Cloudflare) inside an embedded frame, which needs them.
-        cookieManager.setAcceptThirdPartyCookies(webView, !provider.isDuck());
+        // Cookies of other sites embedded in the page: blocked unless Settings → "Allow third-party cookies" is on
+        // (a sign-in check or captcha in an embedded frame may need them); duck.ai never (web/ThirdPartyCookies).
+        cookieManager.setAcceptThirdPartyCookies(webView,
+                ThirdPartyCookies.allowed(provider, ThirdPartyCookies.isOn(this)));
 
         // Debug builds count every request for the tracker list (debug/RequestLogHooks); in a release build
         // BuildConfig.DEBUG is the constant false, so only "new MyWebViewClient" is compiled in.
@@ -1061,6 +1080,7 @@ public class MainActivity extends Activity {
                         obj.put("offline_chats", OfflineChats.isEnabled(MainActivity.this));
                         obj.put(PageZoom.PREF, PageZoom.isOn(prefs));
                         obj.put(TrackerBlocking.PREF, TrackerBlocking.isEnabled(MainActivity.this));
+                        obj.put(ThirdPartyCookies.PREF, ThirdPartyCookies.isOn(MainActivity.this));
                         obj.put("text_zoom", prefs.getInt("text_zoom", 100));
                     } catch (Exception e) {
                         Log.e(TAG, "Error generating settings JSON", e);
@@ -1083,6 +1103,13 @@ public class MainActivity extends Activity {
                 @JavascriptInterface
                 public void setBlockTrackers(boolean on) {
                     TrackerBlocking.setEnabled(MainActivity.this, on);
+                }
+
+                /** Settings → Data &amp; tools → "Allow third-party cookies" (web/ThirdPartyCookies): open tabs follow at once. */
+                @JavascriptInterface
+                public void setThirdPartyCookies(boolean on) {
+                    ThirdPartyCookies.setOn(MainActivity.this, on);
+                    runOnUiThread(MainActivity.this::syncThirdPartyCookies);
                 }
 
                 /** Settings → Appearance → Text size (50–300 %, the same value the text-size pinch sets). */
@@ -1776,6 +1803,7 @@ public class MainActivity extends Activity {
                 applyTextZoom(textZoom);
             }
             syncPageZoom();
+            syncThirdPartyCookies();
             syncDesktopMode(tabManager.current());
             if (tabManager.current().isDuck()) {
                 duckUsedSinceDump = true;
