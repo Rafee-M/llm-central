@@ -66,6 +66,7 @@ import org.llmcentral.app.web.LoadErrors;
 import org.llmcentral.app.web.AppBridge;
 import org.llmcentral.app.web.NavigationPolicy;
 import org.llmcentral.app.web.PageZoom;
+import org.llmcentral.app.web.SignInUserAgent;
 import org.llmcentral.app.web.ThirdPartyCookies;
 import org.llmcentral.app.web.TrackerBlocking;
 import org.llmcentral.app.web.Scripts;
@@ -2358,6 +2359,13 @@ public class MainActivity extends Activity {
             // inside its tab (exact domain match, see ProviderSpec.loadsInApp / PROJECT.md P14). Everything else
             // opens in the browser.
             if (provider.loadsInApp(host)) {
+                // Google's sign-in page refuses WebViews, so this tab borrows a browser's user agent while it shows
+                // that page and gets its own back when it leaves (web/SignInUserAgent). A switch only applies to the
+                // next load, so the same address starts again (this method never sees POST forms).
+                if (!provider.isDuck() && SignInUserAgent.apply(view, url) != SignInUserAgent.Change.NONE) {
+                    view.loadUrl(url);
+                    return true;
+                }
                 return false;
             }
 
@@ -2395,6 +2403,13 @@ public class MainActivity extends Activity {
             }
             if (isVisibleTab(view)) {
                 progressBar.setVisibility(View.VISIBLE);
+            }
+            // Backstop for loads that didn't pass shouldOverrideUrlLoading (Back/Forward, Reload): Google's sign-in
+            // page must not start with the WebView user agent. Only that switch restarts the load; switching back
+            // doesn't (it could be a sign-in form sent with POST), the next load then has the tab's own again.
+            if (!provider.isDuck() && SignInUserAgent.apply(view, url) == SignInUserAgent.Change.DISGUISE) {
+                view.stopLoading();
+                view.loadUrl(url);
             }
         }
 
