@@ -78,3 +78,7 @@ analytics.google.com
 googletagmanager.com
 doubleclick.net
 www.youtube.com/youtubei/v1/log_event
+# Google's own client telemetry (Gemini, Google's sign-in page; measured 2026-10-29). Path only: Play Store pages stay.
+# Path rules are prefixes, so this would also stop /login…, /logs… requests on play.google.com (none seen; page loads
+# are never blocked, so a sign-in page itself can't be affected).
+play.google.com/log
