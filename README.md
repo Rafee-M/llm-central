@@ -44,6 +44,8 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 - 🛡️ **Block trackers** (on by default; Settings → Data & tools): the chat sites' analytics, telemetry and
   fingerprinting requests get no answer. A small list built from real measurements on each site; sign-in, captchas
   and chats are never blocked.
+- 🍪 **Third-party cookies blocked** (Settings → Data & tools → "Allow third-party cookies", off by default): sites
+  embedded in ChatGPT, Claude, DeepSeek and Z.ai can't use cookies; your logins are unaffected. duck.ai: always blocked.
 - 🧹 **Clear cache** (Settings → Data & tools; logins stay).
 - ⚙️ **Settings button on every provider** in the top bar; a minimal Material 3 settings screen, with an
   **About** page (version, developer, source code link).
