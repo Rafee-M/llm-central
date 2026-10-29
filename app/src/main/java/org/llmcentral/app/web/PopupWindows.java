@@ -55,7 +55,7 @@ import org.llmcentral.app.ui.ProviderBadge;
  *       so the login's cookies land in the right account;</li>
  *   <li>hands it to WebView through the {@code WebViewTransport} "envelope" in the message;</li>
  *   <li>waits for the pop-up's first page. If it belongs to the provider (its own or its login
- *       sites, {@link ProviderSpec#ownsHost}), the pop-up is shown as a full-screen sheet with a
+ *       sites, or the shared Apple/Google sign-in pages: {@link ProviderSpec#loadsInApp}), the pop-up is shown as a full-screen sheet with a
  *       close button. Anything else was just a link that opens a new window: it goes to the
  *       browser (only if the user tapped something) and the pop-up is thrown away unseen.</li>
  * </ol>
@@ -113,7 +113,7 @@ public final class PopupWindows {
         if (scheme.equals("about") || scheme.equals("blob") || scheme.equals("data")) {
             return Decision.LOAD; // blank start page or page-made content: stays in the pop-up
         }
-        if ((scheme.equals("https") || scheme.equals("http")) && provider.ownsHost(host)) {
+        if ((scheme.equals("https") || scheme.equals("http")) && provider.loadsInApp(host)) {
             return Decision.LOAD;
         }
         // Another website (or another kind of link). After a tap, or from a sign-in page the user

@@ -57,11 +57,21 @@ public final class ProviderSpec {
     }
 
     /**
-     * @return true if a page on {@code host} may load inside this provider's tab. Uses the exact
-     *         domain rules from {@link NavigationPolicy#hostMatches} ("evilduck.ai" is not "duck.ai").
+     * @return true if {@code host} is one of this provider's own sites or login pages. Uses the exact
+     *         domain rules from {@link NavigationPolicy#hostMatches} ("evilduck.ai" is not "duck.ai"). Also decides
+     *         the microphone, page scripts and prompt filling, so the shared sign-in hosts are not part of it.
      */
     public boolean ownsHost(String host) {
         return NavigationPolicy.hostMatches(host, inAppDomains);
+    }
+
+    /**
+     * @return true if a page on {@code host} may load inside this provider's tab or pop-up: its own hosts, and for
+     *         every chat provider except duck.ai (which has no sign-in) the shared Apple/Google sign-in pages
+     *         ({@link SignInHosts}).
+     */
+    public boolean loadsInApp(String host) {
+        return ownsHost(host) || (!isDuck() && SignInHosts.isSignInHost(host));
     }
 
     /** A copy of the in-app domain list (for tests and diagnostics). */

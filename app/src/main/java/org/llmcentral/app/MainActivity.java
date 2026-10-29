@@ -2354,9 +2354,10 @@ public class MainActivity extends Activity {
             Uri uri = Uri.parse(url);
             String host = uri.getHost();
             
-            // Only this provider's own sites and login pages load inside its tab (exact domain match,
-            // see ProviderSpec.ownsHost / PROJECT.md P14). Everything else opens in the browser.
-            if (provider.ownsHost(host)) {
+            // Only this provider's own sites and login pages, plus the shared Apple/Google sign-in pages, load
+            // inside its tab (exact domain match, see ProviderSpec.loadsInApp / PROJECT.md P14). Everything else
+            // opens in the browser.
+            if (provider.loadsInApp(host)) {
                 return false;
             }
 

@@ -30,11 +30,22 @@ public class PopupWindowsTest {
     @Test
     public void lookAlikesAndOtherSchemesAreNotTheProvider() {
         assertEquals(Decision.BROWSER, PopupWindows.decide("https://evilclaude.ai/", Providers.CLAUDE, false, true));
-        // Google sign-in is deliberately not an in-app host (Google blocks it in WebViews).
-        assertEquals(Decision.BROWSER, PopupWindows.decide("https://accounts.google.com/o/oauth2", Providers.CHATGPT, false, true));
+        // Google's own other pages (search, Docs) still open in the browser.
+        assertEquals(Decision.BROWSER, PopupWindows.decide("https://www.google.com/search?q=x", Providers.CHATGPT, false, true));
         assertEquals(Decision.BLOCK, PopupWindows.decide("intent://x#Intent;end", Providers.CHATGPT, false, true));
         assertEquals(Decision.BLOCK, PopupWindows.decide("javascript:alert(1)", Providers.CHATGPT, false, true));
         assertEquals(Decision.BLOCK, PopupWindows.decide("not a url", Providers.CHATGPT, false, true));
+    }
+
+    /** Owner, 2026-10-29: Apple's and Google's sign-in pages open in the pop-up (same account container), every chat provider. */
+    @Test
+    public void appleAndGoogleSignInLoadInThePopupForEveryChatProvider() {
+        for (org.llmcentral.app.provider.ProviderSpec p : new org.llmcentral.app.provider.ProviderSpec[]{
+                Providers.CHATGPT, Providers.CLAUDE, Providers.DEEPSEEK, Providers.ZAI}) {
+            assertEquals(Decision.LOAD, PopupWindows.decide("https://accounts.google.com/o/oauth2/v2/auth?x=1", p, false, true));
+            assertEquals(Decision.LOAD, PopupWindows.decide("https://appleid.apple.com/auth/authorize", p, false, false));
+            assertEquals(Decision.BROWSER, PopupWindows.decide("https://accounts.google.com.evil.net/", p, false, true));
+        }
     }
 
     /**

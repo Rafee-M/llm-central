@@ -118,6 +118,10 @@ public class TrackerBlockerTest {
     private static final String[][] NEEDED = {
             {"chatgpt.com", "/backend-api/conversation", null},
             {"chatgpt.com", "/", null},
+            // Shared sign-in pages (provider/SignInHosts, 2026-10-29)
+            {"accounts.google.com", "/o/oauth2/v2/auth", null},
+            {"appleid.apple.com", "/auth/authorize", null},
+            {"idmsa.apple.com", "/appleauth/auth/signin", null},
             {"auth.openai.com", "/api/accounts/authorize", null},
             {"auth-cdn.oaistatic.com", "/assets/app.js", null},
             {"sentinel.openai.com", "/backend-api/sentinel/req", null},
