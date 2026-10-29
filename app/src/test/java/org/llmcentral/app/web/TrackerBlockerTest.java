@@ -112,6 +112,12 @@ public class TrackerBlockerTest {
             {"o1.ingest.sentry.io", "/api/1/envelope/", null},
             {"browser-intake-datadoghq.com", "/api/v2/rum", null},
             {"some-proxy.example", "/rum", "ddsource=browser"},
+            // Gemini, measured 2026-10-29 on gemini.google.com and Google's sign-in page (Chromium, list simulated):
+            // Google's client telemetry (4 per Gemini load, 2 on the sign-in page), and the analytics GTM would load.
+            {"play.google.com", "/log", "format=json&hasfast=true"},
+            {"www.googletagmanager.com", "/gtag/js", "id=G-X"},
+            {"stats.g.doubleclick.net", "/g/collect", "v=2"},
+            {"www.google-analytics.com", "/g/collect", "v=2"},
     };
 
     /** What the sites need (sign-in, captcha, bot checks, pages, API, CDNs), from the same phone log. */
@@ -127,6 +133,7 @@ public class TrackerBlockerTest {
             {"waa-pa.clients6.google.com", "/$rpc/google.internal.waa.v1.Waa/Create", null},
             {"www.google.com", "/js/bg/x.js", null},
             {"lh3.googleusercontent.com", "/a/default-user", null},
+            {"play.google.com", "/store/apps/details", "id=com.google.android.apps.bard"}, // only /log is telemetry
             // Shared sign-in pages (provider/SignInHosts, 2026-10-29)
             {"accounts.google.com", "/o/oauth2/v2/auth", null},
             {"appleid.apple.com", "/auth/authorize", null},
