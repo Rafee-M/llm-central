@@ -51,10 +51,8 @@ public final class SwitcherModel {
     public enum UnloadButton {
         /** The account has no loaded tab: nothing to unload, no button. */
         NONE,
-        /** Shown greyed out and not usable: duck.ai's tab is the pinned "home" tab (assistant, offline chats,
-         *  share target) and is never closed (web/TabManager). No message (owner, 2026-10-16). */
-        DISABLED,
-        /** Tapping it unloads that account's tab, whether it is on screen or not. */
+        /** Tapping it unloads that account's tab, whether it is on screen or not. duck.ai too since 2026-10-27
+         *  (owner; until then its ✕ was greyed out): its page is freed after its offline backup (MainActivity). */
         ENABLED
     }
 
@@ -63,10 +61,7 @@ public final class SwitcherModel {
      * the account is loaded; it lets you unload other accounts while you use a different one.
      */
     public static UnloadButton unloadButton(Account account, boolean loaded) {
-        if (!loaded) {
-            return UnloadButton.NONE;
-        }
-        return account.isDuck() ? UnloadButton.DISABLED : UnloadButton.ENABLED;
+        return loaded ? UnloadButton.ENABLED : UnloadButton.NONE;
     }
 
     /**

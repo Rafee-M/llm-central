@@ -32,7 +32,8 @@ import java.util.Map;
  * exceed that, the least recently used one is closed and simply reloads when opened again
  * (see {@link TabLru}). Hidden tabs are paused and marked "less important", so Android frees their
  * memory first when it runs low. duck.ai is the "home" tab: it's the WebView from the layout, it
- * carries the app's extra features, and it's never closed.</p>
+ * carries the app's extra features, and its WebView is never closed; its <i>page</i> loads only when
+ * duck.ai is needed and can be unloaded with the ✕ (web/DuckLoading, 2026-10-27).</p>
  *
  * <p><b>Unloading:</b> the ✕ on an account's row in the account menu closes that account's tab to free
  * its memory ({@link #unload}). The account on screen stays selected; a placeholder
@@ -70,6 +71,9 @@ public final class TabManager {
     private View placeholder;
     // Shown instead of a page that failed to load (see markLoadFailed, O-M4); may be null.
     private View retryPlaceholder;
+    // duck.ai's WebView exists from the start (it's in the layout), but its page loads only when duck.ai is needed
+    // (web/DuckLoading): until then, and after the ✕ unloads it, duck.ai counts as "not loaded".
+    private boolean duckPageLoaded;
 
     /**
      * @param duckView    the WebView from the layout, already configured; becomes the duck.ai tab
@@ -85,7 +89,8 @@ public final class TabManager {
         this.current = duck;
         liveTabs.put(duck.id, duckView);
         liveAccounts.put(duck.id, duck);
-        lru.touch(duck.id);
+        // Not lru.touch(duck.id) yet: a duck.ai without a page must not take one of the "kept loaded" places.
+        // show() counts it once its page loads.
         lowerPriorityWhenHidden(duckView);
     }
 
@@ -194,20 +199,31 @@ public final class TabManager {
 
     /** @return true if the account on screen has no loaded tab (it was unloaded; the placeholder shows). */
     public boolean isCurrentUnloaded() {
-        return !liveTabs.containsKey(current.id);
+        return !isLoaded(current.id);
     }
 
     /**
      * The account menu's ✕ on an account's row: closes that account's tab (its WebView is destroyed and its
      * memory freed). The account on screen stays selected, so the top bar still names it and the placeholder
      * shows; opening it again (account menu, Reload, or a tap on the placeholder) loads its home page. Any
-     * other account simply has no tab any more and loads again when it's picked. duck.ai's tab is the pinned
-     * home tab and is never unloaded.
+     * other account simply has no tab any more and loads again when it's picked.
      *
-     * @return true if a tab was unloaded; false for duck.ai or an account without a loaded tab
+     * <p><b>duck.ai</b> (since 2026-10-27, owner): only marked as "not loaded" here; its WebView belongs to
+     * MainActivity ({@code chatWebView}), which backs up its chats and then swaps it for a fresh, empty one.</p>
+     *
+     * @return true if a tab was unloaded; false for an account without a loaded tab
      */
     public boolean unload(String accountId) {
-        if (Providers.DUCK_ID.equals(accountId) || !liveTabs.containsKey(accountId)) {
+        if (Providers.DUCK_ID.equals(accountId)) {
+            if (!duckPageLoaded) {
+                return false;
+            }
+            duckPageLoaded = false;
+            lru.remove(accountId);
+            updatePlaceholder(); // shows the placeholder if duck.ai is on screen
+            return true;
+        }
+        if (!liveTabs.containsKey(accountId)) {
             return false;
         }
         closeTab(accountId);
@@ -217,7 +233,20 @@ public final class TabManager {
 
     /** @return true if the account's tab is loaded (showing it won't load a page). */
     public boolean isLoaded(String accountId) {
+        if (Providers.DUCK_ID.equals(accountId)) {
+            return duckPageLoaded; // its WebView always exists; what counts is whether its page was loaded
+        }
         return liveTabs.containsKey(accountId);
+    }
+
+    /**
+     * duck.ai's page came back without a load (MainActivity: {@code restoreState} after Android rebuilt the screen):
+     * it counts as loaded again.
+     */
+    public void markDuckLoaded() {
+        duckPageLoaded = true;
+        lru.touch(Providers.DUCK_ID);
+        updatePlaceholder();
     }
 
     /** @return the account a WebView belongs to, or null if it isn't one of our tabs. */
@@ -249,9 +278,13 @@ public final class TabManager {
      */
     public WebView show(Account account, String startUrl) {
         WebView target = liveTabs.get(account.id);
-        boolean isNew = target == null;
-        if (isNew) {
+        // "New" = its page must be loaded now: a tab that doesn't exist yet, or duck.ai's WebView without a page.
+        boolean isNew = target == null || (account.isDuck() && !duckPageLoaded);
+        if (target == null) {
             target = createTab(account);
+        }
+        if (account.isDuck()) {
+            duckPageLoaded = true; // set before the load below, so callbacks during it already see "loaded"
         }
         liveAccounts.put(account.id, account); // keep the newest name
         if (!account.id.equals(current.id)) {
