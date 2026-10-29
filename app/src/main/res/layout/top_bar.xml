@@ -5,7 +5,9 @@
                                             Desktop site / Reload / Reset text size / Hide status bar /
                                             Clear cache (a ✕ on each loaded account unloads it), then
                                             the "Active accounts" switch
-      right = settings button (gear)       → opens the app's settings
+      right = search button (magnifier)    → find in page: Claude's own search (Ctrl+F sent to the page),
+                                            else the app's find bar at the bottom (ui/FindBar, web/FindInPage)
+              settings button (gear)       → opens the app's settings
     (The desktop-site toggle used to sit here; since 2026-10-15 it is in the account menu.)
     Included by activity_main.xml and activity_chat.xml with <include layout="@layout/top_bar"/>,
     so both screens share exactly the same bar. MainActivity.setupTopBar() connects the buttons and
@@ -48,6 +50,9 @@
             android:layout_height="28dp"
             android:importantForAccessibility="no" />
 
+        <!-- maxWidth 160dp (was 200dp before the search button, 2026-10-29): chip padding 6 + badge 28 + margin 10 +
+             name 160 + arrow ~16 + padding 12, plus the bar's padding 12 and two 48dp buttons = 340dp, so everything
+             fits a 360dp-wide phone. Longer names end in "…" (ellipsize). -->
         <TextView
             android:id="@+id/providerName"
             android:layout_width="wrap_content"
@@ -55,7 +60,7 @@
             android:layout_marginStart="10dp"
             android:ellipsize="end"
             android:importantForAccessibility="no"
-            android:maxWidth="200dp"
+            android:maxWidth="160dp"
             android:singleLine="true"
             android:textColor="@color/on_surface"
             android:textSize="16sp"
@@ -73,11 +78,19 @@
             android:textSize="14sp" />
     </LinearLayout>
 
-    <!-- Empty space that pushes the settings button to the right edge. -->
+    <!-- Empty space that pushes the search and settings buttons to the right edge. -->
     <View
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:layout_weight="1" />
+
+    <ImageButton
+        android:id="@+id/findButton"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/find_in_page"
+        android:src="@drawable/ic_search" />
 
     <ImageButton
         android:id="@+id/settingsButton"

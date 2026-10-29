@@ -60,6 +60,7 @@ import org.llmcentral.app.storage.UploadCopies;
 import org.llmcentral.app.web.DesktopMode;
 import org.llmcentral.app.web.DuckLoading;
 import org.llmcentral.app.web.FileChooserTypes;
+import org.llmcentral.app.web.FindInPage;
 import org.llmcentral.app.web.MicrophoneAccess;
 import org.llmcentral.app.web.DialogWebViewClient;
 import org.llmcentral.app.web.LoadErrors;
@@ -78,6 +79,7 @@ import org.llmcentral.app.provider.PromptPrefill;
 import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
 import org.llmcentral.app.ui.AboutWindow;
+import org.llmcentral.app.ui.FindBar;
 import org.llmcentral.app.ui.ScriptsWindow;
 import org.llmcentral.app.ui.SettingsRestore;
 import org.llmcentral.app.ui.ProviderBadge;
@@ -105,6 +107,8 @@ public class MainActivity extends Activity {
     private WebView chatWebView;
     private float currentZoomLevel = 100f;
     private ProgressBar progressBar;
+    // The app's find-in-page bar (ui/FindBar), created the first time the search button needs it; null until then.
+    private FindBar findBar;
     private ValueCallback<Uri[]> mUploadMessage;
     private final static int FILE_CHOOSER_REQUEST_CODE = 1;
     private final static int CAMERA_REQUEST_CODE = 2;
@@ -267,6 +271,9 @@ public class MainActivity extends Activity {
         }
         NativeTheme.styleTopBar(findViewById(R.id.topBar), scheme);
         NativeTheme.styleProgressBar(progressBar, scheme);
+        if (findBar != null) {
+            findBar.restyle(scheme);
+        }
     }
 
     protected int getLayoutResourceId() {
@@ -464,6 +471,43 @@ public class MainActivity extends Activity {
         if (settings != null) {
             settings.setOnClickListener(v -> openSettings(null));
         }
+        View find = findViewById(R.id.findButton);
+        if (find != null) {
+            find.setOnClickListener(v -> openFindInPage());
+        }
+    }
+
+    /**
+     * The top bar's search button (web/FindInPage). Claude has its own search that opens with Ctrl+F, so the button
+     * sends Ctrl+F to the page, the way the app already sends duck.ai its "new chat" shortcut. If the page doesn't
+     * use the key, Chromium hands it back ({@link MyWebViewClient#onUnhandledKeyEvent}) and the app's bar opens.
+     * Every other provider gets the app's bar at once. An unloaded account has no page to search: nothing happens.
+     */
+    private void openFindInPage() {
+        if (tabManager == null || tabManager.isCurrentUnloaded()) {
+            return;
+        }
+        WebView tab = tabManager.currentWebView();
+        if (tab == null) {
+            return;
+        }
+        if (FindInPage.usesSiteSearch(tabManager.current().providerId)) {
+            tab.requestFocus(); // the key goes to the focused page, as a hardware keyboard's would
+            long now = android.os.SystemClock.uptimeMillis();
+            int meta = KeyEvent.META_CTRL_ON | KeyEvent.META_CTRL_LEFT_ON;
+            tab.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_F, 0, meta));
+            tab.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_F, 0, meta));
+        } else {
+            showFindBar(tab);
+        }
+    }
+
+    /** Opens the app's find bar for this tab, creating it under the tabs the first time. */
+    private void showFindBar(WebView tab) {
+        if (findBar == null) {
+            findBar = new FindBar((ViewGroup) progressBar.getParent(), ThemeManager.scheme(this));
+        }
+        findBar.open(tab);
     }
 
     /**
@@ -567,6 +611,9 @@ public class MainActivity extends Activity {
         @Override
         public void unload(String accountId) {
             boolean onScreen = accountId.equals(tabManager.current().id);
+            if (onScreen && findBar != null) {
+                findBar.close(); // the bar only ever searches the tab on screen, and that one is going
+            }
             if (Providers.DUCK_ID.equals(accountId)) {
                 boolean wasLoaded = tabManager.isLoaded(accountId);
                 unloadDuck();
@@ -715,6 +762,9 @@ public class MainActivity extends Activity {
      * the ✕ unloads duck.ai). The old one is destroyed; the new one takes its place in the layout.
      */
     private void replaceDuckWebView(WebView old) {
+        if (findBar != null) {
+            findBar.closeIfSearching(old);
+        }
         chatWebView = WebViewRecovery.replace(old);
         configureWebView(chatWebView, Providers.DUCK);
         if (accounts != null) {
@@ -764,6 +814,9 @@ public class MainActivity extends Activity {
     /** Called by TabManager after an account's tab became visible (or was renamed). */
     private void onTabShown(Account account) {
         updateTopBar(account);
+        if (findBar != null) {
+            findBar.closeUnlessSearching(tabManager.currentWebView()); // the bar belongs to the tab it searched
+        }
         if (account.isDuck()) {
             duckUsedSinceDump = true;
             duckUnload.cancel(); // picked again while its ✕ waited for the backup: keep the page
@@ -2276,6 +2329,9 @@ public class MainActivity extends Activity {
         @Override
         @androidx.annotation.RequiresApi(Build.VERSION_CODES.O)
         public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+            if (findBar != null) {
+                findBar.closeIfSearching(view); // this WebView is about to be destroyed
+            }
             if (!provider.isDuck()) {
                 // Other providers' tabs are recovered (or closed) by TabManager.
                 if (tabManager != null) {
@@ -2380,6 +2436,21 @@ public class MainActivity extends Activity {
                 Log.e(TAG, "Error opening external link", t);
             }
             return true;
+        }
+
+        /**
+         * Chromium calls this for a key the page did not use (it didn't call preventDefault; Chromium
+         * {@code RenderWidgetHostImpl::OnKeyboardEventAck}). Ctrl+F the page ignored (from a hardware keyboard, or
+         * the search button's Ctrl+F on a site whose own search stopped answering it) opens the app's find bar.
+         */
+        @Override
+        public void onUnhandledKeyEvent(WebView view, KeyEvent event) {
+            if (FindInPage.isFindShortcut(event.getAction(), event.getKeyCode(), event.getMetaState())
+                    && isVisibleTab(view) && tabManager != null && !tabManager.isCurrentUnloaded()) {
+                showFindBar(view);
+                return;
+            }
+            super.onUnhandledKeyEvent(view, event);
         }
 
         @Override
@@ -2804,8 +2875,16 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (FindInPage.isFindShortcut(event.getAction(), keyCode, event.getMetaState())) {
+            openFindInPage(); // Ctrl+F while the focus isn't in the page (keys inside the page: onUnhandledKeyEvent)
+            return true;
+        }
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             if (keyCode == KeyEvent.KEYCODE_BACK) {
+                if (findBar != null && findBar.isOpen()) {
+                    findBar.close(); // Back closes the find bar first, like Chrome's
+                    return true;
+                }
                 WebView current = tabManager != null ? tabManager.currentWebView() : chatWebView;
                 if (current != null && current.canGoBack()) {
                     current.goBack();

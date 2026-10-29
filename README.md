@@ -39,6 +39,9 @@ It is a fork of [duckAssist](https://github.com/diekaiju/duckAssist) by diekaiju
 - 🗂️ **Account menu tools**: Desktop site, 🔄 Reload page, Reset text size, **Hide status bar** and Clear cache as one
   icon row; a **✕ on every loaded account** unloads it (frees memory; duck.ai too, after saving its offline chats; duck.ai also loads only when needed); an **Active accounts** switch
   lists only the loaded accounts.
+- 🔍 **Find in page** (magnifier in the top bar): Claude opens its own search; every other provider gets a one-line
+  find bar at the bottom with the match count ("3/12"), ↑/↓ and all matches highlighted in the theme's accent colour.
+  A hardware keyboard's Ctrl+F works too.
 - 🔁 **Tap to retry**: a page that can't be loaded (e.g. no connection) shows a calm black screen instead of Chromium's
   error page; tap it to try again.
 - 🛡️ **Block trackers** (on by default; Settings → Data & tools): the chat sites' analytics, telemetry and
