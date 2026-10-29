@@ -11,6 +11,11 @@
     <!-- Top bar (provider switcher) -->
     <string name="switch_provider">Switch account</string>
     <string name="open_settings">Settings</string>
+    <!-- Find in page: the top bar's search button and the find bar at the bottom (ui/FindBar). -->
+    <string name="find_in_page">Find in page</string>
+    <string name="find_previous">Previous match</string>
+    <string name="find_next">Next match</string>
+    <string name="find_close">Close find in page</string>
     <string name="dropdown_arrow" translatable="false">▾</string>
     <string name="reload_page">Reload page</string>
     <string name="tab_unloaded">Unloaded. Tap to load</string>

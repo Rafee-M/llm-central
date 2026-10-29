@@ -23,6 +23,8 @@ public final class Scheme {
     public static final String PRIMARY = "primary";
     public static final String ON_PRIMARY = "onPrimary";
     public static final String INVERSE_PRIMARY = "inversePrimary";
+    public static final String PRIMARY_CONTAINER = "primaryContainer";
+    public static final String ON_PRIMARY_CONTAINER = "onPrimaryContainer";
     public static final String SECONDARY_CONTAINER = "secondaryContainer";
     public static final String ON_SECONDARY_CONTAINER = "onSecondaryContainer";
     public static final String SURFACE = "surface";
