@@ -53,6 +53,10 @@ public final class NativeTheme {
         if (settings != null) {
             settings.setImageTintList(ColorStateList.valueOf(scheme.get(Scheme.ON_SURFACE_VARIANT)));
         }
+        ImageView find = topBar.findViewById(R.id.findButton);
+        if (find != null) {
+            find.setImageTintList(ColorStateList.valueOf(scheme.get(Scheme.ON_SURFACE_VARIANT)));
+        }
     }
 
     /**
