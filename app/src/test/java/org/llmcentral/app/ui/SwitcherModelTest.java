@@ -75,6 +75,43 @@ public class SwitcherModelTest {
                 ids(SwitcherModel.rows(Arrays.asList(DUCK, CHATGPT), loaded("duck", "acct_9"), true, "acct_9")));
     }
 
+    // Hidden accounts (owner, 2026-10-30): Settings → Manage accounts can still open them, so the menu lists a hidden
+    // account at the bottom while it is loaded (its ✕ can unload it) or on screen ("Tap to load" stays reachable).
+    private static final Account SECRET = new Account("acct_4", "chatgpt", "Secret", false);
+    private static final Account OLD = new Account("acct_5", "zai", "Old", false);
+    private static final List<Account> WITH_HIDDEN = Arrays.asList(DUCK, SECRET, CHATGPT, OLD, WORK);
+
+    @Test
+    public void hiddenAccountsAreLeftOutWhileNotLoaded() {
+        assertEquals(Arrays.asList("duck", "chatgpt", "acct_2"),
+                ids(SwitcherModel.rows(WITH_HIDDEN, loaded("duck"), false, "duck")));
+    }
+
+    @Test
+    public void loadedHiddenAccountsComeLastInTheirOrder() {
+        // Hidden accounts are listed after every shown one, even if their slot in the saved order is earlier.
+        assertEquals(Arrays.asList("duck", "chatgpt", "acct_2", "acct_4", "acct_5"),
+                ids(SwitcherModel.rows(WITH_HIDDEN, loaded("duck", "acct_5", "acct_4"), false, "duck")));
+    }
+
+    @Test
+    public void hiddenAccountOnScreenStaysAfterItsUnload() {
+        // Unloaded from the menu while on screen: still listed (and its black "Tap to load" screen stays)...
+        assertEquals(Arrays.asList("duck", "chatgpt", "acct_2", "acct_4"),
+                ids(SwitcherModel.rows(WITH_HIDDEN, loaded("duck"), false, "acct_4")));
+        // ...until another account is on screen: then it is gone.
+        assertEquals(Arrays.asList("duck", "chatgpt", "acct_2"),
+                ids(SwitcherModel.rows(WITH_HIDDEN, loaded("duck"), false, "chatgpt")));
+    }
+
+    @Test
+    public void activeOnlyListsLoadedHiddenAccountsToo() {
+        assertEquals(Arrays.asList("duck", "acct_4"),
+                ids(SwitcherModel.rows(WITH_HIDDEN, loaded("duck", "acct_4"), true, "duck")));
+        assertEquals(Arrays.asList("duck", "acct_5"),
+                ids(SwitcherModel.rows(WITH_HIDDEN, loaded("duck"), true, "acct_5")));
+    }
+
     @Test
     public void returnsNewList() {
         assertNotSame(ALL, SwitcherModel.rows(ALL, loaded(), false, "duck"));

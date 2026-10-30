@@ -464,7 +464,7 @@ public class MainActivity extends Activity {
     private void setupTopBar() {
         View chip = findViewById(R.id.providerChip);
         if (chip != null) {
-            chip.setOnClickListener(v -> SwitcherPopup.show(v, accounts.visible(), tabManager.current(),
+            chip.setOnClickListener(v -> SwitcherPopup.show(v, accounts.all(), tabManager.current(),
                     ThemeManager.scheme(this), switcherHost));
         }
         View settings = findViewById(R.id.settingsButton);

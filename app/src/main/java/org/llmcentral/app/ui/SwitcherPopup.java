@@ -99,7 +99,8 @@ public final class SwitcherPopup {
     /**
      * Shows the menu just below {@code anchor} (the chip).
      *
-     * @param accounts the visible accounts, in order
+     * @param accounts every account, in order (hidden ones too: {@link SwitcherModel#rows} lists them only while
+     *                 loaded or on screen)
      * @param current  the account on screen (highlighted, and the one the icon row acts on)
      */
     public static void show(View anchor, List<Account> accounts, Account current, Scheme scheme, Host host) {
@@ -212,7 +213,9 @@ public final class SwitcherPopup {
         };
         showCount[0] = () -> {
             activeSub.setText(host.activeOnly()
-                    ? context.getString(R.string.active_accounts_count, accountsBox.getChildCount(), accounts.size())
+                    // "of N" = what the menu lists with the switch off (shown accounts + active hidden ones).
+                    ? context.getString(R.string.active_accounts_count, accountsBox.getChildCount(),
+                            SwitcherModel.rows(accounts, host::isLoaded, false, current.id).size())
                     : context.getString(R.string.active_accounts_off));
             // Screen readers read the row's description, not the small text: keep both the same, also after a ✕.
             activeRow.setContentDescription(context.getString(R.string.active_accounts) + ", " + activeSub.getText());
