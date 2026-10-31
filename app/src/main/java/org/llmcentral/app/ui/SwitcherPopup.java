@@ -2,6 +2,7 @@ package org.llmcentral.app.ui;
 
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.text.TextUtils;
@@ -38,6 +39,9 @@ import java.util.List;
  *   <li><b>Active accounts</b> switch: lists only the loaded accounts ({@link SwitcherModel#rows}).
  *       Flipping it redraws the list right away; the menu stays open.</li>
  * </ol>
+ *
+ * <p>With the bar at the bottom ({@link BarPosition}) the same menu opens <i>above</i> the chip, and with
+ * "Reverse account order" on, its accounts are listed backwards, the first one lowest (next to the bar).</p>
  *
  * <p>Built with plain Android views ({@link PopupWindow} + {@link LinearLayout}), without any UI library,
  * to keep the app small (decision D1). Colours come from the current theme ({@link Scheme}), so the
@@ -87,6 +91,12 @@ public final class SwitcherPopup {
         boolean activeOnly();
 
         void setActiveOnly(boolean on);
+
+        /** Settings → Appearance → "Top bar at the bottom" ({@link BarPosition}): the menu then opens upwards. */
+        boolean barAtBottom();
+
+        /** Settings → Appearance → "Reverse account order" (only used while the bar is at the bottom). */
+        boolean reversesAccounts();
     }
 
     /** Material 3's "disabled" look: content at 38 % opacity. */
@@ -97,7 +107,8 @@ public final class SwitcherPopup {
     }
 
     /**
-     * Shows the menu just below {@code anchor} (the chip).
+     * Shows the menu just below {@code anchor} (the chip), or just above it while the bar is at the bottom
+     * ({@link Host#barAtBottom}); there the accounts can be listed backwards ({@link SwitcherModel#inMenuOrder}).
      *
      * @param accounts every account, in order (hidden ones too: {@link SwitcherModel#rows} lists them only while
      *                 loaded or on screen)
@@ -122,14 +133,22 @@ public final class SwitcherPopup {
         popup.setElevation(ProviderBadge.dp(context, 6)); // soft shadow
         popup.setOutsideTouchable(true);
 
+        // Read once: the menu keeps its direction and order while it is open.
+        boolean atBottom = host.barAtBottom();
+        boolean reverse = host.reversesAccounts();
+        int gap = ProviderBadge.dp(context, 4); // menu edge ↔ chip, = the bar's edge (chip 40dp in the 48dp bar)
+
         // 1) The accounts, in a list that scrolls once it would take more than half the screen.
         int maxListHeight = context.getResources().getDisplayMetrics().heightPixels / 2;
+        // listCap[0] = the list's current limit: half the screen, or less when the menu opens above the chip and the
+        // room up there is short (placeAbove); an array so the ScrollView below can read the changed value.
+        int[] listCap = {maxListHeight};
         ScrollView scroller = new ScrollView(context) {
             @Override
             protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
                 // At most half the screen, and never more than the menu window allows (e.g. landscape).
-                int limit = MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED ? maxListHeight
-                        : Math.min(maxListHeight, MeasureSpec.getSize(heightMeasureSpec));
+                int limit = MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED ? listCap[0]
+                        : Math.min(listCap[0], MeasureSpec.getSize(heightMeasureSpec));
                 super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(limit, MeasureSpec.AT_MOST));
             }
         };
@@ -142,7 +161,8 @@ public final class SwitcherPopup {
         list.addView(scroller);
         Runnable fillAccounts = () -> {
             accountsBox.removeAllViews(); // never add rows twice (the switch can be flipped many times)
-            for (Account account : SwitcherModel.rows(accounts, host::isLoaded, host.activeOnly(), current.id)) {
+            for (Account account : SwitcherModel.inMenuOrder(
+                    SwitcherModel.rows(accounts, host::isLoaded, host.activeOnly(), current.id), atBottom, reverse)) {
                 accountsBox.addView(createAccountRow(context, scheme, account, account.id.equals(current.id),
                         host.isLoaded(account.id), v -> {
                             popup.dismiss();
@@ -206,10 +226,33 @@ public final class SwitcherPopup {
         toggleParams.setMarginStart(ProviderBadge.dp(context, 12));
         activeRow.addView(toggle, toggleParams);
         M3Switch.describeRowAsSwitch(activeRow, toggle);
+        // Shows the menu, or re-places it after its rows changed (a ✕, the switch).
+        Runnable place = () -> {
+            if (!atBottom) {
+                // Below the chip, as always: the window wraps its content, so it resizes by itself.
+                if (popup.isShowing()) {
+                    popup.update(anchor, 0, gap, -1, -1);
+                } else {
+                    popup.showAsDropDown(anchor, 0, gap, Gravity.START);
+                }
+                return;
+            }
+            // Above the chip. Android only flips a drop-down above its anchor when it knows the menu's height, which a
+            // wrap-content menu never tells it (AOSP PopupWindow.tryFitVertical gets −2 = "wrap"), so the menu is
+            // measured here and placed upwards by its own height: its lower edge ends `gap` above the chip.
+            int height = measureAbove(list, scroller, listCap, maxListHeight, anchor, gap);
+            int yOffset = -(anchor.getHeight() + height + gap);
+            if (popup.isShowing()) {
+                popup.update(anchor, 0, yOffset, -1, height);
+            } else {
+                popup.setHeight(height);
+                popup.showAsDropDown(anchor, 0, yOffset, Gravity.START);
+            }
+        };
         refreshAfterUnload[0] = () -> {
             fillAccounts.run();
             showCount[0].run();
-            popup.update(anchor, 0, ProviderBadge.dp(context, 4), -1, -1);
+            place.run();
         };
         showCount[0] = () -> {
             activeSub.setText(host.activeOnly()
@@ -227,12 +270,44 @@ public final class SwitcherPopup {
             toggle.setChecked(on, true);
             fillAccounts.run();
             showCount[0].run();
-            // The window wraps its content, so it resizes by itself; update() re-places it at the chip.
-            popup.update(anchor, 0, ProviderBadge.dp(context, 4), -1, -1);
+            place.run(); // the list got longer or shorter: re-place the menu at the chip
         });
         list.addView(activeRow);
 
-        popup.showAsDropDown(anchor, 0, ProviderBadge.dp(context, 4), Gravity.START);
+        place.run();
+        if (atBottom && reverse) {
+            // Backwards, the first accounts are the lowest rows: start a long list scrolled to them (next to the bar),
+            // not to the newest accounts at the top. Posted: the rows' heights are known after the first layout.
+            // ScrollView.scrollTo clamps to the list's end by itself.
+            scroller.post(() -> scroller.scrollTo(0, accountsBox.getHeight()));
+        }
+    }
+
+    /**
+     * The bar is at the bottom: measures the menu as it will be drawn and returns its height. It must fit between
+     * the top of the visible screen and the chip; if it doesn't (phone turned sideways, many accounts), the account
+     * list's limit is lowered so the list scrolls sooner and the buttons below it stay on screen.
+     *
+     * @param listCap  the scroll list's limit (changed here), see {@code show}
+     * @param fullCap  the normal limit, half the screen
+     */
+    private static int measureAbove(View menu, View list, int[] listCap, int fullCap, View anchor, int gap) {
+        Rect visible = new Rect();
+        anchor.getWindowVisibleDisplayFrame(visible); // the same frame PopupWindow places drop-downs in
+        int[] chip = new int[2];
+        anchor.getLocationOnScreen(chip);
+        int room = Math.max(0, chip[1] - visible.top - gap);
+        int widthSpec = View.MeasureSpec.makeMeasureSpec(visible.width(), View.MeasureSpec.AT_MOST);
+        int heightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
+        listCap[0] = fullCap; // start from the normal limit each time (rows may have been removed since)
+        menu.measure(widthSpec, heightSpec);
+        int height = menu.getMeasuredHeight();
+        if (height > room) {
+            listCap[0] = Math.max(0, list.getMeasuredHeight() - (height - room));
+            menu.measure(widthSpec, heightSpec);
+            height = Math.min(menu.getMeasuredHeight(), room);
+        }
+        return height;
     }
 
     /**

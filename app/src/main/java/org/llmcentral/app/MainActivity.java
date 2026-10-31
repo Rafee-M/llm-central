@@ -79,6 +79,7 @@ import org.llmcentral.app.provider.PromptPrefill;
 import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
 import org.llmcentral.app.ui.AboutWindow;
+import org.llmcentral.app.ui.BarPosition;
 import org.llmcentral.app.ui.FindBar;
 import org.llmcentral.app.ui.ScriptsWindow;
 import org.llmcentral.app.ui.SettingsRestore;
@@ -270,6 +271,8 @@ public class MainActivity extends Activity {
             ThemeManager.applyStatusBar(this);      // Appearance → "Hide status bar"
         }
         NativeTheme.styleTopBar(findViewById(R.id.topBar), scheme);
+        // Appearance → "Top bar at the bottom", both screens; also runs in onResume, so the other screen follows.
+        BarPosition.apply(findViewById(R.id.topBar), (View) progressBar.getParent(), BarPosition.isBottom(this));
         NativeTheme.styleProgressBar(progressBar, scheme);
         if (findBar != null) {
             findBar.restyle(scheme);
@@ -599,6 +602,16 @@ public class MainActivity extends Activity {
         @Override
         public boolean isStatusBarHidden() {
             return ThemeManager.isStatusBarHidden(MainActivity.this);
+        }
+
+        @Override
+        public boolean barAtBottom() {
+            return BarPosition.isBottom(MainActivity.this);
+        }
+
+        @Override
+        public boolean reversesAccounts() {
+            return BarPosition.reversesAccounts(MainActivity.this);
         }
 
         @Override

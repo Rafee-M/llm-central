@@ -12,6 +12,8 @@
     Included by activity_main.xml and activity_chat.xml with <include layout="@layout/top_bar"/>,
     so both screens share exactly the same bar. MainActivity.setupTopBar() connects the buttons and
     ui/NativeTheme colours it with the current theme (the colours below are only start-up defaults).
+    Settings → Appearance → "Top bar at the bottom" (2026-10-31) moves this same view under the page
+    (ui/BarPosition.apply) and turns the arrow to point up; the account menu then opens above the chip.
 -->
 <!-- tools:ignore="Overdraw": lint checks this file on its own and thinks it's a whole screen. It is
      only a strip inside the screen (included), so its background doesn't paint over the window's. -->

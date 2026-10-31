@@ -1,6 +1,10 @@
 package org.llmcentral.app.ui;
 
 import android.content.Context;
+import android.view.View;
+import android.view.ViewGroup;
+
+import org.llmcentral.app.R;
 
 /**
  * Where the app's bar (layout/top_bar.xml: account chip, search, settings) sits, and the account menu's order
@@ -41,6 +45,38 @@ public final class BarPosition {
 
     public static void setReversesAccounts(Context context, boolean reverse) {
         prefs(context).edit().putBoolean(PREF_REVERSE, reverse).apply();
+    }
+
+    /**
+     * Puts the bar above or below the page and turns the chip's arrow (▾ at the top, pointing up at the bottom).
+     * Both layouts (activity_main, the drawer's activity_chat) hold the bar and the tab container side by side in
+     * one vertical LinearLayout, so moving it is "take the view out, put it back elsewhere": the same view keeps
+     * its size, colours and click handlers. Top = just above the tabs (in the drawer: under the drag handle).
+     * Bottom = the last child, i.e. under the tabs and under the find bar (ui/FindBar sits right after the tabs),
+     * so the find bar stays next to the page. Does nothing when the bar is already where it should be (this runs
+     * at every applyTheme, e.g. each time the screen comes back).
+     *
+     * @param tabs the tab container (the parent of the WebViews and the loading bar)
+     */
+    public static void apply(View bar, View tabs, boolean bottom) {
+        if (bar == null || tabs == null || bar.getParent() != tabs.getParent()) {
+            return;
+        }
+        ViewGroup column = (ViewGroup) bar.getParent();
+        boolean isBelow = column.indexOfChild(bar) > column.indexOfChild(tabs);
+        if (isBelow != bottom) {
+            column.removeView(bar); // keeps its LayoutParams (48dp tall, full width), reused by addView
+            if (bottom) {
+                column.addView(bar);
+            } else {
+                column.addView(bar, column.indexOfChild(tabs));
+            }
+        }
+        // Turned rather than a second character: exactly the same glyph, only pointing the other way.
+        View arrow = bar.findViewById(R.id.providerArrow);
+        if (arrow != null) {
+            arrow.setRotation(bottom ? 180f : 0f);
+        }
     }
 
     private static android.content.SharedPreferences prefs(Context context) {

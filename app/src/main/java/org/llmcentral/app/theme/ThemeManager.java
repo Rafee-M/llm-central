@@ -266,6 +266,36 @@ public final class ThemeManager {
     }
 
     /**
+     * The assistant drawer's sheet keeps its content above the navigation bar and the keyboard (2026-10-31, for the
+     * bar at the bottom; it helps the page's text box at the bottom too).
+     *
+     * <p>Why it's needed: with targetSdk 35, Android 15+ draws every app window "edge-to-edge", the see-through
+     * drawer window included (verified: AOSP {@code PhoneWindow.isEdgeToEdgeEnforced} has no exception for it, and
+     * then sets {@code mDecorFitsSystemWindows = false}). The window then reaches under the navigation bar and the
+     * keyboard no longer shrinks it, so the sheet's lower part was covered. The sheet now gets bottom padding = the
+     * navigation bar, or the keyboard while it is open (the larger of the two, so the bar sits right on the
+     * keyboard, no gap), and side padding in landscape; its background still fills behind the navigation bar.</p>
+     *
+     * <p>Android 11–14 still shrink such a window themselves, so these numbers are 0 there; Android 7–10 don't
+     * need it either (the listener API starts at Android 11, as in {@link #fitContent}). The space is reported as
+     * used ({@code CONSUMED}), as on the main screen, so the WebViews inside don't add it a second time.</p>
+     */
+    public static void fitDrawer(View sheet) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return;
+        }
+        sheet.setOnApplyWindowInsetsListener((view, insets) -> {
+            android.graphics.Insets bars = insets.getInsets(
+                    WindowInsets.Type.navigationBars() | WindowInsets.Type.ime());
+            android.graphics.Insets cutout = insets.getInsets(WindowInsets.Type.displayCutout());
+            // Top stays 0: the sheet never reaches the status bar (it is 92 % of the screen, at the bottom).
+            view.setPadding(Math.max(bars.left, cutout.left), 0, Math.max(bars.right, cutout.right), bars.bottom);
+            return WindowInsets.CONSUMED;
+        });
+        sheet.requestApplyInsets();
+    }
+
+    /**
      * Colours a full-screen activity's window: background = {@code surface}, and the status and
      * navigation bars blend into it (dark icons on light backgrounds and the reverse).
      *
