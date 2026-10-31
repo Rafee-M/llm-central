@@ -13,6 +13,8 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 
+import org.llmcentral.app.ui.BarPosition;
+
 import java.util.Arrays;
 import java.util.List;
 
@@ -257,7 +259,7 @@ public final class ThemeManager {
             android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.ime());
             android.graphics.Insets cutout = insets.getInsets(WindowInsets.Type.displayCutout());
             int[] padding = ContentInsets.padding(insets.isVisible(WindowInsets.Type.statusBars()),
-                    new int[]{bars.left, bars.top, bars.right, bars.bottom},
+                    !BarPosition.isBottom(view.getContext()), new int[]{bars.left, bars.top, bars.right, bars.bottom},
                     new int[]{cutout.left, cutout.top, cutout.right, cutout.bottom});
             view.setPadding(padding[0], padding[1], padding[2], padding[3]);
             return WindowInsets.CONSUMED;

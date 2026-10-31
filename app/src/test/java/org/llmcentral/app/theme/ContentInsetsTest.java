@@ -14,27 +14,35 @@ public class ContentInsetsTest {
     public void statusBarShownKeepsTheOldPadding() {
         // Same as android:fitsSystemWindows: the bigger of bars and cut-out on every side.
         assertArrayEquals(new int[]{0, 32, 0, 48},
-                ContentInsets.padding(true, new int[]{0, 32, 0, 48}, CUTOUT_TOP));
+                ContentInsets.padding(true, true, new int[]{0, 32, 0, 48}, CUTOUT_TOP));
     }
 
     @Test
     public void statusBarHiddenUsesTheStripAtTheTop() {
         // Hidden: the status bar reports 0 at the top, and the cut-out no longer pads it.
         assertArrayEquals(new int[]{0, 0, 0, 48},
-                ContentInsets.padding(false, new int[]{0, 0, 0, 48}, CUTOUT_TOP));
+                ContentInsets.padding(false, true, new int[]{0, 0, 0, 48}, CUTOUT_TOP));
     }
 
     @Test
     public void keyboardStillPushesTheContentUp() {
         // The keyboard (900 px) counts with the bars at the bottom, shown or hidden status bar alike.
         assertArrayEquals(new int[]{0, 0, 0, 900},
-                ContentInsets.padding(false, new int[]{0, 0, 0, 900}, CUTOUT_TOP));
+                ContentInsets.padding(false, true, new int[]{0, 0, 0, 900}, CUTOUT_TOP));
     }
 
     @Test
     public void sideCutoutIsAlwaysAvoidedWhenTurned() {
         // Phone turned: the cut-out is on the left; content keeps clear of it even with the bar hidden.
         assertArrayEquals(new int[]{40, 0, 0, 0},
-                ContentInsets.padding(false, new int[]{0, 0, 0, 0}, new int[]{40, 0, 0, 0}));
+                ContentInsets.padding(false, true, new int[]{0, 0, 0, 0}, new int[]{40, 0, 0, 0}));
+    }
+
+    @Test
+    public void barAtTheBottomKeepsThePageClearOfTheCutout() {
+        // Status bar hidden but the app's bar is at the bottom (2026-10-31): the strip would hold the web page, whose
+        // header must not sit under the punch hole, so the cut-out pads the top as when the status bar is shown.
+        assertArrayEquals(new int[]{0, 32, 0, 48},
+                ContentInsets.padding(false, false, new int[]{0, 0, 0, 48}, CUTOUT_TOP));
     }
 }

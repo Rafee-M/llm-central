@@ -16,6 +16,10 @@ package org.llmcentral.app.theme;
  * always keep clear of the cut-out (it is on a side when the phone is turned), the navigation bar
  * and the keyboard.</p>
  *
+ * <p><b>Bar at the bottom</b> (Settings → Appearance, 2026-10-31): then the web page, not the app's bar, would
+ * move into the freed strip, and a page's header must not sit under the punch hole; so the cut-out pads the
+ * top again (only the cut-out's own height: a phone without one keeps using the whole strip).</p>
+ *
  * <p>Plain Java (numbers in pixels, order left, top, right, bottom), so ContentInsetsTest checks it
  * on the computer.</p>
  */
@@ -27,14 +31,15 @@ public final class ContentInsets {
 
     /**
      * @param statusBarVisible whether the status bar is on screen right now
+     * @param barOnTop         whether the app's bar is the top of the content (false = "Top bar at the bottom")
      * @param bars             space taken by the system bars and the keyboard: left, top, right, bottom
      * @param cutout           space taken by the camera cut-out: left, top, right, bottom
      * @return the padding for the content: left, top, right, bottom
      */
-    public static int[] padding(boolean statusBarVisible, int[] bars, int[] cutout) {
+    public static int[] padding(boolean statusBarVisible, boolean barOnTop, int[] bars, int[] cutout) {
         return new int[]{
                 Math.max(bars[0], cutout[0]),
-                statusBarVisible ? Math.max(bars[1], cutout[1]) : bars[1],
+                statusBarVisible || !barOnTop ? Math.max(bars[1], cutout[1]) : bars[1],
                 Math.max(bars[2], cutout[2]),
                 Math.max(bars[3], cutout[3]),
         };

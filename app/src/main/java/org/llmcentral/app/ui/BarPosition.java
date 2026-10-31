@@ -71,6 +71,8 @@ public final class BarPosition {
             } else {
                 column.addView(bar, column.indexOfChild(tabs));
             }
+            // The main screen's top padding depends on where the bar is (theme/ContentInsets): ask again.
+            column.requestApplyInsets();
         }
         // Turned rather than a second character: exactly the same glyph, only pointing the other way.
         View arrow = bar.findViewById(R.id.providerArrow);
