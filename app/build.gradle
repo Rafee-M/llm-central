@@ -26,7 +26,7 @@ android {
         // New app identity → version numbering restarts (duckAssist was at 251 / 0.4.6).
         // versionCode must increase with every release; versionName is what users see.
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "1.0.0"
         manifestPlaceholders = [appName: "@string/app_name"]
 
         // Only package translations the app actually has (en = default "values/").
