@@ -1179,7 +1179,7 @@ public class MainActivity extends Activity {
                     runOnUiThread(MainActivity.this::syncThirdPartyCookies);
                 }
 
-                /** Settings → Appearance → Text size (50–300 %, the same value the text-size pinch sets). */
+                /** Settings → Appearance → Text size (slider 50–150 % + Reset; 50–300 % accepted, the text-size pinch's range). */
                 @JavascriptInterface
                 public void setTextZoom(int percent) {
                     int value = Math.max(50, Math.min(300, percent));

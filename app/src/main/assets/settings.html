@@ -99,6 +99,9 @@
         .slider-line { display: flex; align-items: center; gap: 12px; }
         .slider-line input[type=range] { flex: 1; height: 48px; margin: 0; accent-color: var(--md-primary); }
         .slider-line .value { min-width: 48px; text-align: right; font-variant-numeric: tabular-nums; color: var(--md-on-surface-variant); }
+        /* Text size's Reset sits at the end of the line, so the slider is shorter (2026-10-31); greyed out at 100 %. */
+        .slider-line .text-btn { flex-shrink: 0; padding: 0 12px; }
+        .text-btn[disabled] { opacity: .38; pointer-events: none; }
 
         /* Touch feedback ("state layer"): a see-through layer in the text colour. */
         .clickable, .icon-btn, .text-btn, .tonal-btn, .tile { cursor: pointer; }
@@ -474,13 +477,16 @@
                         <div class="sub" id="d_rao">Applies when the bar is at the bottom</div></div>
                     <label class="switch"><input type="checkbox" role="switch" id="reverse_accounts" aria-labelledby="l_rao" aria-describedby="d_rao"><span class="track"><span class="thumb"></span></span></label>
                 </div>
-                <!-- Text size of the chat pages (pref text_zoom, the same value the text-size pinch sets). -->
+                <!-- Text size of the chat pages (pref text_zoom, the same value the text-size pinch sets).
+                     Slider 50–150 % so 100 % is in the middle (owner, 2026-10-31); a pinch may still go to 300 %
+                     (MainActivity), then the slider sits at its end and the number shows the real size. -->
                 <div class="row block">
                     <div class="text"><div class="title" id="l_tz">Text size</div>
                         <div class="sub">Text in the chat pages. Set by pinching when "Pinch to zoom" is off.</div></div>
                     <div class="slider-line">
-                        <input type="range" id="text_zoom" min="50" max="300" step="10" value="100" aria-labelledby="l_tz">
+                        <input type="range" id="text_zoom" min="50" max="150" step="10" value="100" aria-labelledby="l_tz">
                         <span class="value" id="text_zoom_value" aria-hidden="true">100 %</span>
+                        <button type="button" class="text-btn" id="text_zoom_reset" aria-label="Reset text size" disabled>Reset</button>
                     </div>
                 </div>
             </div>
@@ -1221,7 +1227,8 @@
             document.getElementById('block_trackers').checked = settings.block_trackers !== false; // missing = on
             document.getElementById('third_party_cookies').checked = settings.third_party_cookies === true; // missing = off
             document.getElementById('pinch_zoom_page').checked = !!settings.pinch_zoom_page;
-            // A pinch can leave values between the slider's 10 % steps (e.g. 137): shown as they are.
+            // A pinch can leave values between the slider's 10 % steps (e.g. 137) or above its 150 % end (up to 300):
+            // shown as they are.
             showTextZoom(settings.text_zoom || 100);
         }
 
@@ -1230,6 +1237,7 @@
             slider.value = String(value);
             document.getElementById('text_zoom_value').textContent = value + ' %';
             slider.setAttribute('aria-valuetext', value + ' percent');
+            document.getElementById('text_zoom_reset').disabled = value === 100; // nothing to reset at 100 %
         }
 
         // "Offline chats (duck.ai)": turning on saves at once; turning off asks first, because the app
@@ -1347,6 +1355,10 @@
             const textZoom = document.getElementById('text_zoom');
             textZoom.addEventListener('input', () => showTextZoom(parseInt(textZoom.value, 10)));
             textZoom.addEventListener('change', () => { if (S && S.setTextZoom) S.setTextZoom(parseInt(textZoom.value, 10)); });
+            document.getElementById('text_zoom_reset').addEventListener('click', () => {
+                showTextZoom(100);
+                if (S && S.setTextZoom) S.setTextZoom(100);
+            });
             document.getElementById('material_you').addEventListener('change', (e) => {
                 if (AP) renderAppearance(parse(AP.setMaterialYou(e.target.checked)));
             });
