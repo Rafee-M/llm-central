@@ -18,7 +18,7 @@ android {
         // applicationId = the app's permanent identity on a phone and in app stores.
         // Android treats a different applicationId as a completely different app, so never
         // change it after the first public release (users would lose their data and updates).
-        applicationId = "org.llmcentral.app"
+        applicationId = "org.rafee_m.llmcentral"
         minSdk = 24
         // targetSdk stays 35 on purpose: raising it changes Android behaviour (back gesture, large screens...)
         // and needs testing on a phone first. Lint's "OldTargetApi" warning about it is expected.
