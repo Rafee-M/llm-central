@@ -49,7 +49,7 @@ public final class ThemeManager {
     static final String PREF_MODE = "theme_mode";
     static final String PREF_PALETTE = "theme_palette";
     static final String PREF_MATERIAL_YOU = "material_you";
-    /** Appearance → "Hide status bar" (frameless): more room for the page. Off by default. */
+    /** "Hide status bar" (frameless; the account menu's icon row): more room for the page. Off by default. */
     static final String PREF_HIDE_STATUS_BAR = "hide_status_bar";
     private static final String PREFS = "duck_assist_prefs";
 
@@ -188,7 +188,7 @@ public final class ThemeManager {
 
     /**
      * Hides or shows the status bar (the strip with the clock and notification icons) of a
-     * full-screen activity, as chosen in Appearance → "Hide status bar". While it's hidden, a swipe
+     * full-screen activity, as chosen with the account menu's "Hide status bar" button. While it's hidden, a swipe
      * down from the top edge shows it for a moment (Android's "transient" bars).
      *
      * <ul>

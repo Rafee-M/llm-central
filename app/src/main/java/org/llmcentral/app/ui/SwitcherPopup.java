@@ -33,7 +33,7 @@ import java.util.List;
  *       it differs, e.g. "Work / ChatGPT"); the current account is highlighted. The list scrolls
  *       when it's long, so the controls below always stay on screen.</li>
  *   <li><b>Icon row</b>: Desktop site and Reload page (for the account on screen), Reset text size (hidden
- *       while "Pinch zooms the page" is on), Hide status bar (the same as Settings → Appearance; not in the
+ *       while "Pinch zooms the page" is on), Hide status bar (its only switch since 2026-10-31; not in the
  *       assistant drawer, which never hides it), Clear cache (the same as in Settings; logins stay).
  *       Unloading is the ✕ on each loaded account's row.</li>
  *   <li><b>Active accounts</b> switch: lists only the loaded accounts ({@link SwitcherModel#rows}).
@@ -78,10 +78,10 @@ public final class SwitcherPopup {
         /** Does this screen show the Hide status bar button? (Not the assistant drawer: it never hides it.) */
         boolean canToggleStatusBar();
 
-        /** Settings → Appearance → "Hide status bar" (pref {@code hide_status_bar}). */
+        /** "Hide status bar" (pref {@code hide_status_bar}; only this menu button sets it since 2026-10-31). */
         boolean isStatusBarHidden();
 
-        /** Flips "Hide status bar" and applies it at once, exactly like the Settings switch. */
+        /** Flips "Hide status bar" and applies it at once. */
         void toggleStatusBar();
 
         /** The same as Settings → Data &amp; tools → Clear cache (storage/StorageBridge.clearAll); logins stay. */

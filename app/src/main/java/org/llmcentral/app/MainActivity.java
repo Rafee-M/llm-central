@@ -268,7 +268,7 @@ public class MainActivity extends Activity {
         Scheme scheme = ThemeManager.scheme(this);
         if (!isDrawerLayout()) {
             ThemeManager.styleWindow(this, scheme); // the drawer's window must stay see-through
-            ThemeManager.applyStatusBar(this);      // Appearance → "Hide status bar"
+            ThemeManager.applyStatusBar(this);      // account menu → "Hide status bar"
         }
         NativeTheme.styleTopBar(findViewById(R.id.topBar), scheme);
         // Appearance → "Top bar at the bottom", both screens; also runs in onResume, so the other screen follows.
@@ -616,7 +616,7 @@ public class MainActivity extends Activity {
 
         @Override
         public void toggleStatusBar() {
-            // The same pref and code as Settings → Appearance → "Hide status bar" (AppearanceBridge).
+            // The only switch for it since 2026-10-31 (its Settings row became "Top bar at the bottom").
             ThemeManager.setStatusBarHidden(MainActivity.this, !ThemeManager.isStatusBarHidden(MainActivity.this));
             ThemeManager.applyStatusBar(MainActivity.this);
         }

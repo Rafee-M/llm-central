@@ -6,10 +6,12 @@ import android.webkit.JavascriptInterface;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.llmcentral.app.ui.BarPosition;
 
 /**
  * What the Settings page's "Appearance" section can ask the app to do (PROJECT.md §4.3–4.4):
- * read and change the Theme mode, the Color palette, the Material You switch and "Hide status bar".
+ * read and change the Theme mode, the Color palette, the Material You switch, "Top bar at the bottom" and
+ * "Reverse account order".
  *
  * <p>Added to the settings WebView as {@code AndroidAppearance} (see AccountsBridge for how
  * JavaScript bridges work). Every setter validates its input in {@link ThemeManager}, applies the
@@ -37,7 +39,7 @@ public final class AppearanceBridge {
 
     /**
      * @return {@code {"mode":"system","materialYou":true,"materialYouAvailable":true,"palette":"duck",
-     *         "css":":root{…}","dynamic":["#…","#…","#…"] or null,
+     *         "barAtBottom":false,"reverseAccounts":true,"css":":root{…}","dynamic":["#…","#…","#…"] or null,
      *         "palettes":[{"id","name","colors":["#primary","#secondaryContainer","#tertiaryContainer"]}]}}
      */
     @JavascriptInterface
@@ -49,7 +51,8 @@ public final class AppearanceBridge {
             root.put("materialYou", ThemeManager.isMaterialYou(context));
             root.put("materialYouAvailable", ThemeManager.isMaterialYouAvailable());
             root.put("palette", ThemeManager.paletteId(context));
-            root.put("hideStatusBar", ThemeManager.isStatusBarHidden(context));
+            root.put("barAtBottom", BarPosition.isBottom(context));
+            root.put("reverseAccounts", BarPosition.reversesAccounts(context));
             root.put("css", ThemeManager.scheme(context).toCss());
             Scheme dynamic = ThemeManager.materialYouPreview(context);
             root.put("dynamic", dynamic == null ? JSONObject.NULL : swatch(dynamic));
@@ -87,10 +90,21 @@ public final class AppearanceBridge {
         return changed();
     }
 
-    /** Appearance → "Hide status bar" (frameless full-screen app). */
+    /**
+     * Appearance → "Top bar at the bottom" ({@link BarPosition}). {@code changed()} → MainActivity.applyTheme(),
+     * which moves the bar at once. (Until 2026-10-31 this row was "Hide status bar"; that switch now lives only in
+     * the account menu's icon row, same setting.)
+     */
     @JavascriptInterface
-    public String setHideStatusBar(boolean hide) {
-        ThemeManager.setStatusBarHidden(context, hide);
+    public String setBarAtBottom(boolean bottom) {
+        BarPosition.setBottom(context, bottom);
+        return changed();
+    }
+
+    /** Appearance → "Reverse account order" (used by the account menu while the bar is at the bottom). */
+    @JavascriptInterface
+    public String setReverseAccounts(boolean reverse) {
+        BarPosition.setReversesAccounts(context, reverse);
         return changed();
     }
 

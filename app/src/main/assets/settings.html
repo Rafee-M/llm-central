@@ -460,12 +460,19 @@
                         <div class="sub" id="materialYouSub">Use colours from your wallpaper</div></div>
                     <label class="switch"><input type="checkbox" role="switch" id="material_you" aria-labelledby="l_my"><span class="track"><span class="thumb"></span></span></label>
                 </div>
-                <!-- Frameless: hides the status bar (clock, notifications) for more room (theme/ThemeManager). -->
+                <!-- The app's bar (account chip, search, settings) above or below the page (ui/BarPosition, 2026-10-31).
+                     "Hide status bar" moved out of Settings then; it stays in the account menu's icon row. -->
                 <div class="row">
-                    <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
-                    <div class="text"><div class="title" id="l_hsb">Hide status bar</div>
-                        <div class="sub">More room for chats. Swipe down from the top edge to see it for a moment.</div></div>
-                    <label class="switch"><input type="checkbox" role="switch" id="hide_status_bar" aria-labelledby="l_hsb"><span class="track"><span class="thumb"></span></span></label>
+                    <svg viewBox="0 0 24 24"><path d="M16 13h-3V3h-2v10H8l4 4 4-4zM4 19v2h16v-2H4z"/></svg>
+                    <div class="text"><div class="title" id="l_bab">Top bar at the bottom</div></div>
+                    <label class="switch"><input type="checkbox" role="switch" id="bar_at_bottom" aria-labelledby="l_bab"><span class="track"><span class="thumb"></span></span></label>
+                </div>
+                <!-- The account menu lists its accounts backwards (first account lowest, next to the bar); on by default. -->
+                <div class="row">
+                    <svg viewBox="0 0 24 24"><path d="M16 17.01V10h-2v7.01h-3L15 21l4-3.99h-3zM9 3 5 6.99h3V14h2V6.99h3L9 3z"/></svg>
+                    <div class="text"><div class="title" id="l_rao">Reverse account order</div>
+                        <div class="sub" id="d_rao">Applies when the bar is at the bottom</div></div>
+                    <label class="switch"><input type="checkbox" role="switch" id="reverse_accounts" aria-labelledby="l_rao" aria-describedby="d_rao"><span class="track"><span class="thumb"></span></span></label>
                 </div>
                 <!-- Text size of the chat pages (pref text_zoom, the same value the text-size pinch sets). -->
                 <div class="row block">
@@ -1097,7 +1104,8 @@
             my.disabled = !appearance.materialYouAvailable;
             document.getElementById('materialYouSub').textContent = appearance.materialYouAvailable
                 ? 'Use colours from your wallpaper' : 'Needs Android 12 or newer';
-            document.getElementById('hide_status_bar').checked = !!appearance.hideStatusBar;
+            document.getElementById('bar_at_bottom').checked = appearance.barAtBottom === true;       // missing = top
+            document.getElementById('reverse_accounts').checked = appearance.reverseAccounts !== false; // missing = on
         }
         function loadAppearance() {
             if (!AP) return;
@@ -1342,8 +1350,12 @@
             document.getElementById('material_you').addEventListener('change', (e) => {
                 if (AP) renderAppearance(parse(AP.setMaterialYou(e.target.checked)));
             });
-            document.getElementById('hide_status_bar').addEventListener('change', (e) => {
-                if (AP && AP.setHideStatusBar) renderAppearance(parse(AP.setHideStatusBar(e.target.checked)));
+            // Each applies at once: the bar moves under/above the page behind Settings (both screens follow).
+            document.getElementById('bar_at_bottom').addEventListener('change', (e) => {
+                if (AP && AP.setBarAtBottom) renderAppearance(parse(AP.setBarAtBottom(e.target.checked)));
+            });
+            document.getElementById('reverse_accounts').addEventListener('change', (e) => {
+                if (AP && AP.setReverseAccounts) renderAppearance(parse(AP.setReverseAccounts(e.target.checked)));
             });
             // The app bar gets a tinted background once the page scrolls under it (Material 3).
             window.addEventListener('scroll', () => {
