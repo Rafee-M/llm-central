@@ -10,7 +10,7 @@ name: Release
 #   copy fails. So: no Gradle signing here, ever.
 #
 # Three ways to run it:
-#   1. Push a tag "v<versionName>" (e.g. v0.1.0)   → real key, creates the GitHub release.
+#   1. Push a tag "v<versionName>" (e.g. v1.0.0)   → real key, creates the GitHub release.
 #      Publishing a release with a new tag on GitHub's Releases page also works (event "release"); if
 #      GitHub fires both events, the runs queue up and the second one re-uploads the same APK.
 #   2. Actions → Release → "Run workflow"           → DRY RUN: builds and signs, publishes nothing.
