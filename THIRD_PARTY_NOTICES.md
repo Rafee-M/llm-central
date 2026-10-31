@@ -2,8 +2,7 @@
 
 LLM Central is free software (see `LICENSE`). It includes the following material from other projects.
 
-(Not third-party, listed so reviewers don't have to ask: the app icon, `artwork/icon.svg` and every icon file made from
-it by `tools/icon`, is the project owner's own artwork, under the same licence as the app.)
+The app icon, `artwork/icon.svg` and every icon file made from it by `tools/icon`, is the project owner's own artwork, under the same licence as the app.
 
 ## Provider logo: duck.ai (DuckDuckGo)
 
