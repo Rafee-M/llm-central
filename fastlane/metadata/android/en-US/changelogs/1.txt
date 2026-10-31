@@ -1,1 +1,6 @@
-First release of LLM Central (fork of duckAssist): duck.ai, ChatGPT, Claude, DeepSeek, Z.ai and Gemini in one app, several isolated accounts per provider, Material You themes, assistant and sharing to the account you choose, prompt pre-fill, downloads and attachments with real file names, desktop site toggle, tracker blocking, clear cache, optional offline duck.ai chats, About page.
+LLM Central 1.0.0: first release
+
+- duck.ai, ChatGPT, Claude, DeepSeek, Z.ai and Gemini in one small app. 
+- Keep several separate accounts per service and switch instantly from the bar, which you can place at the top or bottom.
+- Tracker blocking is on by default, third-party cookies are off, and Google and Apple sign-in work inside the app. 
+- You also get find in page, downloads with real file names, Material You themes, assistant and share support.
