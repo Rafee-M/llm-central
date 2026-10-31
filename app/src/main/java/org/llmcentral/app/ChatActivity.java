@@ -59,6 +59,10 @@ public class ChatActivity extends MainActivity {
         final View bottomDrawerCard = findViewById(R.id.bottomDrawerCard);
         final View drawerHeader = findViewById(R.id.drawerHeader);
         final View dismissArea = findViewById(R.id.dismissArea);
+        if (bottomDrawerCard != null) {
+            // Above the navigation bar and the keyboard on Android 15+ (the bar may be at the sheet's bottom).
+            org.llmcentral.app.theme.ThemeManager.fitDrawer(bottomDrawerCard);
+        }
 
         // Turn off system transition animations since we perform our own
         overridePendingTransition(0, 0);

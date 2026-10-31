@@ -13,6 +13,8 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 
+import org.llmcentral.app.ui.BarPosition;
+
 import java.util.Arrays;
 import java.util.List;
 
@@ -49,7 +51,7 @@ public final class ThemeManager {
     static final String PREF_MODE = "theme_mode";
     static final String PREF_PALETTE = "theme_palette";
     static final String PREF_MATERIAL_YOU = "material_you";
-    /** Appearance → "Hide status bar" (frameless): more room for the page. Off by default. */
+    /** "Hide status bar" (frameless; the account menu's icon row): more room for the page. Off by default. */
     static final String PREF_HIDE_STATUS_BAR = "hide_status_bar";
     private static final String PREFS = "duck_assist_prefs";
 
@@ -188,7 +190,7 @@ public final class ThemeManager {
 
     /**
      * Hides or shows the status bar (the strip with the clock and notification icons) of a
-     * full-screen activity, as chosen in Appearance → "Hide status bar". While it's hidden, a swipe
+     * full-screen activity, as chosen with the account menu's "Hide status bar" button. While it's hidden, a swipe
      * down from the top edge shows it for a moment (Android's "transient" bars).
      *
      * <ul>
@@ -257,12 +259,42 @@ public final class ThemeManager {
             android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.ime());
             android.graphics.Insets cutout = insets.getInsets(WindowInsets.Type.displayCutout());
             int[] padding = ContentInsets.padding(insets.isVisible(WindowInsets.Type.statusBars()),
-                    new int[]{bars.left, bars.top, bars.right, bars.bottom},
+                    !BarPosition.isBottom(view.getContext()), new int[]{bars.left, bars.top, bars.right, bars.bottom},
                     new int[]{cutout.left, cutout.top, cutout.right, cutout.bottom});
             view.setPadding(padding[0], padding[1], padding[2], padding[3]);
             return WindowInsets.CONSUMED;
         });
         root.requestApplyInsets();
+    }
+
+    /**
+     * The assistant drawer's sheet keeps its content above the navigation bar and the keyboard (2026-10-31, for the
+     * bar at the bottom; it helps the page's text box at the bottom too).
+     *
+     * <p>Why it's needed: with targetSdk 35, Android 15+ draws every app window "edge-to-edge", the see-through
+     * drawer window included (verified: AOSP {@code PhoneWindow.isEdgeToEdgeEnforced} has no exception for it, and
+     * then sets {@code mDecorFitsSystemWindows = false}). The window then reaches under the navigation bar and the
+     * keyboard no longer shrinks it, so the sheet's lower part was covered. The sheet now gets bottom padding = the
+     * navigation bar, or the keyboard while it is open (the larger of the two, so the bar sits right on the
+     * keyboard, no gap), and side padding in landscape; its background still fills behind the navigation bar.</p>
+     *
+     * <p>Android 11–14 still shrink such a window themselves, so these numbers are 0 there; Android 7–10 don't
+     * need it either (the listener API starts at Android 11, as in {@link #fitContent}). The space is reported as
+     * used ({@code CONSUMED}), as on the main screen, so the WebViews inside don't add it a second time.</p>
+     */
+    public static void fitDrawer(View sheet) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return;
+        }
+        sheet.setOnApplyWindowInsetsListener((view, insets) -> {
+            android.graphics.Insets bars = insets.getInsets(
+                    WindowInsets.Type.navigationBars() | WindowInsets.Type.ime());
+            android.graphics.Insets cutout = insets.getInsets(WindowInsets.Type.displayCutout());
+            // Top stays 0: the sheet never reaches the status bar (it is 92 % of the screen, at the bottom).
+            view.setPadding(Math.max(bars.left, cutout.left), 0, Math.max(bars.right, cutout.right), bars.bottom);
+            return WindowInsets.CONSUMED;
+        });
+        sheet.requestApplyInsets();
     }
 
     /**

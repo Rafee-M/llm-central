@@ -79,6 +79,7 @@ import org.llmcentral.app.provider.PromptPrefill;
 import org.llmcentral.app.provider.ProviderSpec;
 import org.llmcentral.app.provider.Providers;
 import org.llmcentral.app.ui.AboutWindow;
+import org.llmcentral.app.ui.BarPosition;
 import org.llmcentral.app.ui.FindBar;
 import org.llmcentral.app.ui.ScriptsWindow;
 import org.llmcentral.app.ui.SettingsRestore;
@@ -267,9 +268,11 @@ public class MainActivity extends Activity {
         Scheme scheme = ThemeManager.scheme(this);
         if (!isDrawerLayout()) {
             ThemeManager.styleWindow(this, scheme); // the drawer's window must stay see-through
-            ThemeManager.applyStatusBar(this);      // Appearance → "Hide status bar"
+            ThemeManager.applyStatusBar(this);      // account menu → "Hide status bar"
         }
         NativeTheme.styleTopBar(findViewById(R.id.topBar), scheme);
+        // Appearance → "Top bar at the bottom", both screens; also runs in onResume, so the other screen follows.
+        BarPosition.apply(findViewById(R.id.topBar), (View) progressBar.getParent(), BarPosition.isBottom(this));
         NativeTheme.styleProgressBar(progressBar, scheme);
         if (findBar != null) {
             findBar.restyle(scheme);
@@ -602,8 +605,18 @@ public class MainActivity extends Activity {
         }
 
         @Override
+        public boolean barAtBottom() {
+            return BarPosition.isBottom(MainActivity.this);
+        }
+
+        @Override
+        public boolean reversesAccounts() {
+            return BarPosition.reversesAccounts(MainActivity.this);
+        }
+
+        @Override
         public void toggleStatusBar() {
-            // The same pref and code as Settings → Appearance → "Hide status bar" (AppearanceBridge).
+            // The only switch for it since 2026-10-31 (its Settings row became "Top bar at the bottom").
             ThemeManager.setStatusBarHidden(MainActivity.this, !ThemeManager.isStatusBarHidden(MainActivity.this));
             ThemeManager.applyStatusBar(MainActivity.this);
         }
@@ -1166,7 +1179,7 @@ public class MainActivity extends Activity {
                     runOnUiThread(MainActivity.this::syncThirdPartyCookies);
                 }
 
-                /** Settings → Appearance → Text size (50–300 %, the same value the text-size pinch sets). */
+                /** Settings → Appearance → Text size (slider 50–150 % + Reset; 50–300 % accepted, the text-size pinch's range). */
                 @JavascriptInterface
                 public void setTextZoom(int percent) {
                     int value = Math.max(50, Math.min(300, percent));

@@ -151,4 +151,29 @@ public class SwitcherModelTest {
         assertTrue(SwitcherModel.canResetTextSize(50));
         assertEquals(100, SwitcherModel.DEFAULT_TEXT_ZOOM);
     }
+
+    // ----- "Reverse account order" (Settings → Appearance; applies only while the bar is at the bottom, 2026-10-31)
+
+    @Test
+    public void bottomBarWithReverseOnListsExactlyBackwards() {
+        // Hidden-but-loaded accounts (the bottom of the normal list) end up at the top: the WHOLE list turns around,
+        // so the first account sits lowest, next to the bar.
+        List<Account> rows = SwitcherModel.rows(WITH_HIDDEN, loaded("duck", "acct_5"), false, "duck");
+        assertEquals(Arrays.asList("acct_5", "acct_2", "chatgpt", "duck"),
+                ids(SwitcherModel.inMenuOrder(rows, true, true)));
+        assertEquals("the menu's own list is not changed", Arrays.asList("duck", "chatgpt", "acct_2", "acct_5"),
+                ids(rows));
+    }
+
+    @Test
+    public void reverseIsIgnoredWhileTheBarIsAtTheTop() {
+        assertEquals(Arrays.asList("duck", "chatgpt", "acct_2", "acct_3"),
+                ids(SwitcherModel.inMenuOrder(ALL, false, true)));
+    }
+
+    @Test
+    public void bottomBarWithReverseOffKeepsTheNormalOrder() {
+        assertEquals(Arrays.asList("duck", "chatgpt", "acct_2", "acct_3"),
+                ids(SwitcherModel.inMenuOrder(ALL, true, false)));
+    }
 }

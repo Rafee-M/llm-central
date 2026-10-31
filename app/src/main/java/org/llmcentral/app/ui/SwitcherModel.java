@@ -3,6 +3,7 @@ package org.llmcentral.app.ui;
 import org.llmcentral.app.account.Account;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.Predicate;
 
@@ -55,6 +56,22 @@ public final class SwitcherModel {
         }
         rows.addAll(hidden);
         return rows;
+    }
+
+    /**
+     * The order the menu draws {@link #rows} in. With the bar at the bottom and "Reverse account order" on
+     * ({@link BarPosition}), it is exactly backwards: the menu then opens upwards from the bar, so the first
+     * account is the lowest row, nearest the bar, and the newest (and hidden-but-loaded) accounts are at the top.
+     *
+     * @return {@code rows} itself when nothing turns around, else a new reversed list ({@code rows} is never changed)
+     */
+    public static List<Account> inMenuOrder(List<Account> rows, boolean barAtBottom, boolean reverse) {
+        if (!(barAtBottom && reverse)) {
+            return rows;
+        }
+        List<Account> reversed = new ArrayList<>(rows);
+        Collections.reverse(reversed);
+        return reversed;
     }
 
     /** The ✕ (unload) at the end of an account's row in the menu. */
