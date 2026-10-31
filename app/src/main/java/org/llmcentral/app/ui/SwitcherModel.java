@@ -27,23 +27,33 @@ public final class SwitcherModel {
     }
 
     /**
-     * @param visible    the accounts the menu may show, in the user's order (hidden accounts already removed)
+     * @param accounts   every account, in the user's order (shown and hidden ones; {@code AccountStore.all()})
      * @param isLoaded   answers "does this account id have a loaded tab?"
      * @param activeOnly the menu's "Active accounts" switch
      * @param currentId  the account on screen
-     * @return a new list in the order of {@code visible}: every account when {@code activeOnly} is off;
-     *         otherwise only loaded accounts, plus the account on screen even if it isn't loaded (e.g. it
-     *         was just unloaded), so the menu always shows where you are. Never adds an account that
-     *         isn't in {@code visible}, and never lists one twice.
+     * @return a new list: first the shown accounts in the user's order (every one when {@code activeOnly} is off;
+     *         otherwise only loaded ones plus the account on screen, even if it isn't loaded, e.g. it was just
+     *         unloaded, so the menu always shows where you are); then, at the bottom, the <b>hidden</b> accounts
+     *         that are loaded or on screen (owner, 2026-10-30). Settings → Manage accounts can open a hidden
+     *         account, so it must be reachable here while it uses memory: its ✕ unloads it. Unloaded while on
+     *         screen, it stays listed (its "Tap to load" screen too) until another account comes on screen.
+     *         Never adds an account that isn't in {@code accounts}, and never lists one twice.
      */
-    public static List<Account> rows(List<Account> visible, Predicate<String> isLoaded, boolean activeOnly,
+    public static List<Account> rows(List<Account> accounts, Predicate<String> isLoaded, boolean activeOnly,
                                      String currentId) {
-        List<Account> rows = new ArrayList<>(visible.size());
-        for (Account account : visible) {
-            if (!activeOnly || account.id.equals(currentId) || isLoaded.test(account.id)) {
+        List<Account> rows = new ArrayList<>(accounts.size());
+        List<Account> hidden = new ArrayList<>();
+        for (Account account : accounts) {
+            boolean active = account.id.equals(currentId) || isLoaded.test(account.id);
+            if (!account.visible) {
+                if (active) {
+                    hidden.add(account);
+                }
+            } else if (!activeOnly || active) {
                 rows.add(account);
             }
         }
+        rows.addAll(hidden);
         return rows;
     }
 
