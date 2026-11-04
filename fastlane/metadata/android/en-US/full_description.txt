@@ -2,7 +2,7 @@ LLM Central puts multiple AI chat websites in one small app: duck.ai, ChatGPT, C
 
 <b>Features</b>
 <ul>
-<li><b>Several accounts per provider</b>, each in its own container with separate logins, cookies and site data. Rename, hide, re-order, sign out or remove them in Settings.</li>
+<li><b>Several accounts per provider</b>, each in its own container with separate logins, cookies and site data. Configure them to your liking in Settings.</li>
 <li><b>Instant switching</b>: up to 10 accounts stay loaded (configurable); others reload when opened.</li>
 <li><b>Block trackers</b>: the chat sites' own analytics, telemetry and fingerprinting requests are stopped inside the app.</li>
 <li><b>Material You Design</b>: Express yourself with system themes, colour palettes or your wallpaper colours (Android 12+).</li>
