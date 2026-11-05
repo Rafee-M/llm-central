@@ -3,7 +3,10 @@
   "private": true,
   "description": "Development-time tool: writes the README's Material 3 badges (artwork/readme/*.svg, light + dark) in the app's colours. Not part of the app.",
   "type": "module",
-  "scripts": { "generate": "node generate.mjs" },
+  "scripts": {
+    "generate": "node generate.mjs",
+    "generate:downloads": "node generate-downloads.mjs"
+  },
   "dependencies": {
     "@fontsource/google-sans": "5.3.2",
     "@material/material-color-utilities": "0.3.0",
